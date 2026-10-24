@@ -19,7 +19,7 @@ Login admin dibuat oleh `AdminUserSeeder` jika `ADMIN_EMAIL` dan `ADMIN_PASSWORD
 
 ## CI, GHCR, dan Dokploy
 
-Workflow `.github/workflows/ci-publish.yml` menjalankan suite Laravel, memeriksa migrasi pada MySQL 8.4, membangun aset web, lalu menerbitkan image `ghcr.io/kkstech/kpsm-deresort-absensi` pada push ke `main` dan tag `v*`. Pull request hanya menjalankan verifikasi.
+Workflow `.github/workflows/ci-publish.yml` menjalankan suite Laravel dengan PHP 8.4, memeriksa migrasi pada MySQL 8.4, membangun aset web, lalu menerbitkan image `ghcr.io/kkstech/kpsm-deresort-absensi` pada push ke `main` dan tag `v*`. Pull request hanya menjalankan verifikasi.
 
 Untuk menjalankan image sebagai **Dokploy Application** (source Docker, bukan Docker Compose):
 

@@ -8,7 +8,7 @@ Tanggal: 24 Oktober 2026.
 
 ## Perubahan terbaru — Docker, GitHub Actions, GHCR, dan Dokploy
 
-- Menambahkan Dockerfile multi-stage untuk Laravel/Apache, aset Vite, PHP MySQL, health check, persistent storage support, dan Laravel scheduler dalam satu container aplikasi.
+- Menambahkan Dockerfile multi-stage PHP 8.4/Apache untuk Laravel, aset Vite, MySQL, health check, persistent storage support, dan scheduler dalam satu container aplikasi.
 - GitHub Actions menjalankan test suite, memeriksa migration MySQL 8.4, membangun frontend, lalu menerbitkan image ke GHCR untuk branch `main` dan tag `v*`; deploy Dokploy dapat diaktifkan dengan repository secret/variables.
 - README mencatat konfigurasi Dokploy Application non-Compose, MySQL eksternal, environment production, migration, akun admin, dan persistent volume. SQLite database lokal dan file runtime dikecualikan dari Git.
 - Tes akses admin disesuaikan untuk memverifikasi penolakan role karyawan; role Admin memang memiliki akses web admin.

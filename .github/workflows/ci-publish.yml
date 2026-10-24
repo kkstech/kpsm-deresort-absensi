@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: bcmath, dom, exif, gd, intl, mbstring, pcntl, pdo_mysql, pdo_sqlite, xml, xmlreader, xmlwriter, zip
           coverage: none
       - name: Prepare Laravel environment

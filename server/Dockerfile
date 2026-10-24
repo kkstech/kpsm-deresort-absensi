@@ -7,7 +7,7 @@ COPY vite.config.js ./
 COPY public/fonts ./public/fonts
 RUN npm run build
 
-FROM php:8.3-apache AS php-base
+FROM php:8.4-apache AS php-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libfreetype6-dev libicu-dev libjpeg62-turbo-dev libonig-dev libpng-dev libxml2-dev libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
