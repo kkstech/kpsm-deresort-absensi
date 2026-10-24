@@ -1,0 +1,43 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->text('two_factor_secret')->nullable();
+            $table->text('two_factor_recovery_codes')->nullable();
+            $table->dateTime('two_factor_confirmed_at')->nullable();
+        });
+
+        Schema::create('device_registrations', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->string('device_uuid', 64);
+            $table->string('name')->nullable();
+            $table->dateTime('last_seen_at')->nullable();
+            $table->dateTime('revoked_at')->nullable();
+            $table->timestamps();
+            $table->unique(['user_id', 'device_uuid']);
+        });
+
+        Schema::table('audit_logs', function (Blueprint $table) {
+            $table->string('request_id', 64)->nullable();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('audit_logs', function (Blueprint $table) {
+            $table->dropColumn('request_id');
+        });
+        Schema::dropIfExists('device_registrations');
+        Schema::table('users', function (Blueprint $table) {
+            $table->dropColumn(['two_factor_secret', 'two_factor_recovery_codes', 'two_factor_confirmed_at']);
+        });
+    }
+};

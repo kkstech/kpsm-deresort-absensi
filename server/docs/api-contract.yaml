@@ -1,0 +1,710 @@
+openapi: 3.1.0
+info:
+  title: Deresort Attendance API
+  version: 1.0.0
+  description: |
+    Contract for the mobile schedule and attendance endpoints implemented through stage 4.
+    All timestamps are ISO 8601 instants; server timestamps are returned in UTC.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      security: []
+      summary: Register a device and issue its bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, device_uuid]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                device_uuid:
+                  type: string
+                  maxLength: 64
+                device_name:
+                  type: string
+                  maxLength: 100
+      responses:
+        '200':
+          description: Registered device token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /auth/logout:
+    post:
+      summary: Revoke the current device token
+      responses:
+        '200':
+          description: Current token revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Error'
+  /me:
+    get:
+      summary: Get the signed-in user profile
+      responses:
+        '200':
+          description: Authenticated employee profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Error'
+  /me/schedule:
+    get:
+      summary: List the signed-in employee's published schedules
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Schedules and their current attendance projection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Assignment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /attendance/events:
+    post:
+      summary: Record one online or offline attendance event
+      description: |
+        `device_id` must match the registered device bound to the bearer token.
+        Online events use server time. Offline events require `device_at` and are
+        always returned as `REVIEW_REQUIRED` until an authorized review exists.
+        If location checking is disabled for the session, submitted coordinates are discarded.
+        An offline checkout received before its check-in stays in review; if its timestamp
+        is later than a subsequently received check-in and remains within allowed limits,
+        the server pairs it into the record while keeping verified minutes at zero.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceEventInput'
+      responses:
+        '201':
+          description: Event recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AttendanceEventResult'
+        '200':
+          description: Identical event was already recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AttendanceEventResult'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /attendance/sync:
+    post:
+      summary: Submit an offline event batch
+      description: |
+        Each event is validated and processed independently. A rejected or invalid
+        event does not cancel the other events. When every event has `local_sequence`,
+        the server processes them in sequence order. Otherwise, when every event has
+        `device_at`, it processes them in timestamp order. Clients should ACK each
+        `event_uuid` independently and retry only network or server failures.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_uuid, events]
+              properties:
+                batch_uuid:
+                  type: string
+                  format: uuid
+                events:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    $ref: '#/components/schemas/AttendanceEventInput'
+      responses:
+        '200':
+          description: Per-event acknowledgements, including partial failures
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [batch_uuid, results, server_time]
+                properties:
+                  batch_uuid:
+                    type: string
+                    format: uuid
+                  results:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/AttendanceEventResult'
+                        - $ref: '#/components/schemas/EventError'
+                  server_time:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /attendance/me:
+    get:
+      summary: List the signed-in employee's attendance history
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: Schedules, projected records, and immutable event history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Assignment'
+        '401':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /late-permissions:
+    get:
+      summary: List the signed-in employee's late permission requests
+      responses:
+        '200':
+          description: Up to 100 newest requests with attachment metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LatePermission'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Request permission for a late arrival
+      description: The session policy snapshot may require an evidence file. A permission never changes raw attendance timestamps.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LatePermissionInput'
+      responses:
+        '201':
+          description: Request saved as pending
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LatePermission'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /late-permissions/{permission}/cancel:
+    post:
+      summary: Cancel the signed-in employee's pending request
+      parameters:
+        - name: permission
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Request cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/LatePermission'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /attendance-corrections:
+    get:
+      summary: List the signed-in employee's attendance correction requests
+      responses:
+        '200':
+          description: Up to 100 newest requests with attachment metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AttendanceCorrection'
+        '401':
+          $ref: '#/components/responses/Error'
+    post:
+      summary: Request a correction to the attendance projection
+      description: The raw attendance events remain unchanged. The session policy snapshot may require an evidence file.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AttendanceCorrectionInput'
+      responses:
+        '201':
+          description: Request saved as pending
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AttendanceCorrection'
+        '401':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /attendance-corrections/{correction}/cancel:
+    post:
+      summary: Cancel the signed-in employee's pending correction request
+      parameters:
+        - name: correction
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Request cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AttendanceCorrection'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /attendance/attachments/{attachment}:
+    get:
+      summary: Download evidence belonging to the signed-in employee
+      parameters:
+        - name: attachment
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Original attachment bytes
+          content:
+            application/octet-stream: {}
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum token
+  parameters:
+    From:
+      name: from
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+    To:
+      name: to
+      in: query
+      required: true
+      schema:
+        type: string
+        format: date
+      description: Must be on or after `from`; inclusive range is limited to 63 calendar dates.
+  responses:
+    Error:
+      description: Standard API error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+        employee:
+          oneOf:
+            - type: object
+              properties:
+                id:
+                  type: integer
+                code:
+                  type: string
+                name:
+                  type: string
+                department:
+                  type: [string, 'null']
+                position:
+                  type: [string, 'null']
+            - type: 'null'
+    AttendanceEventInput:
+      type: object
+      required: [event_uuid, shift_session_id, event_type, device_id]
+      properties:
+        event_uuid:
+          type: string
+          format: uuid
+        shift_session_id:
+          type: integer
+        event_type:
+          type: string
+          enum: [CHECK_IN, CHECK_OUT]
+        device_id:
+          type: string
+          description: UUID of the device registered to the current bearer token.
+        device_at:
+          type: string
+          format: date-time
+          description: Required when `captured_offline` is true.
+        device_timezone:
+          type: string
+          maxLength: 64
+        captured_offline:
+          type: boolean
+          default: false
+        local_sequence:
+          type: integer
+          minimum: 0
+        location:
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [latitude, longitude]
+              properties:
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+                accuracy_meters:
+                  type: number
+                  minimum: 0
+    AttendanceEventResult:
+      type: object
+      required: [event_uuid, status, effective_at, server_received_at, attendance_record_status]
+      properties:
+        event_uuid:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ACCEPTED, REVIEW_REQUIRED, REJECTED, DUPLICATE]
+        original_status:
+          type: string
+        reason_code:
+          type: [string, 'null']
+        effective_at:
+          type: string
+          format: date-time
+        server_received_at:
+          type: string
+          format: date-time
+        attendance_record_status:
+          type: string
+        record:
+          oneOf:
+            - $ref: '#/components/schemas/AttendanceRecord'
+            - type: 'null'
+    AttendanceRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        shift_session_id:
+          type: integer
+        status:
+          type: string
+        needs_review:
+          type: boolean
+        review_reason:
+          type: [string, 'null']
+        check_in_at:
+          type: [string, 'null']
+          format: date-time
+        check_out_at:
+          type: [string, 'null']
+          format: date-time
+        provisional_out_at:
+          type: [string, 'null']
+          format: date-time
+        raw_late_minutes:
+          type: integer
+        is_late:
+          type: boolean
+        verified_minutes:
+          type: integer
+        late_permission_id:
+          type: [integer, 'null']
+        late_permission_status:
+          type: [string, 'null']
+    LatePermissionInput:
+      type: object
+      required: [shift_session_id, reason]
+      properties:
+        shift_session_id:
+          type: integer
+        allowed_until:
+          type: string
+          format: date-time
+          description: Mutually exclusive with `allowed_minutes`.
+        allowed_minutes:
+          type: integer
+          minimum: 0
+          maximum: 1440
+          description: Mutually exclusive with `allowed_until`.
+        reason:
+          type: string
+          maxLength: 2000
+        evidence:
+          type: string
+          format: binary
+          description: JPG, PNG, or PDF, at most 10 MiB; required when the session policy snapshot says so.
+    LatePermission:
+      type: object
+      properties:
+        id:
+          type: integer
+        shift_session_id:
+          type: integer
+        work_date:
+          type: string
+          format: date
+        allowed_until:
+          type: [string, 'null']
+          format: date-time
+        allowed_minutes:
+          type: [integer, 'null']
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, CANCELLED]
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceAttachment'
+    AttendanceCorrectionInput:
+      type: object
+      required: [shift_session_id, reason]
+      properties:
+        shift_session_id:
+          type: integer
+        requested_check_in_at:
+          type: string
+          format: date-time
+        requested_check_out_at:
+          type: string
+          format: date-time
+          description: At least one proposed timestamp is required.
+        reason:
+          type: string
+          maxLength: 2000
+        evidence:
+          type: string
+          format: binary
+          description: JPG, PNG, or PDF, at most 10 MiB; required when the session policy snapshot says so.
+    AttendanceCorrection:
+      type: object
+      properties:
+        id:
+          type: integer
+        shift_session_id:
+          type: integer
+        work_date:
+          type: string
+          format: date
+        requested_check_in_at:
+          type: [string, 'null']
+          format: date-time
+        requested_check_out_at:
+          type: [string, 'null']
+          format: date-time
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, CANCELLED]
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttendanceAttachment'
+    AttendanceAttachment:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+    EventError:
+      type: object
+      required: [status, reason_code]
+      properties:
+        event_uuid:
+          type: [string, 'null']
+        status:
+          const: REJECTED
+        reason_code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+    Assignment:
+      type: object
+      properties:
+        id:
+          type: integer
+        work_date:
+          type: string
+          format: date
+        template_name:
+          type: string
+        template_type:
+          type: string
+        status:
+          type: string
+        sessions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              seq:
+                type: integer
+              start_at:
+                type: string
+                format: date-time
+              end_at:
+                type: string
+                format: date-time
+              attendance:
+                oneOf:
+                  - $ref: '#/components/schemas/AttendanceRecord'
+                  - type: 'null'
+              events:
+                type: array
+                items:
+                  type: object
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+        request_id:
+          type: string

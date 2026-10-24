@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Deresort Attendance",
+    "slug": "deresort-attendance",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "plugins": ["./plugins/with-plus-jakarta-fonts.cjs"],
+    "android": { "package": "id.deresort.attendance" },
+    "ios": { "bundleIdentifier": "id.deresort.attendance" }
+  }
+}
