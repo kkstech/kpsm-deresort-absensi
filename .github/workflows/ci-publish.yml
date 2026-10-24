@@ -48,12 +48,6 @@ jobs:
       - name: Generate test key
         working-directory: server
         run: php artisan key:generate --force
-      - name: Run test suite
-        working-directory: server
-        run: php artisan test
-      - name: Verify MySQL migrations
-        working-directory: server
-        run: php artisan migrate --database=mysql --force
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -62,6 +56,12 @@ jobs:
       - name: Build frontend
         working-directory: server
         run: npm ci && npm run build
+      - name: Run test suite
+        working-directory: server
+        run: php artisan test
+      - name: Verify MySQL migrations
+        working-directory: server
+        run: php artisan migrate --database=mysql --force
 
   publish:
     needs: verify
