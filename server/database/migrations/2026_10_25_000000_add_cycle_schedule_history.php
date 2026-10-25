@@ -15,8 +15,8 @@ return new class extends Migration
         Schema::table('shift_sessions', function (Blueprint $table) {
             $table->unsignedInteger('schedule_revision')->default(1);
             $table->timestamp('retired_at')->nullable();
-            $table->dropUnique('shift_sessions_shift_assignment_id_seq_unique');
             $table->unique(['shift_assignment_id', 'schedule_revision', 'seq'], 'shift_sessions_revision_seq_unique');
+            $table->dropUnique('shift_sessions_shift_assignment_id_seq_unique');
             $table->index(['shift_assignment_id', 'retired_at']);
         });
 
