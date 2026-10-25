@@ -6,7 +6,10 @@
     "orientation": "default",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": ["**/*"],
-    "plugins": ["./plugins/with-plus-jakarta-fonts.cjs"],
+    "plugins": [
+      "./plugins/with-plus-jakarta-fonts.cjs",
+      ["expo-location", { "locationWhenInUsePermission": "Lokasi dipakai untuk memvalidasi absensi pada sesi yang mewajibkannya." }]
+    ],
     "android": { "package": "id.deresort.attendance" },
     "ios": { "bundleIdentifier": "id.deresort.attendance" }
   }

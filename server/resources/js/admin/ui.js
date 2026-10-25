@@ -68,8 +68,12 @@ function fieldHtml(f, value) {
 }
 
 function sessionRow(s = {}) {
+    const startOffset = Number(s.start_day_offset ?? 0);
+    const endOffset = Number(s.day_offset ?? (startOffset + (String(s.local_end ?? '') <= String(s.local_start ?? '') ? 1 : 0)));
     return `<div class="session-row">
+        <label>Hari mulai<select data-s="start_day_offset"><option value="0"${startOffset === 0 ? ' selected' : ''}>Tanggal kerja</option><option value="1"${startOffset === 1 ? ' selected' : ''}>Hari berikutnya</option></select></label>
         <label>Mulai<input type="time" data-s="local_start" value="${esc(String(s.local_start ?? '').slice(0, 5))}" required></label>
+        <label>Hari selesai<select data-s="day_offset"><option value="0"${endOffset === 0 ? ' selected' : ''}>Tanggal kerja</option><option value="1"${endOffset === 1 ? ' selected' : ''}>Hari berikutnya</option><option value="2"${endOffset === 2 ? ' selected' : ''}>2 hari berikutnya</option></select></label>
         <label>Selesai<input type="time" data-s="local_end" value="${esc(String(s.local_end ?? '').slice(0, 5))}" required></label>
         <label>Istirahat (menit)<input type="number" data-s="unpaid_break_minutes" min="0" max="240" value="${esc(s.unpaid_break_minutes ?? 0)}"></label>
         <button type="button" class="icon-button" data-remove-session aria-label="Hapus sesi">×</button>
@@ -92,7 +96,7 @@ function collect() {
         const wrap = $(`[data-field="${f.name}"]`, fieldsBox);
         if (!wrap || (wrap.hidden && f.showIf)) return;
         if (f.type === 'sessions') {
-            out[f.name] = $$('.session-row', wrap).map((row) => Object.fromEntries($$('[data-s]', row).map((i) => [i.dataset.s, i.type === 'number' ? Number(i.value || 0) : i.value])));
+            out[f.name] = $$('.session-row', wrap).map((row) => Object.fromEntries($$('[data-s]', row).map((i) => [i.dataset.s, i.type === 'number' || ['start_day_offset', 'day_offset'].includes(i.dataset.s) ? Number(i.value || 0) : i.value])));
             return;
         }
         const input = $(`[name="${f.name}"]`, wrap);
@@ -151,8 +155,8 @@ $('#form-modal-form').addEventListener('submit', async (event) => {
     const submit = $('#form-modal-submit');
     submit.disabled = true;
     try {
-        await current.onSubmit(collect());
-        modal.close();
+        const result = await current.onSubmit(collect());
+        if (result !== false) modal.close();
     } catch (error) {
         showErrors(error);
     } finally {

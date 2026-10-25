@@ -62,6 +62,9 @@ jobs:
       - name: Verify MySQL migrations
         working-directory: server
         run: php artisan migrate --database=mysql --force
+      - name: Typecheck employee app
+        working-directory: mobile
+        run: npm ci && npm run typecheck
 
   publish:
     needs: verify

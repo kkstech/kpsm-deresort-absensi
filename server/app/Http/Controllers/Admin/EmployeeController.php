@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
+use App\Models\EmploymentTerm;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\WorkTime;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +29,7 @@ class EmployeeController extends Controller
 
         $employees = self::visibleTo($request->user())
             ->with(['department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,is_active'])
+            ->with(['level:id,code,name', 'employmentTerms'])
             ->withCount(['devices' => fn (Builder $q) => $q->whereNull('revoked_at')])
             ->when($filters['q'] ?? null, fn (Builder $q, $term) => $q->where(fn (Builder $w) => $w
                 ->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")))
@@ -34,6 +37,19 @@ class EmployeeController extends Controller
             ->when($filters['status'] ?? null, fn (Builder $q, $status) => $q->where('status', $status))
             ->orderBy('name')
             ->get();
+
+        $today = WorkTime::today();
+        $employees->each(function (Employee $employee) use ($today) {
+            $term = $employee->employmentTerms->filter(fn (EmploymentTerm $term) => $term->starts_on->format('Y-m-d') <= $today)->sortByDesc('starts_on')->first();
+            $employee->setAttribute('employment', $term ? [
+                'type' => $term->type,
+                'starts_on' => $term->starts_on->format('Y-m-d'),
+                'ends_on' => $term->ends_on?->format('Y-m-d'),
+                'alert' => $term->type === 'contract' && $term->ends_on
+                    ? ($term->ends_on->lt($today) ? 'overdue' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(7)) ? 'urgent' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(30)) ? 'soon' : null)))
+                    : null,
+            ] : ['type' => 'unknown', 'starts_on' => null, 'ends_on' => null, 'alert' => null]);
+        });
 
         return response()->json(['data' => $employees]);
     }
@@ -65,6 +81,7 @@ class EmployeeController extends Controller
             }
             $employee = Employee::query()->create($data);
             $employee->placements()->create(['department_id' => $employee->department_id, 'effective_from' => $employee->started_on]);
+            $employee->employmentTerms()->create(['type' => 'unknown', 'starts_on' => $employee->started_on]);
             Audit::log('employees.created', $employee);
 
             return $employee;
@@ -138,6 +155,59 @@ class EmployeeController extends Controller
         return response()->json(['data' => $employee->fresh()]);
     }
 
+    public function setEmployment(Request $request, Employee $employee): JsonResponse
+    {
+        Gate::authorize('admin');
+        $data = $request->validate([
+            'type' => ['required', 'in:permanent,contract'],
+            'starts_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.WorkTime::today()],
+            'ends_on' => ['required_if:type,contract', 'nullable', 'date_format:Y-m-d', 'after_or_equal:starts_on', 'prohibited_unless:type,contract'],
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+        ]);
+
+        $term = DB::transaction(function () use ($employee, $data, $request) {
+            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            $existingFuture = $employee->employmentTerms()->where('starts_on', '>=', $data['starts_on'])->exists();
+            if ($existingFuture) {
+                abort(409, 'Sudah ada perubahan status kerja pada tanggal tersebut atau sesudahnya.');
+            }
+            $current = $employee->employmentTerms()->where('starts_on', '<', $data['starts_on'])->orderByDesc('starts_on')->lockForUpdate()->first();
+            $before = $current?->attributesToArray();
+            if ($current && (! $current->ends_on || $current->ends_on->format('Y-m-d') >= $data['starts_on'])) {
+                $current->update(['ends_on' => CarbonImmutable::parse($data['starts_on'])->subDay()->toDateString()]);
+            }
+            $term = $employee->employmentTerms()->create([
+                'type' => $data['type'],
+                'starts_on' => $data['starts_on'],
+                'ends_on' => $data['type'] === 'contract' ? $data['ends_on'] : null,
+                'reason' => $data['reason'],
+                'created_by' => $request->user()->id,
+            ]);
+            $employee->update(['ended_on' => $data['type'] === 'contract' ? $data['ends_on'] : null]);
+            Audit::log('employment.term_created', $term, $before, [...$term->attributesToArray(), 'reason' => $data['reason']]);
+
+            return $term;
+        });
+
+        return response()->json(['data' => $term]);
+    }
+
+    public function employmentAlerts(Request $request): JsonResponse
+    {
+        Gate::authorize('admin');
+        $days = (int) ($request->validate(['days' => ['nullable', 'integer', 'between:1,90']])['days'] ?? 30);
+        $today = WorkTime::today();
+        $until = CarbonImmutable::parse($today)->addDays($days)->toDateString();
+        $terms = EmploymentTerm::query()->with('employee:id,code,name,department_id,status')
+            ->where('type', 'contract')->whereNotNull('ends_on')->where('ends_on', '<=', $until)
+            ->orderBy('ends_on')->get()
+            ->filter(fn (EmploymentTerm $term) => $term->employee && $term->employee->status === 'active')
+            ->map(fn (EmploymentTerm $term) => ['employee' => $term->employee, 'starts_on' => $term->starts_on->format('Y-m-d'), 'ends_on' => $term->ends_on->format('Y-m-d'), 'status' => $term->ends_on->lt($today) ? 'overdue' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(7)) ? 'urgent' : 'soon')])
+            ->values();
+
+        return response()->json(['data' => $terms]);
+    }
+
     public function revokeDevices(Employee $employee): JsonResponse
     {
         Gate::authorize('admin');
@@ -164,17 +234,20 @@ class EmployeeController extends Controller
 
     private function validated(Request $request, ?Employee $employee = null): array
     {
-        return $request->validate([
+        $rules = [
             'code' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9._-]+$/', Rule::unique('employees', 'code')->ignore($employee?->id)],
             'name' => ['required', 'string', 'max:120'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'position_id' => ['required', 'integer', 'exists:positions,id'],
             'work_location_id' => ['nullable', 'integer', 'exists:work_locations,id'],
             'status' => ['required', 'in:active,inactive'],
-            'started_on' => ['required', 'date_format:Y-m-d'],
-            'ended_on' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:started_on'],
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
-        ]);
+        ];
+        if (! $employee) {
+            $rules['started_on'] = ['required', 'date_format:Y-m-d'];
+        }
+
+        return $request->validate($rules);
     }
 }

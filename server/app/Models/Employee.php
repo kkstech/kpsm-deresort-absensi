@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['code', 'name', 'department_id', 'position_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email'])]
+#[Fillable(['code', 'name', 'department_id', 'position_id', 'level_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email'])]
 class Employee extends Model
 {
     public function department(): BelongsTo
@@ -18,6 +18,11 @@ class Employee extends Model
     public function position(): BelongsTo
     {
         return $this->belongsTo(Position::class);
+    }
+
+    public function level(): BelongsTo
+    {
+        return $this->belongsTo(EmployeeLevel::class, 'level_id');
     }
 
     public function workLocation(): BelongsTo
@@ -33,6 +38,16 @@ class Employee extends Model
     public function placements(): HasMany
     {
         return $this->hasMany(EmployeePlacement::class)->orderByDesc('effective_from');
+    }
+
+    public function employmentTerms(): HasMany
+    {
+        return $this->hasMany(EmploymentTerm::class)->orderBy('starts_on');
+    }
+
+    public function levelAssignments(): HasMany
+    {
+        return $this->hasMany(EmployeeLevelAssignment::class)->orderBy('effective_from');
     }
 
     public function devices(): HasMany

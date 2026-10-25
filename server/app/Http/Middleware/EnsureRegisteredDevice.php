@@ -14,7 +14,7 @@ class EnsureRegisteredDevice
     {
         $user = $request->user();
         $token = $user?->currentAccessToken();
-        if (! $user || ! $token || ! preg_match('/^device:(\d+)$/', $token->name, $match)) {
+        if (! $user || ! $token || ! isset($token->name) || ! preg_match('/^device:(\d+)$/', $token->name, $match)) {
             throw new BusinessRuleException('UNREGISTERED_DEVICE', 'Perangkat belum terdaftar.', 401);
         }
 

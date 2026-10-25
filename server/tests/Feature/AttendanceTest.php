@@ -149,14 +149,14 @@ class AttendanceTest extends TestCase
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a1111111-1111-4111-8111-111111111111'), $this->device->id);
-        $this->travelTo('2026-10-25 10:31:00');
+        $this->travelTo('2026-10-25 14:11:00');
 
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertNull($record->check_out_at);
-        $this->assertSame('2026-10-25 10:00:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-25 14:10:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
         $this->assertSame(0, $record->verified_minutes);
         $this->assertTrue($record->needs_review);
         $this->assertSame('AUTO_CHECKOUT', $record->review_reason);
@@ -175,7 +175,7 @@ class AttendanceTest extends TestCase
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a2222222-2222-4222-8222-222222222222'), $this->device->id);
-        $this->travelTo('2026-10-25 10:31:00');
+        $this->travelTo('2026-10-25 14:11:00');
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
 
         $checkout = $this->event('a3333333-3333-4333-8333-333333333333', [
@@ -189,7 +189,7 @@ class AttendanceTest extends TestCase
         $this->assertSame('OFFLINE_CLOCK_UNVERIFIED', $result['data']['reason_code']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
-            'provisional_out_at' => '2026-10-25 10:00:00',
+            'provisional_out_at' => '2026-10-25 14:10:00',
             'check_out_at' => '2026-10-25 10:00:00',
             'verified_minutes' => 0,
             'needs_review' => 1,
@@ -221,7 +221,7 @@ class AttendanceTest extends TestCase
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a6666666-6666-4666-8666-666666666666'), $this->device->id);
         AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED']);
-        $this->travelTo('2026-10-25 10:31:00');
+        $this->travelTo('2026-10-25 14:11:00');
 
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
 

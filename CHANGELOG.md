@@ -83,7 +83,7 @@ JSON di `/admin/api`, session plus CSRF.
 ### Auto checkout dan Monitoring (tahap 3)
 
 - `attendance:auto-checkout` berjalan setiap menit lewat scheduler dan aman diulang. Kandidat dikunci dengan urutan employee → sesi → record seperti pencatatan event.
-- Auto checkout mengisi `provisional_out_at` pada akhir sesi, mempertahankan `check_out_at` kosong, menandai review `AUTO_CHECKOUT`, dan menjaga `verified_minutes` = 0. Periode final dilewati.
+- Untuk aturan lama, auto checkout mengikuti toleransi sistem lama. Aturan siklus baru mengisi `provisional_out_at` saat akhir sesi atau batas 13 jam sejak check-in pertama, mana yang lebih dulu; `check_out_at` tetap kosong, status ditinjau, dan menit valid tetap 0. Periode final dilewati.
 - Checkout offline yang tiba setelah auto checkout tetap ditandai review; event mentah tidak diubah dan menit valid tetap 0.
 - API admin: `GET /admin/api/dashboard/attendance`, `GET /admin/api/attendance`, dan `GET /admin/api/attendance/filters`. Filter tanggal/departemen/karyawan diterapkan pada query; opsi serta hasil supervisor mengikuti scope departemen.
 - Dashboard dan Monitoring memakai data API, menampilkan status sesi/event dan menit valid, menyediakan pagination/filter, dan tidak lagi menampilkan angka contoh. Laporan tetap belum tersedia.
@@ -103,7 +103,7 @@ JSON di `/admin/api`, session plus CSRF.
 
 ## Setengah jadi
 
-- Lembur, tunjangan, laporan, ekspor, dan finalisasi/reopen periode belum tersedia.
+- Lembur, laporan, ekspor, dan finalisasi/reopen periode belum tersedia.
 
 `attendance_periods` ikut migration jadwal `2026_10_24_030000`. Dipakai untuk kunci periode. Finalisasi dan buka ulang belum ada.
 
@@ -112,9 +112,8 @@ JSON di `/admin/api`, session plus CSRF.
 Jangan anggap ini sudah ada.
 
 - Lembur: perintah, consent sebelum mulai, event terpisah, metode `ACTUAL_CAPPED` saja.
-- Tunjangan, laporan JSON, export XLSX (`openspout`) dan PDF (`dompdf`). Paket sudah terpasang, belum dipakai.
+- Laporan JSON, export XLSX (`openspout`) dan PDF (`dompdf`). Paket sudah terpasang, belum dipakai.
 - Finalisasi dan buka ulang periode. Buka ulang butuh alasan dan revisi baru.
-- App Expo di `mobile/` masih demo. Jangan sambungkan di ronde ini kecuali diminta.
 
 ## Database lokal
 
@@ -134,3 +133,15 @@ Tes tetap memakai SQLite `:memory:` dan tidak mengubah file database lokal.
 - Jam bisnis `dateTime` UTC. `work_date` string `Y-m-d` tanpa cast.
 - Jangan pasang Laravel Boost. `server/AGENTS.md` memintanya. Abaikan.
 - Jangan tulis token, password, atau secret ke file, remote, atau rule.
+
+## Pelaksanaan lanjutan (25 Oktober 2026)
+
+- Siklus baru (rules version 2) menerima 1–4 sesi, sesi lintas tengah malam, total kerja terjadwal maksimal 12 jam, dan rentang siklus maksimal 13 jam. Perubahan pada siklus yang sudah berjalan mempertahankan sesi yang telah dimulai, mengarsipkan sesi lama, menaikkan revisi, dan menolak event dari ID sesi yang sudah usang.
+- Checkout reguler provisional dibatasi 13 jam sejak check-in. Pada split shift, checkout provisional terjadi di akhir sesi atau saat batas 13 jam siklus tercapai. Catatan provisional tidak dihitung sebagai menit tervalidasi sebelum keputusan HR.
+- Penukaran jadwal tersedia sebagai pratinjau ber-token, dengan pemeriksaan kontrak, periode, event absensi, bentrok sesi, perpindahan lintas departemen, dan keputusan roster bagi siklus yang kosong. Penyimpanan rantai atomik dan diaudit.
+- Migration `2026_10_25_010000_create_hr_tables` menambahkan riwayat level/tarif, pengecualian tunjangan per karyawan, snapshot tunjangan per siklus, kuota cuti tahunan, saldo prorata tahun pertama, reservasi pengajuan, penyesuaian kuota, dan riwayat kontrak tetap/kontrak. Dashboard admin menampilkan saldo cuti per karyawan dan rekap tunjangan.
+- Pengaturan kuota cuti dan konfirmasi saldo bisa dilakukan untuk tahun yang dipilih, termasuk tahun mendatang. Pengajuan mengunci saldo karyawan; keputusan dan pembatalan memakai transaksi sehingga pengembalian kuota tidak ganda.
+- `mobile/App.tsx` kini memakai API untuk login perangkat, profil, jadwal, absensi, saldo cuti, pengajuan cuti/izin/koreksi, dan bukti lampiran. SecureStore menyimpan token/perangkat; SQLite menyimpan cache dan antrean absensi. Event offline memakai UUID tetap dan urutan lokal. Event online dengan tanda terima ambigu diperiksa selama 120 detik dan kemudian diarahkan ke koreksi, tanpa dikirim ulang dengan waktu server baru.
+- CI menambahkan typecheck app mobile; job yang sudah ada menjalankan suite Laravel, build frontend, migrasi MySQL 8.4, build/push GHCR, dan deployment Dokploy bila secret tersedia.
+- Verifikasi lokal: `php artisan test` lulus 64 tes / 407 assertion; `npm run build` lulus; `mobile/npm run typecheck` lulus; `vendor/bin/pint --dirty --format agent` lulus; `git diff --check` bersih. Vite membiarkan referensi font `/fonts/*.ttf` untuk resolusi runtime; file tersebut tetap ada di `server/public/fonts`.
+- Migrasi MySQL dan build native iOS/Android belum dijalankan secara lokal. Percobaan mengambil versi Expo modules yang cocok dengan SDK 56 terhenti karena DNS registry npm (`ENOTFOUND`); package mobile saat ini masih perlu penyelarasan versi native sebelum build store. CI menguji TypeScript, bukan menghasilkan binary native.

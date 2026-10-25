@@ -138,9 +138,11 @@ function panelItem(e) {
     const name = nameOf(e.employee_id);
     const [tone, label] = STATUS[e.status] ?? ['neutral', e.status];
     const remove = isAdmin && e.editable ? `<button type="button" class="text-button danger-text" data-delete="${e.id}" aria-label="Batalkan jadwal ${esc(e.template_name)} ${esc(name)}">Batalkan</button>` : '';
-    const locked = e.editable ? '' : '<small>Sudah mulai. Perubahan lewat koreksi.</small>';
+    const edit = isAdmin && e.sessions_editable ? `<button type="button" class="text-button" data-edit-sessions="${e.id}">Atur sesi</button>` : '';
+    const swap = isAdmin && e.editable ? `<button type="button" class="text-button" data-swap="${e.id}">Tukar jadwal</button>` : '';
+    const locked = e.editable || e.sessions_editable ? '' : '<small>Jadwal sudah selesai.</small>';
     const sessions = e.sessions.map((s) => `<li>${esc(s.local_start)}–${esc(s.local_end)}</li>`).join('');
-    return `<article class="selected-shift"><i class="shift-dot ${kind(e)}" aria-hidden="true"></i><div><strong>${esc(name)}</strong><small>${esc(e.template_name)} · ${e.sessions.length} sesi</small><ul class="session-list">${sessions}</ul><div class="shift-actions"><span class="status ${tone}">${label}</span>${remove}</div>${locked}</div></article>`;
+    return `<article class="selected-shift"><i class="shift-dot ${kind(e)}" aria-hidden="true"></i><div><strong>${esc(name)}</strong><small>${esc(e.template_name)} · ${e.sessions.length} sesi</small><ul class="session-list">${sessions}</ul><div class="shift-actions"><span class="status ${tone}">${label}</span>${edit}${swap}${remove}</div>${locked}</div></article>`;
 }
 
 function renderPanel() {
@@ -176,25 +178,102 @@ function moveTo(anchor, selected) {
 /* ---------- Dialog jadwal ---------- */
 const modal = $('#schedule-modal');
 const errorBox = $('#schedule-error');
+let editingSchedule = null;
+
+function scheduleSessionRow(session = {}, index = 0) {
+    const locked = editingSchedule && new Date(session.end_at).getTime() <= Date.now();
+    return `<div class="session-row schedule-session-row">
+        <input type="hidden" data-s="id" value="${esc(session.id ?? '')}">
+        <label>Mulai<input type="date" data-s="start_date" value="${esc(session.local_start_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}></label>
+        <label>Jam mulai<input type="time" data-s="start_time" value="${esc(session.local_start_time ?? '')}" required${locked ? ' readonly' : ''}></label>
+        <label>Selesai<input type="date" data-s="end_date" value="${esc(session.local_end_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}></label>
+        <label>Jam selesai<input type="time" data-s="end_time" value="${esc(session.local_end_time ?? '')}" required${locked ? ' readonly' : ''}></label>
+        <label>Istirahat<input type="number" data-s="unpaid_break_minutes" min="0" max="720" value="${esc(session.unpaid_break_minutes ?? 0)}"${locked ? ' readonly' : ''}></label>
+        <button type="button" class="icon-button" data-remove-session aria-label="Hapus sesi ${index + 1}"${locked ? ' disabled' : ''}>×</button>
+        ${locked ? '<small class="field-hint">Sesi ini sudah selesai dan dikunci.</small>' : ''}
+    </div>`;
+}
+
+function setScheduleMode(mode) {
+    const custom = mode === 'custom';
+    $('#schedule-template-wrap').hidden = custom;
+    $('#schedule-custom-wrap').hidden = !custom;
+    $('#schedule-template').required = !custom;
+}
+
+function fillScheduleSessions(sessions = [{}, {}]) {
+    $('#schedule-session-rows').innerHTML = sessions.map(scheduleSessionRow).join('');
+    $('#schedule-add-session').hidden = sessions.length >= 4;
+}
 
 function openScheduleModal() {
+    editingSchedule = null;
+    $('#schedule-modal-title').textContent = 'Buat jadwal';
+    $('#schedule-form').querySelector('.modal-heading p').textContent = 'Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.';
     $('#schedule-employee').value = state.selected.emp ?? personFilter() ?? '';
+    $('#schedule-employee').disabled = false;
     $('#schedule-date').value = state.selected.date;
+    $('#schedule-date').disabled = false;
+    $('#schedule-mode').value = 'template';
+    $('#schedule-name').value = 'Shift khusus';
+    $('#schedule-reason-wrap').hidden = true;
+    $('#schedule-reason').value = '';
+    fillScheduleSessions();
+    setScheduleMode('template');
     errorBox.hidden = true;
     modal.showModal();
 }
 
+function openScheduleEdit(assignment) {
+    editingSchedule = assignment;
+    $('#schedule-modal-title').textContent = `Atur sesi · ${assignment.template_name}`;
+    $('#schedule-form').querySelector('.modal-heading p').textContent = 'Sesi berjalan dan yang sudah selesai tetap tercatat; sesi mendatang bisa disesuaikan.';
+    $('#schedule-employee').value = assignment.employee_id;
+    $('#schedule-employee').disabled = true;
+    $('#schedule-date').value = assignment.work_date;
+    $('#schedule-date').disabled = true;
+    $('#schedule-mode').value = 'custom';
+    $('#schedule-name').value = assignment.template_name;
+    $('#schedule-reason-wrap').hidden = false;
+    $('#schedule-reason').value = '';
+    fillScheduleSessions(assignment.sessions);
+    setScheduleMode('custom');
+    errorBox.hidden = true;
+    modal.showModal();
+}
+
+function collectScheduleSessions() {
+    return $$('.schedule-session-row', $('#schedule-session-rows')).map((row, index) => {
+        const value = (name) => $('[data-s="' + name + '"]', row).value;
+        return {
+            ...(value('id') ? { id: Number(value('id')) } : {}),
+            seq: index + 1,
+            start_date: value('start_date'),
+            start_time: value('start_time'),
+            end_date: value('end_date'),
+            end_time: value('end_time'),
+            unpaid_break_minutes: Number(value('unpaid_break_minutes') || 0),
+        };
+    });
+}
+
 async function saveSchedule() {
+    const custom = $('#schedule-mode').value === 'custom';
     const body = {
         employee_id: Number($('#schedule-employee').value) || null,
         work_date: $('#schedule-date').value || null,
-        shift_template_id: Number($('#schedule-template').value) || null,
+        ...(custom ? {
+            name: $('#schedule-name').value.trim() || 'Shift khusus',
+            sessions: collectScheduleSessions(),
+            ...(editingSchedule ? { expected_revision: editingSchedule.revision, reason: $('#schedule-reason').value.trim() } : {}),
+        } : { shift_template_id: Number($('#schedule-template').value) || null }),
     };
     errorBox.hidden = true;
     const submit = $('#schedule-form [type="submit"]');
     submit.disabled = true;
     try {
-        await api('schedule', { method: 'POST', body });
+        if (editingSchedule) await api(`schedule/${editingSchedule.id}/sessions`, { method: 'PATCH', body });
+        else await api('schedule', { method: 'POST', body });
     } catch (error) {
         errorBox.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
         errorBox.hidden = false;
@@ -207,7 +286,7 @@ async function saveSchedule() {
         state.filter = 'all';
         $('#person-filter').value = 'all';
     }
-    toast(`Jadwal ${nameOf(body.employee_id)} disimpan sebagai draft.`);
+    toast(editingSchedule ? 'Sesi jadwal diperbarui.' : `Jadwal ${nameOf(body.employee_id)} disimpan sebagai draft.`);
     state.anchor = parseKey(body.work_date);
     state.selected = { date: body.work_date, emp: state.view === 'week' ? body.employee_id : personFilter() };
     load();
@@ -219,6 +298,85 @@ async function runAction(fn) {
         load();
     } catch (error) {
         toast(error.message);
+    }
+}
+
+/* ---------- Tukar rantai jadwal ---------- */
+const swapModal = $('#schedule-swap-modal');
+let swapPreview = null;
+
+const scheduleLabel = (item) => `${longDate(item.work_date)} · ${nameOf(item.employee_id)} · ${item.template_name} · ${summary(item)}`;
+
+function swapAssignmentOptions(selected = '') {
+    return `<option value="">Pilih jadwal</option>${entries.filter((item) => item.editable).map((item) => `<option value="${item.id}"${String(item.id) === String(selected) ? ' selected' : ''}>${esc(scheduleLabel(item))}</option>`).join('')}`;
+}
+
+function swapTargetOptions(sourceId, selected = '') {
+    return `<option value="">Pilih karyawan pengganti</option>${employees.filter((item) => item.id !== Number(sourceId)).map((item) => `<option value="${item.id}"${String(item.id) === String(selected) ? ' selected' : ''}>${esc(item.name)} · ${esc(item.dept)}</option>`).join('')}`;
+}
+
+function addSwapRow(item = null) {
+    const row = document.createElement('div');
+    row.className = 'form-fields schedule-swap-row';
+    row.innerHTML = `<label>Jadwal<select data-swap-assignment required>${swapAssignmentOptions(item?.id ?? '')}</select></label><label>Karyawan pengganti<select data-swap-target required>${swapTargetOptions(item?.employee_id ?? '')}</select></label><button type="button" class="text-button danger-text" data-swap-remove>Hapus dari rantai</button>`;
+    $('#schedule-swap-moves').append(row);
+    if (item) row.querySelector('[data-swap-target]').value = '';
+}
+
+function swapPayload() {
+    const moves = $$('.schedule-swap-row', $('#schedule-swap-moves')).map((row) => {
+        const assignment = entries.find((item) => item.id === Number(row.querySelector('[data-swap-assignment]').value));
+        return assignment ? { assignment_id: assignment.id, expected_revision: assignment.revision, to_employee_id: Number(row.querySelector('[data-swap-target]').value) } : null;
+    });
+    const vacancy_decisions = $$('.schedule-swap-vacancy', $('#schedule-swap-result')).map((row) => ({
+        employee_id: Number(row.dataset.employeeId), work_date: row.dataset.workDate,
+        action: row.querySelector('[data-vacancy-action]').value,
+        reason: row.querySelector('[data-vacancy-reason]').value.trim(),
+    }));
+    return {
+        moves: moves.filter(Boolean), vacancy_decisions,
+        confirm_cross_unit: $('#schedule-swap-cross-unit').checked,
+    };
+}
+
+function invalidateSwapPreview(clearResult = true) {
+    swapPreview = null;
+    $('#schedule-swap-save').disabled = true;
+    if (clearResult) $('#schedule-swap-result').replaceChildren();
+}
+
+function openSwap(assignment) {
+    swapPreview = null;
+    $('#schedule-swap-moves').replaceChildren();
+    $('#schedule-swap-result').replaceChildren();
+    $('#schedule-swap-cross-unit').checked = false;
+    $('#schedule-swap-reason').value = '';
+    $('#schedule-swap-error').hidden = true;
+    addSwapRow(assignment);
+    swapModal.showModal();
+}
+
+function renderSwapPreview(result) {
+    const root = $('#schedule-swap-result');
+    const blockers = result.blockers.map((item) => `<li>${esc(item.message)}</li>`).join('');
+    const moves = result.moves.map((item) => `<li>${esc(item.work_date)} · ${esc(item.shift)}: ${esc(item.from_employee)} → ${esc(item.to_employee)}</li>`).join('');
+    const vacancies = result.vacancies.map((item) => `<div class="schedule-swap-vacancy" data-employee-id="${item.employee_id}" data-work-date="${esc(item.work_date)}"><strong>${esc(item.name)} · ${esc(item.work_date)}</strong><label>Tindak lanjut<select data-vacancy-action required><option value="">Pilih roster</option><option value="roster_off">Roster off</option><option value="regular">Potong cuti reguler</option><option value="day_off">Potong day off</option></select></label><label>Alasan<input data-vacancy-reason maxlength="1000" required></label></div>`).join('');
+    root.innerHTML = `<section><strong>Jadwal yang ditukar</strong><ul>${moves}</ul></section>${vacancies ? `<section><strong>Jadwal yang kosong</strong>${vacancies}</section>` : ''}${blockers ? `<div class="form-error"><strong>Belum bisa diterapkan</strong><ul>${blockers}</ul></div>` : '<p class="field-hint">Konflik sudah diperiksa. Setelah semua pilihan roster valid, jalankan pratinjau sekali lagi.</p>'}`;
+    $('#schedule-swap-save').disabled = !result.can_commit;
+}
+
+async function previewSwap() {
+    const error = $('#schedule-swap-error');
+    error.hidden = true;
+    try {
+        const payload = swapPayload();
+        if (!payload.moves.length || payload.moves.some((item) => !item.to_employee_id)) throw new Error('Pilih jadwal dan karyawan pengganti untuk seluruh rantai.');
+        const result = await api('schedule/swap/preview', { method: 'POST', body: payload });
+        swapPreview = result;
+        renderSwapPreview(result);
+    } catch (reason) {
+        error.textContent = reason.message;
+        error.hidden = false;
     }
 }
 
@@ -250,6 +408,18 @@ $('#calendar-body').addEventListener('click', (event) => {
 });
 
 $('#selected-day-list').addEventListener('click', async (event) => {
+    const edit = event.target.closest('[data-edit-sessions]');
+    if (edit) {
+        const assignment = entries.find((entry) => entry.id === Number(edit.dataset.editSessions));
+        if (assignment) openScheduleEdit(assignment);
+        return;
+    }
+    const swap = event.target.closest('[data-swap]');
+    if (swap) {
+        const assignment = entries.find((entry) => entry.id === Number(swap.dataset.swap));
+        if (assignment) openSwap(assignment);
+        return;
+    }
     const button = event.target.closest('[data-delete]');
     if (!button || !await confirmDialog({ title: 'Batalkan jadwal?', message: 'Jadwal ini akan dibatalkan.', confirmLabel: 'Batalkan', danger: true })) return;
     runAction(async () => {
@@ -258,11 +428,62 @@ $('#selected-day-list').addEventListener('click', async (event) => {
     });
 });
 
+$('#schedule-swap-add').addEventListener('click', () => { addSwapRow(); invalidateSwapPreview(); });
+$('#schedule-swap-moves').addEventListener('change', invalidateSwapPreview);
+$('#schedule-swap-moves').addEventListener('click', (event) => {
+    if (!event.target.closest('[data-swap-remove]')) return;
+    if ($$('.schedule-swap-row', $('#schedule-swap-moves')).length <= 1) return;
+    event.target.closest('.schedule-swap-row').remove();
+    invalidateSwapPreview();
+});
+$('#schedule-swap-cross-unit').addEventListener('change', invalidateSwapPreview);
+$('#schedule-swap-result').addEventListener('input', () => invalidateSwapPreview(false));
+$('#schedule-swap-result').addEventListener('change', () => invalidateSwapPreview(false));
+$('#schedule-swap-preview').addEventListener('click', previewSwap);
+$('#schedule-swap-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!swapPreview?.can_commit || !swapPreview.preview_token) return;
+    const error = $('#schedule-swap-error');
+    error.hidden = true;
+    try {
+        const payload = swapPayload();
+        if (payload.vacancy_decisions.some((decision) => !decision.action || decision.reason.length < 3)) throw new Error('Lengkapi pilihan roster dan alasan pada semua jadwal yang kosong.');
+        await api('schedule/swap', { method: 'POST', body: { ...payload, preview_token: swapPreview.preview_token, reason: $('#schedule-swap-reason').value.trim() } });
+        swapModal.close();
+        toast('Rantai jadwal ditukar dan dicatat.');
+        load();
+    } catch (reason) {
+        error.textContent = reason.message;
+        error.hidden = false;
+        invalidateSwapPreview();
+    }
+});
+
 $$('[data-open-modal]').forEach((button) => button.addEventListener('click', openScheduleModal));
 $('#add-selected-date')?.addEventListener('click', openScheduleModal);
 $('#schedule-form').addEventListener('submit', (event) => {
     event.preventDefault();
     saveSchedule();
+});
+
+$('#schedule-mode').addEventListener('change', (event) => setScheduleMode(event.target.value));
+$('#schedule-date').addEventListener('change', () => {
+    if (!editingSchedule) $$('.schedule-session-row [data-s="start_date"], .schedule-session-row [data-s="end_date"]', $('#schedule-session-rows')).forEach((input) => { if (!input.value) input.value = $('#schedule-date').value; });
+});
+$('#schedule-add-session').addEventListener('click', () => {
+    const rows = $('#schedule-session-rows');
+    rows.insertAdjacentHTML('beforeend', scheduleSessionRow({}, rows.children.length));
+    $('#schedule-add-session').hidden = rows.children.length >= 4;
+});
+$('#schedule-session-rows').addEventListener('click', (event) => {
+    const remove = event.target.closest('[data-remove-session]');
+    if (!remove) return;
+    const rows = $('#schedule-session-rows');
+    const minimum = editingSchedule ? 1 : 2;
+    if (rows.children.length <= minimum) return;
+    remove.closest('.schedule-session-row').remove();
+    $$('.schedule-session-row [data-remove-session]', rows).forEach((button, index) => button.setAttribute('aria-label', `Hapus sesi ${index + 1}`));
+    $('#schedule-add-session').hidden = rows.children.length >= 4;
 });
 
 $('#schedule-publish')?.addEventListener('click', async () => {

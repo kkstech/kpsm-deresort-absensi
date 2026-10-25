@@ -24,6 +24,11 @@
         <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M16 4v6M8 14v6"/></symbol>
         <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 17v-6a6 6 0 0112 0v6l2 2H4zM10 21h4"/></symbol>
         <symbol id="i-search" viewBox="0 0 24 24"><path d="M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15zM16 16l5 5"/></symbol>
+        <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11zM9 12l2 2 4-4"/></symbol>
+        <symbol id="i-building" viewBox="0 0 24 24"><path d="M3 21h18M5 21V5l7-3 7 3v16M9 8h.01M15 8h.01M9 12h.01M15 12h.01M10 21v-5h4v5"/></symbol>
+        <symbol id="i-briefcase" viewBox="0 0 24 24"><path d="M3 8h18v12H3zM8 8V5h8v3M3 13h18M10 13v2h4v-2"/></symbol>
+        <symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1116 0zM12 10a2 2 0 100-4 2 2 0 000 4z"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 00-16 0M12 13a5 5 0 100-10 5 5 0 000 10z"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Lewati ke konten</a>
@@ -39,6 +44,8 @@
                 <button type="button" class="nav-item" data-view="attendance"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Monitoring Absensi</button>
                 <button type="button" class="nav-item" data-view="requests"><svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg>Persetujuan</button>
                 <button type="button" class="nav-item" data-view="employees"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>Karyawan</button>
+                <button type="button" class="nav-item" data-view="leaves" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Cuti</button>
+                <button type="button" class="nav-item" data-view="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Tunjangan</button>
                 <button type="button" class="nav-item" data-view="reports"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Laporan</button>
             </nav>
             <div class="sidebar-bottom">
@@ -180,16 +187,47 @@
                     </div>
                 </section>
                 <section class="view placeholder-view" data-view-panel="reports"><h1>Laporan</h1><p>Rekap kehadiran, lembur, tunjangan, dan periode.</p><div class="empty-state"><strong>Belum tersedia</strong><span>Laporan dan ekspor akan ditambahkan setelah perhitungan kehadiran selesai.</span></div></section>
+                <section class="view" data-view-panel="leaves" data-requires="admin">
+                    <div class="page-heading"><div><h1>Cuti dan day off</h1><span>Pengajuan memakai satu hari kerja berdasarkan tanggal awal siklus, termasuk shift split dan shift malam.</span></div><button type="button" class="primary-button" id="leave-direct-add">Catat cuti</button></div>
+                    <div class="panel leave-year-panel">
+                        <div class="panel-heading"><div><h2>Saldo tahun berjalan</h2><p id="leave-opening-state">Memuat status saldo…</p></div><button type="button" class="secondary-button" id="leave-opening-confirm">Konfirmasi saldo awal</button></div>
+                        <form id="leave-settings-form" class="inline-settings-form">
+                            <label>Tahun saldo<input type="number" name="year" min="2000" max="2100" required></label>
+                            <label>Cuti reguler per tahun<input type="number" name="regular_quota" min="0" max="60" required></label>
+                            <label>Day off per tahun<input type="number" name="day_off_quota" min="0" max="60" required></label>
+                            <label>Alasan perubahan<input name="reason" maxlength="1000" required></label>
+                            <button type="submit" class="secondary-button">Simpan kuota</button>
+                            <p class="form-error" id="leave-settings-error" role="alert" hidden></p>
+                        </form>
+                    </div>
+                    <div class="panel"><div class="panel-heading"><div><h2>Sisa kuota per karyawan</h2><p id="leave-balance-count">Memuat saldo…</p></div></div><div id="leave-balance-table" aria-live="polite"></div></div>
+                    <div class="panel">
+                        <div class="panel-heading"><div><h2>Pengajuan cuti</h2><p id="leave-list-count"></p></div><label class="sr-only" for="leave-status-filter">Filter status pengajuan</label><select id="leave-status-filter"><option value="">Semua status</option><option value="PENDING">Menunggu</option><option value="APPROVED">Disetujui</option><option value="REJECTED">Ditolak</option><option value="CANCELLED">Dibatalkan</option></select></div>
+                        <div id="leave-table" aria-live="polite"></div>
+                    </div>
+                </section>
+                <section class="view" data-view-panel="allowances" data-requires="admin">
+                    <div class="page-heading"><div><h1>Rekap tunjangan</h1><span>Satu tunjangan makan dan transport per siklus dengan kehadiran tervalidasi.</span></div></div>
+                    <form id="allowance-filters" class="attendance-filters">
+                        <label>Dari<input type="date" name="from" required></label><label>Sampai<input type="date" name="to" required></label><button type="submit" class="secondary-button">Tampilkan</button>
+                    </form>
+                    <p class="form-error" id="allowance-error" role="alert" hidden></p>
+                    <div class="metric-grid attendance-metrics"><article class="metric-card"><span>Siklus memenuhi syarat</span><strong id="allowance-eligible">—</strong></article><article class="metric-card"><span>Menunggu verifikasi</span><strong id="allowance-pending">—</strong></article><article class="metric-card"><span>Butuh konfigurasi level/tarif</span><strong id="allowance-unconfigured">—</strong></article><article class="metric-card"><span>Total makan + transport</span><strong id="allowance-total">—</strong></article></div>
+                    <div class="panel"><div class="panel-heading"><div><h2>Per siklus kerja</h2><p id="allowance-count"></p></div></div><div id="allowance-table" aria-live="polite"></div></div>
+                </section>
                 <section class="view" data-view-panel="settings">
                     <div class="page-heading"><div><h1>Pengaturan</h1><span>Data dasar yang dipakai jadwal dan absensi.</span></div></div>
                     <div class="tabs" role="tablist" aria-label="Bagian pengaturan">
-                        <button type="button" role="tab" aria-selected="true" data-settings-tab="general">Umum</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin">Template shift</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin">Aturan kehadiran</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin">Departemen</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin">Jabatan</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin">Lokasi kerja</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin">Akun admin</button>
+                        <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Umum</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Template shift</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Aturan kehadiran</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg>Departemen</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg>Jabatan</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-map-pin"/></svg>Lokasi kerja</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="levels" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg>Level karyawan</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Tarif tunjangan</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="allowance-overrides" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>Pengecualian individu</button>
+                        <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>Akun admin</button>
                     </div>
                     <div class="panel">
                         <div class="panel-heading"><div><h2 id="settings-title"></h2><p id="settings-hint"></p></div><button type="button" class="secondary-button" id="settings-add">+ Tambah</button></div>
@@ -240,10 +278,31 @@
             <div class="modal-body">
                 <label>Karyawan<select id="schedule-employee" required></select></label>
                 <label>Tanggal kerja<input type="date" id="schedule-date" required></label>
-                <label>Template shift<select id="schedule-template" required></select></label>
+                <label>Jenis jadwal<select id="schedule-mode"><option value="template">Template shift</option><option value="custom">Split khusus</option></select></label>
+                <label id="schedule-template-wrap">Template shift<select id="schedule-template" required></select></label>
+                <div id="schedule-custom-wrap" hidden>
+                    <label>Nama jadwal<input id="schedule-name" maxlength="100" value="Shift khusus"></label>
+                    <div id="schedule-session-rows" class="schedule-session-rows"></div>
+                    <button type="button" class="text-button" id="schedule-add-session">+ Tambah sesi</button>
+                    <label id="schedule-reason-wrap" hidden>Alasan perubahan<input id="schedule-reason" maxlength="500" minlength="3"></label>
+                </div>
                 <p class="form-error" id="schedule-error" role="alert" hidden></p>
             </div>
             <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button">Simpan draft</button></div>
+        </form>
+    </dialog>
+    <dialog class="app-dialog schedule-swap-dialog" id="schedule-swap-modal" aria-labelledby="schedule-swap-title">
+        <form id="schedule-swap-form">
+            <div class="modal-heading"><div><h2 id="schedule-swap-title">Tukar siklus jadwal</h2><p>Rantai jadwal dikunci bersama setelah pratinjau berhasil.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
+            <div class="modal-body">
+                <div id="schedule-swap-moves" class="form-fields"></div>
+                <button type="button" class="text-button" id="schedule-swap-add">+ Tambah jadwal dalam rantai</button>
+                <label class="check-field"><input type="checkbox" id="schedule-swap-cross-unit"><span>Konfirmasi jika pratinjau menunjukkan perpindahan lintas departemen</span></label>
+                <label>Alasan perubahan<textarea id="schedule-swap-reason" rows="3" maxlength="1000" required></textarea></label>
+                <div id="schedule-swap-result" class="form-fields" aria-live="polite"></div>
+                <p class="form-error" id="schedule-swap-error" role="alert" hidden></p>
+            </div>
+            <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="button" class="secondary-button" id="schedule-swap-preview">Pratinjau</button><button type="submit" class="primary-button" id="schedule-swap-save" disabled>Terapkan tukar</button></div>
         </form>
     </dialog>
     <dialog class="app-dialog" id="form-modal" aria-labelledby="form-modal-title">

@@ -8,7 +8,7 @@ let debounce;
 
 const opts = (list, label = (x) => x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 
-async function fields(withAccount) {
+async function fields(withAccount, employee) {
     const [departments, positions, locations] = await Promise.all([lookup('departments'), lookup('positions'), lookup('locations')]);
     const list = [
         { name: 'code', label: 'Kode karyawan', required: true, maxlength: 32, hint: 'Huruf, angka, titik, strip. Contoh: FO-001' },
@@ -17,11 +17,10 @@ async function fields(withAccount) {
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
         { name: 'work_location_id', label: 'Lokasi kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
         { name: 'status', label: 'Status', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
-        { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true },
-        { name: 'ended_on', label: 'Berhenti kerja', type: 'date' },
         { name: 'phone', label: 'No. HP', type: 'tel', maxlength: 32, autocomplete: 'off' },
         { name: 'email', label: 'Email pribadi', type: 'email', maxlength: 255 },
     ];
+    if (!employee) list.splice(5, 0, { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true });
     if (withAccount) {
         list.push(
             { name: 'make_account', label: 'Buat akun app sekarang', type: 'checkbox' },
@@ -49,10 +48,19 @@ function render() {
         columns: [
             { label: 'Karyawan', cell: (e) => `<b>${esc(e.name)}</b><small>${esc(e.code)}</small>` },
             { label: 'Departemen', cell: (e) => `${esc(e.department?.name)}<small>${esc(e.position?.name)}</small>` },
+            { label: 'Level', cell: (e) => e.level ? `${esc(e.level.name)}<small>${esc(e.level.code)}</small>` : '<span class="status warning">Belum diatur</span>' },
+            { label: 'Status kerja', cell: (e) => {
+                const type = e.employment?.type;
+                const label = type === 'contract' ? `Kontrak${e.employment.ends_on ? ` sampai ${e.employment.ends_on}` : ''}` : type === 'permanent' ? 'Tetap' : 'Perlu dilengkapi';
+                const tone = ['overdue', 'urgent'].includes(e.employment?.alert) ? 'warning' : 'neutral';
+                return `<span class="status ${tone}">${esc(label)}</span>`;
+            } },
             { label: 'Akun app', cell: (e) => e.user ? `${esc(e.user.email)}<small>${e.devices_count} perangkat</small>` : '<span class="status neutral">Belum ada</span>' },
             { label: 'Status', cell: (e) => e.status === 'active' ? '<span class="status success">Aktif</span>' : '<span class="status neutral">Nonaktif</span>' },
         ],
         actions: isAdmin ? (e) => `<button type="button" class="text-button" data-action="edit" data-id="${e.id}">Ubah</button>
+            <button type="button" class="text-button" data-action="employment" data-id="${e.id}">Status kerja</button>
+            <button type="button" class="text-button" data-action="level" data-id="${e.id}">Ubah level</button>
             <button type="button" class="text-button" data-action="account" data-id="${e.id}">${e.user ? 'Ganti password' : 'Buat akun'}</button>
             ${e.user && e.devices_count ? `<button type="button" class="text-button" data-action="revoke" data-id="${e.id}">Keluarkan perangkat</button>` : ''}
             ${e.status === 'active' ? `<button type="button" class="text-button danger-text" data-action="deactivate" data-id="${e.id}">Nonaktifkan</button>` : ''}` : null,
@@ -63,12 +71,53 @@ async function openEmployee(employee) {
     openForm({
         title: employee ? `Ubah ${employee.name}` : 'Tambah karyawan',
         hint: employee ? 'Pindah departemen tercatat di riwayat penempatan.' : 'Akun app bisa dibuat sekarang atau nanti.',
-        fields: await fields(!employee),
+        fields: await fields(!employee, employee),
         values: employee ?? {},
         onSubmit: async (values) => {
             const { make_account: _, ...body } = values;
             await api(employee ? `employees/${employee.id}` : 'employees', { method: employee ? 'PUT' : 'POST', body });
             toast(employee ? 'Data karyawan disimpan.' : 'Karyawan ditambahkan.');
+            load();
+        },
+    });
+}
+
+async function openEmployment(employee) {
+    const current = employee.employment ?? {};
+    openForm({
+        title: `Status kerja · ${employee.name}`,
+        hint: 'Riwayat tidak menghapus tanggal atau akun lama. Kontrak yang berakhir memberi pengingat dan tidak menonaktifkan akun.',
+        fields: [
+            { name: 'type', label: 'Jenis karyawan', type: 'select', required: true, options: [{ value: 'permanent', label: 'Tetap' }, { value: 'contract', label: 'Kontrak' }], default: current.type === 'contract' ? 'contract' : 'permanent' },
+            { name: 'starts_on', label: 'Berlaku mulai', type: 'date', required: true },
+            { name: 'ends_on', label: 'Kontrak berakhir', type: 'date', required: true, showIf: (value) => value.type === 'contract' },
+            { name: 'reason', label: 'Alasan perubahan', required: true, maxlength: 1000 },
+        ],
+        values: { starts_on: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()), ends_on: current.ends_on ?? '' },
+        onSubmit: async (body) => {
+            await api(`employees/${employee.id}/employment`, { method: 'POST', body });
+            toast('Status kerja disimpan.');
+            load();
+        },
+    });
+}
+
+async function openLevel(employee) {
+    const levels = await lookup('employee-levels');
+    const history = (await api(`employees/${employee.id}/levels`)).data;
+    openForm({
+        title: `Level · ${employee.name}`,
+        hint: 'Level dan tanggal berlakunya disimpan ke riwayat karyawan.',
+        fields: [
+            { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, required: true, blank: 'Pilih level', options: opts(levels, (x) => `${x.name} (${x.code})`) },
+            { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true },
+            { name: 'reason', label: 'Alasan perubahan', required: true, maxlength: 1000 },
+        ],
+        values: { level_id: employee.level?.id ?? history.at(-1)?.level_id, effective_from: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()) },
+        onSubmit: async (body) => {
+            await api(`employee-levels/${employee.id}/assign`, { method: 'POST', body });
+            invalidate('employees');
+            toast('Level tunjangan disimpan.');
             load();
         },
     });
@@ -108,6 +157,8 @@ table.addEventListener('click', async (event) => {
     if (!employee) return;
     const action = button.dataset.action;
     if (action === 'edit') openEmployee(employee);
+    if (action === 'employment') openEmployment(employee);
+    if (action === 'level') openLevel(employee);
     if (action === 'account') openAccount(employee);
     if (action === 'revoke' && await confirmDialog({ title: 'Keluarkan perangkat?', message: `Keluarkan semua perangkat ${employee.name}? Karyawan harus login ulang.`, confirmLabel: 'Keluarkan', danger: true })) act(`employees/${employee.id}/revoke-devices`, 'Perangkat dikeluarkan.');
     if (action === 'deactivate' && await confirmDialog({ title: 'Nonaktifkan karyawan?', message: `Nonaktifkan ${employee.name}? Akun app ikut nonaktif.`, confirmLabel: 'Nonaktifkan', danger: true })) act(`employees/${employee.id}/deactivate`, 'Karyawan dinonaktifkan.');
@@ -132,4 +183,4 @@ export async function showEmployees() {
     load();
 }
 
-export const refreshEmployeeLookups = () => ['departments', 'positions', 'locations'].forEach(invalidate);
+export const refreshEmployeeLookups = () => ['departments', 'positions', 'locations', 'employee-levels'].forEach(invalidate);

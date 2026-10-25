@@ -6,6 +6,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Models\AttendancePeriod;
 use App\Models\AttendancePolicy;
 use App\Models\Employee;
+use App\Models\EmploymentTerm;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftTemplate;
 use App\Models\User;
@@ -38,19 +39,95 @@ class PublishSchedule
             $before = $assignment?->load('sessions')->toArray();
             $assignment ??= new ShiftAssignment(['employee_id' => $employee->id, 'work_date' => $workDate, 'created_by' => $actor->id, 'revision' => 0]);
             $wasPublished = $assignment->exists && $assignment->status === 'PUBLISHED';
+            $this->archiveCurrentSessions($assignment);
             $assignment->fill([
                 'shift_template_id' => $template->id,
                 'template_name' => $template->name,
                 'template_type' => $template->type,
+                'rules_version' => 2,
                 'status' => $wasPublished ? 'PUBLISHED' : 'DRAFT',
                 'revision' => $assignment->revision + 1,
             ])->save();
 
-            $assignment->sessions()->delete();
-            $assignment->sessions()->createMany($sessions);
+            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'schedule_revision' => $assignment->revision], $sessions));
             Audit::log($before ? 'schedule.updated' : 'schedule.created', $assignment, $before, $assignment->load('sessions')->toArray());
 
             return $assignment;
+        });
+    }
+
+    public function upsertCustom(Employee $employee, string $workDate, array $data, User $actor, ?int $expectedRevision = null, ?string $reason = null): ShiftAssignment
+    {
+        return DB::transaction(function () use ($employee, $workDate, $data, $actor, $expectedRevision, $reason) {
+            $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
+            AttendancePeriod::assertOpen($workDate);
+            $this->assertEmployed($employee, $workDate);
+
+            $assignment = ShiftAssignment::query()->with('sessions.attendanceRecord')->where('employee_id', $employee->id)->where('work_date', $workDate)->first();
+            if ($assignment && $expectedRevision !== null && $assignment->revision !== $expectedRevision) {
+                throw new BusinessRuleException('SCHEDULE_REVISION_CONFLICT', 'Jadwal berubah sejak dibuka. Muat ulang sebelum menyimpan.', 409);
+            }
+            if ($assignment && ! in_array($assignment->status, ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'CANCELLED'], true)) {
+                throw new BusinessRuleException('SCHEDULE_LOCKED', 'Jadwal yang selesai tidak bisa diubah.');
+            }
+
+            $sessions = $this->customSessions($employee, $workDate, $data['sessions']);
+            $now = WorkTime::now();
+            $current = $assignment?->sessions ?? collect();
+            $knownIds = $current->pluck('id')->all();
+            foreach ($sessions as $session) {
+                if ($session['id'] !== null && ! in_array($session['id'], $knownIds, true)) {
+                    throw new BusinessRuleException('SESSION_NOT_OWNED', 'Sesi tersebut bukan bagian dari jadwal ini.', 422);
+                }
+            }
+            $running = $assignment && $assignment->status !== 'CANCELLED'
+                && ($assignment->status === 'IN_PROGRESS' || $current->contains(fn ($session) => $session->start_at->lte($now)));
+            $kept = [];
+            $create = $sessions;
+            $updates = [];
+
+            if ($running) {
+                [$kept, $create, $updates] = $this->reconcileRunningSessions($current, $sessions, $now);
+            } elseif ($sessions[0]['start_at']->lte($now)) {
+                throw new BusinessRuleException('SESSION_STARTED', 'Jadwal baru harus dimulai di masa depan.');
+            }
+
+            $next = collect([...$kept, ...$create])->sortBy('seq')->values()->all();
+            $this->assertCycleLimits($next);
+            $this->assertNoOverlap($employee, $workDate, $next, $assignment?->id);
+
+            $revision = ($assignment?->revision ?? 0) + 1;
+            $assignment ??= new ShiftAssignment(['employee_id' => $employee->id, 'work_date' => $workDate, 'created_by' => $actor->id]);
+            $before = $assignment->exists ? $assignment->load('sessions')->toArray() : null;
+            if ($running) {
+                $keptIds = collect($kept)->pluck('id')->all();
+                $retireIds = $current->whereNotIn('id', $keptIds)->pluck('id');
+                if ($retireIds->isNotEmpty()) {
+                    $assignment->sessions()->whereIn('id', $retireIds)->update(['retired_at' => $now]);
+                }
+                foreach ($updates as [$session, $endAt]) {
+                    $session->update(['end_at' => $endAt]);
+                }
+            } else {
+                $this->archiveCurrentSessions($assignment);
+            }
+            $assignment->fill([
+                'shift_template_id' => null,
+                'template_name' => $data['name'] ?? 'Shift khusus',
+                'template_type' => count($next) > 1 ? 'special' : 'regular',
+                'rules_version' => 2,
+                'status' => $assignment->status === 'CANCELLED' ? 'DRAFT' : ($assignment->status ?: 'DRAFT'),
+                'revision' => $revision,
+            ])->save();
+            if ($create) {
+                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'schedule_revision' => $revision], $create));
+            }
+            Audit::log('schedule.custom_updated', $assignment, $before, [
+                'reason' => $reason,
+                'assignment' => $assignment->load('sessions')->toArray(),
+            ]);
+
+            return $assignment->load('sessions');
         });
     }
 
@@ -136,13 +213,146 @@ class PublishSchedule
             'max_accuracy_meters' => $location->max_accuracy_meters,
         ] : null;
 
-        return $template->sessions->map(fn ($s) => [
+        $sessions = $template->sessions->map(fn ($s) => [
             'seq' => $s->seq,
-            'start_at' => WorkTime::at($workDate, substr($s->local_start, 0, 5)),
+            'start_at' => WorkTime::at($workDate, substr($s->local_start, 0, 5), $s->start_day_offset ?? 0),
             'end_at' => WorkTime::at($workDate, substr($s->local_end, 0, 5), $s->day_offset),
             'unpaid_break_minutes' => $s->unpaid_break_minutes,
             'policy_snapshot' => $policy,
         ])->all();
+
+        $this->assertCycleLimits($sessions);
+
+        return $sessions;
+    }
+
+    private function customSessions(Employee $employee, string $workDate, array $input): array
+    {
+        $policy = AttendancePolicy::resolveFor($employee, $workDate);
+        $location = $employee->workLocation;
+        $policy['location'] = $policy['use_location_check'] && $location?->mode === 'radius' ? [
+            'mode' => 'radius', 'latitude' => (float) $location->latitude, 'longitude' => (float) $location->longitude,
+            'radius_meters' => $location->radius_meters, 'max_accuracy_meters' => $location->max_accuracy_meters,
+        ] : null;
+
+        $sessions = array_map(function (array $row) use ($workDate, $policy) {
+            return [
+                'seq' => $row['seq'],
+                'id' => $row['id'] ?? null,
+                'start_at' => WorkTime::at($row['start_date'] ?? $workDate, $row['start_time']),
+                'end_at' => WorkTime::at($row['end_date'] ?? $workDate, $row['end_time']),
+                'unpaid_break_minutes' => (int) ($row['unpaid_break_minutes'] ?? 0),
+                'policy_snapshot' => $policy,
+            ];
+        }, $input);
+
+        usort($sessions, fn (array $a, array $b) => $a['seq'] <=> $b['seq']);
+        if (count($sessions) > 4) {
+            throw new BusinessRuleException('SESSION_INVALID', 'Satu siklus maksimal memiliki 4 sesi.', 422);
+        }
+        $previousEnd = null;
+        foreach ($sessions as $index => $session) {
+            $length = WorkTime::minutesBetween($session['start_at'], $session['end_at']);
+            if ($session['seq'] !== $index + 1 || $length <= 0 || $length > 720 || $session['unpaid_break_minutes'] >= $length
+                || ($previousEnd && $session['start_at']->lt($previousEnd))) {
+                throw new BusinessRuleException('SESSION_INVALID', 'Urutan, durasi, atau istirahat sesi tidak valid.');
+            }
+            $previousEnd = $session['end_at'];
+        }
+        if ($sessions[0]['start_at']->setTimezone(WorkTime::tz())->toDateString() !== $workDate) {
+            throw new BusinessRuleException('WORK_DATE_MISMATCH', 'Tanggal kerja harus tanggal mulai sesi pertama.');
+        }
+
+        $this->assertCycleLimits($sessions);
+
+        return $sessions;
+    }
+
+    private function assertCycleLimits(array $sessions): void
+    {
+        if ($sessions === []) {
+            throw new BusinessRuleException('SESSION_INVALID', 'Siklus harus memiliki setidaknya satu sesi.', 422);
+        }
+        $previousEnd = null;
+        foreach (array_values($sessions) as $index => $session) {
+            if ($session['seq'] !== $index + 1 || ($previousEnd && $session['start_at']->lt($previousEnd))) {
+                throw new BusinessRuleException('SESSION_INVALID', 'Urutan sesi tidak valid atau saling bertabrakan.', 422);
+            }
+            $previousEnd = $session['end_at'];
+        }
+        $first = $sessions[0]['start_at'];
+        $last = $sessions[array_key_last($sessions)]['end_at'];
+        if ($last->lte($first)) {
+            throw new BusinessRuleException('SESSION_INVALID', 'Sesi terakhir harus berakhir setelah sesi pertama dimulai.');
+        }
+        $scheduled = array_sum(array_map(fn (array $session) => max(0, intdiv($session['end_at']->getTimestamp() - $session['start_at']->getTimestamp(), 60) - $session['unpaid_break_minutes']), $sessions));
+        if ($scheduled > 720) {
+            throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 12 jam.');
+        }
+        if ($last->getTimestamp() - $first->getTimestamp() > 13 * 60 * 60) {
+            throw new BusinessRuleException('CYCLE_SPAN_LIMIT', 'Rentang satu siklus maksimal 13 jam.');
+        }
+    }
+
+    private function reconcileRunningSessions($current, array $input, CarbonImmutable $now): array
+    {
+        $kept = [];
+        $updates = [];
+        $keptIds = [];
+
+        foreach ($current as $existing) {
+            $record = $existing->attendanceRecord;
+            $finished = $existing->end_at->lte($now) || $record?->check_out_at || $record?->provisional_out_at;
+            $started = $existing->start_at->lte($now) || $record?->check_in_at;
+            if (! $started) {
+                continue;
+            }
+
+            $row = collect($input)->first(fn (array $candidate) => ($candidate['id'] ?? null) === $existing->id);
+            if (! $row || $row['start_at']->ne($existing->start_at) || $row['unpaid_break_minutes'] !== $existing->unpaid_break_minutes) {
+                throw new BusinessRuleException('SCHEDULE_HISTORY_LOCKED', 'Sesi yang sudah dimulai harus dipertahankan.');
+            }
+            if ($row['seq'] !== $existing->seq) {
+                throw new BusinessRuleException('SCHEDULE_HISTORY_LOCKED', 'Urutan sesi yang sudah dimulai harus dipertahankan.');
+            }
+            if ($finished && $row['end_at']->ne($existing->end_at)) {
+                throw new BusinessRuleException('SCHEDULE_HISTORY_LOCKED', 'Sesi yang sudah selesai tidak boleh diubah.');
+            }
+            if (! $finished && $row['end_at']->ne($existing->end_at)) {
+                if ($row['end_at']->lte($now) || ($record?->check_in_at && $row['end_at']->lte($record->check_in_at))) {
+                    throw new BusinessRuleException('SESSION_END_INVALID', 'Akhir sesi aktif harus setelah waktu sekarang dan setelah check-in.');
+                }
+                $updates[] = [$existing, $row['end_at']];
+            }
+
+            $keptIds[] = $existing->id;
+            $kept[] = [
+                'id' => $existing->id, 'seq' => $existing->seq, 'start_at' => $existing->start_at,
+                'end_at' => $row['end_at'], 'unpaid_break_minutes' => $existing->unpaid_break_minutes,
+                'policy_snapshot' => $existing->policy_snapshot,
+            ];
+        }
+
+        $created = [];
+        foreach ($input as $row) {
+            if (! $row['id'] || ! in_array($row['id'], $keptIds, true)) {
+                if ($row['start_at']->lte($now)) {
+                    throw new BusinessRuleException('SESSION_STARTED', 'Sesi baru harus dimulai di masa depan.');
+                }
+                unset($row['id']);
+                $created[] = $row;
+            }
+        }
+
+        return [$kept, $created, $updates];
+    }
+
+    private function archiveCurrentSessions(?ShiftAssignment $assignment): void
+    {
+        if (! $assignment?->exists) {
+            return;
+        }
+        $assignment->sessions()->update(['retired_at' => WorkTime::now()]);
     }
 
     private function assertEmployed(Employee $employee, string $workDate): void
@@ -150,6 +360,12 @@ class PublishSchedule
         $outside = $workDate < $employee->started_on || ($employee->ended_on && $workDate > $employee->ended_on);
         if ($employee->status !== 'active' || $outside) {
             throw new BusinessRuleException('EMPLOYEE_INACTIVE', "{$employee->name} tidak aktif bekerja pada {$workDate}.");
+        }
+
+        $term = EmploymentTerm::query()->where('employee_id', $employee->id)
+            ->where('starts_on', '<=', $workDate)->orderByDesc('starts_on')->first();
+        if ($term && ($workDate < $term->starts_on->format('Y-m-d') || ($term->type === 'contract' && $term->ends_on && $workDate > $term->ends_on->format('Y-m-d')))) {
+            throw new BusinessRuleException('EMPLOYEE_CONTRACT_EXPIRED', "{$employee->name} tidak memiliki kontrak aktif pada {$workDate}.");
         }
     }
 

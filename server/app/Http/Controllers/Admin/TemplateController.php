@@ -77,31 +77,51 @@ class TemplateController extends Controller
         if ($data['type'] === 'regular' && count($data['sessions']) !== 1) {
             throw ValidationException::withMessages(['sessions' => 'Shift reguler hanya punya 1 sesi.']);
         }
+        if ($data['type'] === 'special' && count($data['sessions']) < 2) {
+            throw ValidationException::withMessages(['sessions' => 'Shift split minimal memiliki 2 sesi.']);
+        }
 
         $sessions = [];
         $previousEnd = -1;
+        $totalWorkMinutes = 0;
         foreach (array_values($data['sessions']) as $i => $row) {
             $start = $this->minutes($row['local_start']);
             $end = $this->minutes($row['local_end']);
-            $offset = $end <= $start ? 1 : 0;
-            $length = $end + $offset * 1440 - $start;
+            $startOffset = (int) ($row['start_day_offset'] ?? 0);
+            $offset = isset($row['day_offset']) ? (int) $row['day_offset'] : $startOffset + ($end <= $start ? 1 : 0);
+            $absoluteStart = $start + $startOffset * 1440;
+            $absoluteEnd = $end + $offset * 1440;
+            $length = $absoluteEnd - $absoluteStart;
             $break = (int) ($row['unpaid_break_minutes'] ?? 0);
 
-            if ($start < $previousEnd) {
+            if (($i === 0 && $startOffset !== 0) || $startOffset > 1 || $offset > 2 || $length <= 0) {
+                throw ValidationException::withMessages(["sessions.{$i}.local_end" => 'Urutan hari pada sesi tidak valid.']);
+            }
+            if ($absoluteStart < $previousEnd) {
                 throw ValidationException::withMessages(["sessions.{$i}.local_start" => 'Sesi '.($i + 1).' bertabrakan dengan sesi sebelumnya.']);
             }
-            if ($length > 16 * 60) {
-                throw ValidationException::withMessages(["sessions.{$i}.local_end" => 'Satu sesi paling lama 16 jam.']);
+            if ($length > 12 * 60) {
+                throw ValidationException::withMessages(["sessions.{$i}.local_end" => 'Satu sesi paling lama 12 jam.']);
             }
             if ($break >= $length) {
                 throw ValidationException::withMessages(["sessions.{$i}.unpaid_break_minutes" => 'Istirahat harus lebih pendek dari sesi.']);
             }
-            if ($offset && $i < count($data['sessions']) - 1) {
-                throw ValidationException::withMessages(["sessions.{$i}.local_end" => 'Sesi yang lewat tengah malam harus jadi sesi terakhir.']);
-            }
+            $previousEnd = $absoluteEnd;
+            $totalWorkMinutes += $length - $break;
+            $sessions[] = ['seq' => $i + 1, 'local_start' => $row['local_start'], 'local_end' => $row['local_end'], 'start_day_offset' => $startOffset, 'day_offset' => $offset, 'unpaid_break_minutes' => $break];
+        }
 
-            $previousEnd = $end + $offset * 1440;
-            $sessions[] = ['seq' => $i + 1, 'local_start' => $row['local_start'], 'local_end' => $row['local_end'], 'day_offset' => $offset, 'unpaid_break_minutes' => $break];
+        $firstStart = $this->minutes($data['sessions'][0]['local_start']) + ((int) ($data['sessions'][0]['start_day_offset'] ?? 0)) * 1440;
+        $last = $data['sessions'][array_key_last($data['sessions'])];
+        $lastEnd = $this->minutes($last['local_end']) + (isset($last['day_offset']) ? (int) $last['day_offset'] : ((int) ($last['start_day_offset'] ?? 0) + ($this->minutes($last['local_end']) <= $this->minutes($last['local_start']) ? 1 : 0))) * 1440;
+        if ($lastEnd - $firstStart > 24 * 60) {
+            throw ValidationException::withMessages(['sessions' => 'Rentang shift maksimal 24 jam.']);
+        }
+        if ($totalWorkMinutes > 12 * 60) {
+            throw ValidationException::withMessages(['sessions' => 'Total kerja satu shift maksimal 12 jam.']);
+        }
+        if ($data['type'] === 'special' && count($sessions) > 4) {
+            throw ValidationException::withMessages(['sessions' => 'Shift split maksimal memiliki 4 sesi.']);
         }
 
         unset($data['sessions']);
