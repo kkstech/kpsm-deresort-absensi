@@ -145,3 +145,9 @@ Tes tetap memakai SQLite `:memory:` dan tidak mengubah file database lokal.
 - CI menambahkan typecheck app mobile; job yang sudah ada menjalankan suite Laravel, build frontend, migrasi MySQL 8.4, build/push GHCR, dan deployment Dokploy bila secret tersedia.
 - Verifikasi lokal: `php artisan test` lulus 64 tes / 407 assertion; `npm run build` lulus; `mobile/npm run typecheck` lulus; `vendor/bin/pint --dirty --format agent` lulus; `git diff --check` bersih. Vite membiarkan referensi font `/fonts/*.ttf` untuk resolusi runtime; file tersebut tetap ada di `server/public/fonts`.
 - Migrasi MySQL dan build native iOS/Android belum dijalankan secara lokal. Percobaan mengambil versi Expo modules yang cocok dengan SDK 56 terhenti karena DNS registry npm (`ENOTFOUND`); package mobile saat ini masih perlu penyelarasan versi native sebelum build store. CI menguji TypeScript, bukan menghasilkan binary native.
+
+## Pemakaian mobile bersamaan (25 Oktober 2026)
+
+- Token tetap terikat pada kombinasi akun dan perangkat. Satu akun dapat aktif dari beberapa perangkat; login paralel untuk akun yang sama diserialkan dengan row lock agar pendaftaran perangkat dan pergantian token pada perangkat yang sama tidak saling bertabrakan.
+- Tes memastikan dua perangkat pada satu akun dan dua karyawan berbeda dapat memakai API bersamaan. `403` tetap dipakai untuk penolakan akses nyata seperti akun nonaktif, sesi karyawan lain, atau `device_id` yang tidak cocok.
+- Verifikasi: `php artisan test` lulus 66 tes / 420 assertion; Pint lulus.

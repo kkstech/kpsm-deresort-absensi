@@ -35,6 +35,14 @@ class AuthController extends Controller
         }
 
         $token = DB::transaction(function () use ($user, $data) {
+            $user = User::query()->lockForUpdate()->findOrFail($user->id);
+            if (! $user->is_active) {
+                throw new BusinessRuleException('ACCOUNT_INACTIVE', 'Akun tidak aktif.', 403);
+            }
+            if (! $user->employee()->exists()) {
+                throw new BusinessRuleException('NO_EMPLOYEE', 'Akun ini belum terhubung ke data karyawan.', 403);
+            }
+
             $device = DeviceRegistration::query()->updateOrCreate(
                 ['user_id' => $user->id, 'device_uuid' => $data['device_uuid']],
                 ['name' => $data['device_name'] ?? null, 'last_seen_at' => now(), 'revoked_at' => null],
