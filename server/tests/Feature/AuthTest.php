@@ -62,6 +62,48 @@ class AuthTest extends TestCase
         $this->assertSame(0, $user->tokens()->count());
     }
 
+    public function test_employee_can_use_mobile_api_on_multiple_devices_at_once(): void
+    {
+        $user = $this->employeeUser();
+        $credentials = ['email' => $user->email, 'password' => 'password'];
+
+        $firstToken = $this->postJson('/api/v1/auth/login', [...$credentials, 'device_uuid' => 'phone-1'])
+            ->assertOk()->json('token');
+        $secondToken = $this->postJson('/api/v1/auth/login', [...$credentials, 'device_uuid' => 'tablet-1'])
+            ->assertOk()->json('token');
+
+        $this->assertSame(2, $user->tokens()->count());
+        $this->withToken($firstToken)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $user->id);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($secondToken)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $user->id);
+    }
+
+    public function test_different_employees_can_use_mobile_api_at_the_same_time(): void
+    {
+        $firstUser = $this->employeeUser();
+        $secondUser = User::factory()->create();
+        Employee::query()->create([
+            'code' => 'EMP-002',
+            'name' => $secondUser->name,
+            'user_id' => $secondUser->id,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'),
+        ]);
+
+        $firstToken = $this->postJson('/api/v1/auth/login', [
+            'email' => $firstUser->email, 'password' => 'password', 'device_uuid' => 'employee-phone-1',
+        ])->assertOk()->json('token');
+        $secondToken = $this->postJson('/api/v1/auth/login', [
+            'email' => $secondUser->email, 'password' => 'password', 'device_uuid' => 'employee-phone-2',
+        ])->assertOk()->json('token');
+
+        $this->withToken($firstToken)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $firstUser->id);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($secondToken)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $secondUser->id);
+    }
+
     public function test_mobile_errors_use_one_json_shape(): void
     {
         $user = $this->employeeUser();

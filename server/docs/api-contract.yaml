@@ -5,6 +5,8 @@ info:
   description: |
     Contract for the mobile schedule and attendance endpoints implemented through stage 4.
     All timestamps are ISO 8601 instants; server timestamps are returned in UTC.
+    Separate device UUIDs may remain signed in for the same employee at the same time.
+    Re-login on one device replaces only that device's token.
 servers:
   - url: /api/v1
 security:
