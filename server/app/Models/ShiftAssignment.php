@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'template_name', 'template_type', 'status', 'revision', 'published_at', 'created_by'])]
+#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'template_name', 'template_type', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
 class ShiftAssignment extends Model
 {
     public const ACTIVE = ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'COMPLETED'];
@@ -25,14 +25,26 @@ class ShiftAssignment extends Model
 
     public function sessions(): HasMany
     {
-        return $this->hasMany(ShiftSession::class)->orderBy('seq');
+        return $this->hasMany(ShiftSession::class)->whereNull('retired_at')->orderBy('seq');
+    }
+
+    public function sessionHistory(): HasMany
+    {
+        return $this->hasMany(ShiftSession::class)->orderBy('schedule_revision')->orderBy('seq');
     }
 
     public function syncAttendanceStatus(): void
     {
         $sessionIds = $this->sessions()->pluck('id');
-        $closed = AttendanceRecord::query()->whereIn('shift_session_id', $sessionIds)
-            ->where(fn ($query) => $query->whereNotNull('check_out_at')->orWhereNotNull('provisional_out_at'))->count();
+        $sessions = $this->sessions()->get();
+        $now = WorkTime::now();
+        $closed = 0;
+        foreach ($sessions as $session) {
+            $record = AttendanceRecord::query()->where('shift_session_id', $session->id)->first();
+            if (($record && ($record->check_out_at || $record->provisional_out_at)) || (! $record && $session->end_at->lte($now))) {
+                $closed++;
+            }
+        }
         $status = $sessionIds->isNotEmpty() && $closed === $sessionIds->count() ? 'COMPLETED' : 'IN_PROGRESS';
 
         if ($this->status !== $status && in_array($this->status, ['PUBLISHED', 'IN_PROGRESS'], true)) {
@@ -53,16 +65,36 @@ class ShiftAssignment extends Model
             'template_type' => $this->template_type,
             'status' => $this->status,
             'revision' => $this->revision,
+            'rules_version' => $this->rules_version,
+            'scheduled_minutes' => $this->sessions->sum(fn (ShiftSession $session) => $session->scheduledMinutes()),
             'editable' => in_array($this->status, ['DRAFT', 'PUBLISHED'], true) && $this->sessions->first()?->start_at->gt($now),
+            'sessions_editable' => in_array($this->status, ['PUBLISHED', 'IN_PROGRESS'], true)
+                && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
             'sessions' => $this->sessions->map(fn (ShiftSession $s) => [
                 'id' => $s->id,
                 'seq' => $s->seq,
                 'start_at' => WorkTime::iso($s->start_at),
                 'end_at' => WorkTime::iso($s->end_at),
+                'local_start_date' => WorkTime::local($s->start_at)->toDateString(),
+                'local_start_time' => WorkTime::local($s->start_at)->format('H:i'),
+                'local_end_date' => WorkTime::local($s->end_at)->toDateString(),
+                'local_end_time' => WorkTime::local($s->end_at)->format('H:i'),
                 'local_start' => WorkTime::clock($s->start_at, $this->work_date),
                 'local_end' => WorkTime::clock($s->end_at, $this->work_date),
                 'unpaid_break_minutes' => $s->unpaid_break_minutes,
                 'scheduled_minutes' => $s->scheduledMinutes(),
+                'attendance_policy' => [
+                    'location_required' => (bool) ($s->policy_snapshot['use_location_check'] ?? false),
+                    'max_accuracy_meters' => $s->policy_snapshot['location']['max_accuracy_meters'] ?? null,
+                    'late_permission_proof_required' => (bool) ($s->policy_snapshot['late_permission_proof_required'] ?? false),
+                    'correction_proof_required' => (bool) ($s->policy_snapshot['correction_proof_required'] ?? false),
+                ],
+                'attendance_window' => [
+                    'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(config('attendance.checkin_early_minutes'))),
+                    'check_in_closes_at' => WorkTime::iso($s->end_at),
+                    'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
+                    'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
+                ],
             ])->all(),
         ];
     }
@@ -72,6 +104,7 @@ class ShiftAssignment extends Model
         return [
             'published_at' => 'datetime',
             'revision' => 'integer',
+            'rules_version' => 'integer',
         ];
     }
 }

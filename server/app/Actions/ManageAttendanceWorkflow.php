@@ -271,6 +271,7 @@ class ManageAttendanceWorkflow
                 'verified_by' => $actor->id,
             ]);
             $session->assignment->syncAttendanceStatus();
+            app(CalculateCycleAllowance::class)->refresh($session->assignment);
             Audit::log('attendance.checkout.verified', $record, $before, [...$this->recordSnapshot($record), 'verification_reason' => $reason]);
 
             return $record->fresh();
@@ -425,6 +426,7 @@ class ManageAttendanceWorkflow
             'verified_by' => $checkOut ? $actor->id : null,
         ])->save();
         $session->assignment->syncAttendanceStatus();
+        app(CalculateCycleAllowance::class)->refresh($session->assignment);
 
         return $record;
     }

@@ -4,8 +4,10 @@ import { showEmployees } from './admin/employees';
 import { focusEmployee, initSchedule, showSchedule } from './admin/schedule';
 import { showSettings } from './admin/settings';
 import { initAttendance, showApprovals, showDashboard, showMonitoring } from './admin/attendance';
+import { showLeaves } from './admin/leaves';
+import { showAllowances } from './admin/allowances';
 
-const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, settings: showSettings };
+const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, leaves: showLeaves, allowances: showAllowances, settings: showSettings };
 const canSee = (el) => ({
     web_admin: ['super_admin', 'admin', 'supervisor'].includes(role),
     admin: role === 'admin' || role === 'super_admin',

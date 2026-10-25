@@ -1,16 +1,19 @@
 <?php
 
+use App\Http\Controllers\Admin\AllowanceController;
 use App\Http\Controllers\Admin\AttendanceMonitoringController;
 use App\Http\Controllers\Admin\AttendanceWorkflowController;
-use App\Http\Controllers\AttendanceAttachmentController;
 use App\Http\Controllers\Admin\CatalogController;
 use App\Http\Controllers\Admin\EmployeeController;
+use App\Http\Controllers\Admin\EmployeeLevelController;
+use App\Http\Controllers\Admin\LeaveController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\SiteSettingController;
 use App\Http\Controllers\Admin\TemplateController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\AttendanceAttachmentController;
 use App\Http\Controllers\Auth\WebAuthController;
 use Illuminate\Support\Facades\Route;
 
@@ -53,9 +56,39 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::post('employees/{employee}/account', [EmployeeController::class, 'account']);
         Route::post('employees/{employee}/deactivate', [EmployeeController::class, 'deactivate']);
         Route::post('employees/{employee}/revoke-devices', [EmployeeController::class, 'revokeDevices']);
+        Route::post('employees/{employee}/employment', [EmployeeController::class, 'setEmployment']);
+        Route::get('employees/{employee}/levels', [EmployeeLevelController::class, 'history']);
+        Route::post('employee-levels/{employee}/assign', [EmployeeLevelController::class, 'assign']);
+        Route::get('employment-alerts', [EmployeeController::class, 'employmentAlerts']);
+
+        Route::get('employee-levels', [EmployeeLevelController::class, 'index']);
+        Route::post('employee-levels', [EmployeeLevelController::class, 'store']);
+        Route::put('employee-levels/{level}', [EmployeeLevelController::class, 'update']);
+        Route::delete('employee-levels/{level}', [EmployeeLevelController::class, 'destroy']);
+
+        Route::get('allowance-policies', [AllowanceController::class, 'policies']);
+        Route::post('allowance-policies/preview', [AllowanceController::class, 'previewPolicy']);
+        Route::post('allowance-policies', [AllowanceController::class, 'storePolicy']);
+        Route::get('allowance-overrides', [AllowanceController::class, 'overrides']);
+        Route::post('allowance-overrides/preview', [AllowanceController::class, 'previewOverride']);
+        Route::post('allowance-overrides', [AllowanceController::class, 'storeOverride']);
+        Route::get('allowances', [AllowanceController::class, 'recap']);
+
+        Route::get('leave-settings', [LeaveController::class, 'settings']);
+        Route::get('leave-balances', [LeaveController::class, 'balances']);
+        Route::put('leave-settings', [LeaveController::class, 'updateSettings']);
+        Route::post('leave-settings/confirm', [LeaveController::class, 'confirmOpening']);
+        Route::post('leave-quota/{employee}/adjustments', [LeaveController::class, 'adjust']);
+        Route::get('leaves', [LeaveController::class, 'index']);
+        Route::post('leaves/direct', [LeaveController::class, 'direct']);
+        Route::post('leaves/{leave}/decision', [LeaveController::class, 'decide']);
+        Route::post('leaves/{leave}/cancel-approved', [LeaveController::class, 'cancelApproved']);
 
         Route::get('schedule', [ScheduleController::class, 'index']);
+        Route::post('schedule/swap/preview', [ScheduleController::class, 'previewSwap']);
+        Route::post('schedule/swap', [ScheduleController::class, 'swap']);
         Route::post('schedule', [ScheduleController::class, 'store']);
+        Route::patch('schedule/{assignment}/sessions', [ScheduleController::class, 'updateSessions']);
         Route::delete('schedule/{assignment}', [ScheduleController::class, 'destroy']);
         Route::post('schedule/publish', [ScheduleController::class, 'publish']);
         Route::post('schedule/copy-week', [ScheduleController::class, 'copyWeek']);

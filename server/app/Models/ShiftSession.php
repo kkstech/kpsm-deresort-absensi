@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['shift_assignment_id', 'seq', 'start_at', 'end_at', 'unpaid_break_minutes', 'policy_snapshot'])]
+#[Fillable(['shift_assignment_id', 'seq', 'start_at', 'end_at', 'unpaid_break_minutes', 'policy_snapshot', 'schedule_revision', 'retired_at'])]
 class ShiftSession extends Model
 {
     public function assignment(): BelongsTo
@@ -39,6 +39,8 @@ class ShiftSession extends Model
             'end_at' => 'immutable_datetime',
             'unpaid_break_minutes' => 'integer',
             'policy_snapshot' => 'array',
+            'schedule_revision' => 'integer',
+            'retired_at' => 'immutable_datetime',
         ];
     }
 }

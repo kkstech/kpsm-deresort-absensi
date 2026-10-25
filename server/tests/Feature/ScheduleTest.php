@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Actions\RecordAttendance;
 use App\Models\AttendancePeriod;
+use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\Employee;
 use App\Models\Position;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
@@ -40,6 +43,129 @@ class ScheduleTest extends TestCase
             ->assertJsonPath('data.sessions.0.scheduled_minutes', 480);
     }
 
+    public function test_custom_cycle_allows_up_to_four_sessions_across_midnight(): void
+    {
+        $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split malam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '22:00', 'end_date' => '2026-10-26', 'end_time' => '02:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '04:00', 'end_date' => '2026-10-26', 'end_time' => '08:00'],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.rules_version', 2)
+            ->assertJsonPath('data.template_type', 'special')
+            ->assertJsonPath('data.sessions.0.local_end', '02.00 (+1)')
+            ->assertJsonPath('data.scheduled_minutes', 480);
+    }
+
+    public function test_custom_cycle_cannot_span_more_than_thirteen_hours(): void
+    {
+        $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split melewati batas siklus',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '20:00', 'end_date' => '2026-10-26', 'end_time' => '00:01'],
+            ],
+        ])->assertStatus(409)->assertJsonPath('code', 'CYCLE_SPAN_LIMIT');
+    }
+
+    public function test_running_cycle_edit_keeps_attended_session_and_retires_stale_future_session(): void
+    {
+        $created = $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '10:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '16:00'],
+            ],
+        ])->assertCreated();
+        $assignmentId = $created->json('data.id');
+        $firstId = $created->json('data.sessions.0.id');
+        $staleId = $created->json('data.sessions.1.id');
+        $this->postJson('/admin/api/schedule/publish', ['from' => '2026-10-25', 'to' => '2026-10-25'])->assertOk();
+        $this->travelTo('2026-10-25 05:30:00');
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $firstId, 'employee_id' => $this->employee->id,
+            'check_in_at' => '2026-10-25 03:00:00', 'check_out_at' => '2026-10-25 05:00:00',
+            'status' => 'COMPLETE', 'verified_minutes' => 120,
+        ]);
+        $assignment = ShiftAssignment::query()->findOrFail($assignmentId);
+        $assignment->update(['status' => 'IN_PROGRESS']);
+
+        $response = $this->patchJson("/admin/api/schedule/{$assignmentId}/sessions", [
+            'expected_revision' => 1,
+            'reason' => 'Operasional berubah',
+            'sessions' => [
+                ['id' => $firstId, 'seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '10:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['id' => $staleId, 'seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '14:00', 'end_date' => '2026-10-25', 'end_time' => '18:00'],
+            ],
+        ])->assertOk()->assertJsonPath('data.revision', 2);
+
+        $newId = $response->json('data.sessions.1.id');
+        $this->assertNotSame($staleId, $newId);
+        $this->assertDatabaseHas('shift_sessions', ['id' => $firstId, 'retired_at' => null]);
+        $this->assertDatabaseHas('shift_sessions', ['id' => $staleId]);
+        $this->assertNotNull(ShiftSession::query()->findOrFail($staleId)->retired_at);
+
+        $result = app(RecordAttendance::class)->handle($this->employee, [
+            'event_uuid' => '44444444-4444-4444-8444-444444444444',
+            'shift_session_id' => $staleId,
+            'event_type' => 'CHECK_IN',
+            'device_id' => 'stale-phone',
+            'captured_offline' => false,
+        ]);
+        $this->assertSame('SCHEDULE_CHANGED', $result['data']['reason_code']);
+        $this->assertSame('REJECTED', $result['data']['status']);
+    }
+
+    public function test_schedule_swap_requires_preview_and_keeps_slot_sessions_audited(): void
+    {
+        $other = $this->makeEmployee('FO-2', 'Front Office');
+        $first = $this->assign('2026-10-26', 'Reguler')->assertCreated()->json('data');
+        $second = $this->assign('2026-10-26', 'Reguler', $other)->assertCreated()->json('data');
+        $moves = [
+            ['assignment_id' => $first['id'], 'expected_revision' => $first['revision'], 'to_employee_id' => $other->id],
+            ['assignment_id' => $second['id'], 'expected_revision' => $second['revision'], 'to_employee_id' => $this->employee->id],
+        ];
+
+        $preview = $this->postJson('/admin/api/schedule/swap/preview', ['moves' => $moves])
+            ->assertOk()->assertJsonPath('can_commit', true);
+        $oldSessionIds = [$first['sessions'][0]['id'], $second['sessions'][0]['id']];
+        $this->postJson('/admin/api/schedule/swap', [
+            'moves' => $moves, 'preview_token' => $preview->json('preview_token'), 'reason' => 'Tukar atas permintaan karyawan',
+        ])->assertOk()->assertJsonCount(2, 'data');
+
+        $this->assertDatabaseHas('shift_assignments', ['id' => $first['id'], 'employee_id' => $other->id, 'revision' => 2]);
+        $this->assertDatabaseHas('shift_assignments', ['id' => $second['id'], 'employee_id' => $this->employee->id, 'revision' => 2]);
+        foreach ($oldSessionIds as $sessionId) {
+            $this->assertNotNull(ShiftSession::query()->findOrFail($sessionId)->retired_at);
+        }
+        $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.swap_chain_completed']);
+    }
+
+    public function test_swap_preview_requires_an_explicit_decision_for_unfilled_cycle(): void
+    {
+        $target = $this->makeEmployee('FIN-2', 'Finance');
+        $schedule = $this->assign('2026-10-26', 'Reguler')->assertCreated()->json('data');
+        $moves = [['assignment_id' => $schedule['id'], 'expected_revision' => $schedule['revision'], 'to_employee_id' => $target->id]];
+
+        $this->postJson('/admin/api/schedule/swap/preview', ['moves' => $moves])
+            ->assertOk()->assertJsonPath('can_commit', false)->assertJsonPath('vacancies.0.employee_id', $this->employee->id);
+        $decision = ['employee_id' => $this->employee->id, 'work_date' => '2026-10-26', 'action' => 'roster_off', 'reason' => 'Karyawan libur sesuai roster'];
+        $ready = $this->postJson('/admin/api/schedule/swap/preview', ['moves' => $moves, 'vacancy_decisions' => [$decision], 'confirm_cross_unit' => true])
+            ->assertOk()->assertJsonPath('can_commit', true);
+
+        $this->postJson('/admin/api/schedule/swap', [
+            'moves' => $moves, 'vacancy_decisions' => [$decision], 'confirm_cross_unit' => true, 'preview_token' => $ready->json('preview_token'), 'reason' => 'Permintaan tukar shift',
+        ])->assertOk();
+        $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.roster_off_recorded']);
+    }
+
     public function test_scheduled_minutes_follow_prd_examples(): void
     {
         $this->assign('2026-10-25', 'Reguler')->assertJsonPath('data.sessions.0.scheduled_minutes', 480);
@@ -65,7 +191,8 @@ class ScheduleTest extends TestCase
         $this->assign('2026-10-25', 'Reguler');
         $this->assign('2026-10-25', 'Khusus 3 sesi')->assertCreated()->assertJsonPath('data.revision', 2);
         $this->assertSame(1, ShiftAssignment::query()->count());
-        $this->assertDatabaseCount('shift_sessions', 3);
+        $this->assertDatabaseCount('shift_sessions', 4);
+        $this->assertSame(3, ShiftAssignment::query()->first()->sessions()->count());
     }
 
     public function test_started_schedule_is_locked(): void

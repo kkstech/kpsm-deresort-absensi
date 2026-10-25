@@ -36,8 +36,8 @@ class MasterDataSeeder extends Seeder
         ]);
         $this->template('special', 'Khusus 3 sesi', [
             ['seq' => 1, 'local_start' => '06:00', 'local_end' => '09:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
-            ['seq' => 2, 'local_start' => '12:00', 'local_end' => '15:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
-            ['seq' => 3, 'local_start' => '18:00', 'local_end' => '21:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
+            ['seq' => 2, 'local_start' => '11:00', 'local_end' => '14:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
+            ['seq' => 3, 'local_start' => '16:00', 'local_end' => '19:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
         ]);
 
         AttendancePolicy::query()->firstOrCreate(

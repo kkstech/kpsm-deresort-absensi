@@ -169,6 +169,10 @@ main:focus { outline: none; }
 
 /* Dialog */
 .app-dialog { position: fixed; inset: 0; width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); margin: auto; padding: 0; overflow: hidden; border: 0; border-radius: 16px; color: var(--ink); box-shadow: var(--shadow); }
+.schedule-swap-dialog { width: min(760px, calc(100vw - 32px)); }
+.schedule-swap-row, .schedule-swap-vacancy { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.schedule-swap-vacancy { margin-top: 10px; }
+.schedule-swap-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
 .app-dialog::backdrop { background: rgba(11, 27, 19, .55); }
 .app-dialog > form { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: inherit; gap: 0; padding: 0; }
 .modal-heading { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding: 20px 24px 16px; }
@@ -363,7 +367,8 @@ main:focus { outline: none; }
 .toolbar input { flex: 1 1 220px; }
 .toolbar select { flex: 1 1 160px; }
 .tabs { display: flex; gap: 4px; margin-bottom: 16px; overflow-x: auto; }
-.tabs button { flex: 0 0 auto; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 14px; font-weight: 700; }
+.tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 14px; font-weight: 700; white-space: nowrap; }
+.tabs .icon { width: 16px; height: 16px; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tabs button:hover { color: var(--ink); }
 .tabs button[aria-selected="true"] { color: #fff; border-color: var(--primary); background: var(--primary); }
 #settings-table, #employee-table { padding: 0 20px; }
@@ -384,8 +389,15 @@ main:focus { outline: none; }
 .sessions-field { display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
 .sessions-field legend { padding: 0 4px; font-size: 13px; font-weight: 700; }
 .session-rows { display: grid; gap: 8px; }
-.session-row { display: grid; grid-template-columns: 1fr 1fr 1fr 44px; align-items: end; gap: 8px; }
+.schedule-session-rows { display: grid; gap: 8px; margin: 12px 0; }
+.session-row { display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)) 44px; align-items: end; gap: 8px; }
+.schedule-session-row { grid-template-columns: repeat(5, minmax(110px, 1fr)) 44px; }
 .session-row label { font-size: 12px; }
+.leave-year-panel { margin-bottom: 16px; }
+.inline-settings-form { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) auto; align-items: end; gap: 12px; padding: 0 20px 20px; }
+.inline-settings-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.inline-settings-form input, #leave-status-filter { min-height: 44px; padding: 0 10px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
+.inline-settings-form .form-error { grid-column: 1 / -1; }
 
 @media (max-width: 760px) {
     #settings-table, #employee-table { padding: 0 16px; }
@@ -396,6 +408,7 @@ main:focus { outline: none; }
     .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--muted); font-size: 12px; }
     .data-table .row-actions { display: flex; flex-wrap: wrap; gap: 0 12px; text-align: left; white-space: normal; }
     .session-row { grid-template-columns: 1fr 1fr; }
+    .inline-settings-form { grid-template-columns: 1fr 1fr; padding: 0 16px 16px; }
 }
 
 .heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

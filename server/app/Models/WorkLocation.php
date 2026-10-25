@@ -6,6 +6,4 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable(['name', 'mode', 'latitude', 'longitude', 'radius_meters', 'max_accuracy_meters'])]
-class WorkLocation extends Model
-{
-}
+class WorkLocation extends Model {}

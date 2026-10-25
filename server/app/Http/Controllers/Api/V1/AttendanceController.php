@@ -43,6 +43,24 @@ class AttendanceController extends Controller
         return response()->json(['data' => $result['data']], $result['http']);
     }
 
+    public function eventReceipt(Request $request, string $uuid): JsonResponse
+    {
+        $employee = $this->employee($request);
+        $event = AttendanceEvent::query()->where('event_uuid', $uuid)->where('employee_id', $employee->id)->first();
+        if (! $event) {
+            return response()->json(['data' => null, 'received' => false], 404);
+        }
+
+        return response()->json(['received' => true, 'data' => [
+            'event_uuid' => $event->event_uuid,
+            'event_type' => $event->type,
+            'status' => $event->result,
+            'reason_code' => $event->reason_code,
+            'effective_at' => WorkTime::iso($event->effective_at),
+            'server_received_at' => WorkTime::iso($event->server_received_at),
+        ]]);
+    }
+
     public function sync(Request $request, RecordAttendance $attendance): JsonResponse
     {
         $batchInput = $request->validate([

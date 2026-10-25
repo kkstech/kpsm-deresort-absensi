@@ -58,6 +58,10 @@ class RecordAttendance
         $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)
             ?? $locationProblem
             ?? ($offline ? $this->offlineClockProblem($deviceAt, $now) : null);
+        if ($problem === null && $input['event_type'] === 'CHECK_IN' && $record?->check_in_at === null
+            && (int) $session->assignment->rules_version >= 2) {
+            $problem = app(AutoCheckoutAttendance::class)->closeExpiredBeforeNextCheckin($employee, $session->id, $now);
+        }
         $result = match (true) {
             $problem && ! $offline && ! str_starts_with($problem, 'GPS_ACCURACY') => 'REJECTED',
             $problem !== null, $offline => 'REVIEW_REQUIRED',
@@ -83,12 +87,14 @@ class RecordAttendance
         $nonProjectable = [
             'SCHEDULE_CANCELLED', 'SCHEDULE_NOT_PUBLISHED', 'PERIOD_LOCKED', 'ALREADY_CHECKED_IN',
             'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'OFFLINE_CLOCK_FUTURE', 'OFFLINE_TOO_OLD',
+            'SCHEDULE_CHANGED', 'OPEN_SESSION_EXISTS', 'PREVIOUS_PERIOD_LOCKED', 'AUTO_CHECKOUT_DUE',
         ];
         if ($result !== 'REJECTED' && ! in_array($problem, $nonProjectable, true)) {
             $record = $this->project($session, $event, $record, $result === 'REVIEW_REQUIRED');
             if ($event->type === 'CHECK_IN') {
                 $record = $this->reconcilePendingCheckout($session, $record);
             }
+            app(CalculateCycleAllowance::class)->refresh($session->assignment);
         }
 
         return ['http' => 201, 'data' => $this->response($event, $record)];
@@ -99,8 +105,22 @@ class RecordAttendance
         $assignment = $session->assignment;
         $early = config('attendance.checkin_early_minutes');
         $late = config('attendance.checkout_late_minutes');
+        $checkoutDeadline = $session->end_at->addMinutes($late);
+        if ((int) $assignment->rules_version >= 2) {
+            if ($assignment->template_type === 'regular') {
+                $checkoutDeadline = $record?->check_in_at?->addMinutes(13 * 60);
+            } else {
+                $firstCheckIn = $assignment->sessions()->with('attendanceRecord')->get()
+                    ->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
+                    ->filter()->sortBy(fn ($checkIn) => $checkIn->getTimestamp())->first();
+                $cycleDeadline = $firstCheckIn?->addMinutes(13 * 60);
+                $checkoutDeadline = $cycleDeadline && $cycleDeadline->lt($session->end_at->addMinutes(60))
+                    ? $cycleDeadline : $session->end_at->addMinutes(60);
+            }
+        }
 
         return match (true) {
+            $session->retired_at !== null => 'SCHEDULE_CHANGED',
             $assignment->status === 'CANCELLED' => 'SCHEDULE_CANCELLED',
             $assignment->status === 'DRAFT' => 'SCHEDULE_NOT_PUBLISHED',
             $this->periodLocked($assignment->work_date) => 'PERIOD_LOCKED',
@@ -108,7 +128,9 @@ class RecordAttendance
             $type === 'CHECK_IN' && ($at->lt($session->start_at->subMinutes($early)) || $at->gte($session->end_at)) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && $record?->check_in_at === null => 'NOT_CHECKED_IN',
             $type === 'CHECK_OUT' && $record?->check_out_at !== null => 'ALREADY_CHECKED_OUT',
-            $type === 'CHECK_OUT' && ($at->lte($record->check_in_at) || $at->gt($session->end_at->addMinutes($late))) => 'OUTSIDE_WINDOW',
+            $type === 'CHECK_OUT' && ($at->lte($record->check_in_at) || ($checkoutDeadline && $at->gt($checkoutDeadline))) => 'OUTSIDE_WINDOW',
+            $type === 'CHECK_OUT' && (int) $assignment->rules_version >= 2 && $assignment->template_type === 'regular'
+                && $at->gte($record->check_in_at->addMinutes(13 * 60)) => 'AUTO_CHECKOUT_DUE',
             default => null,
         };
     }

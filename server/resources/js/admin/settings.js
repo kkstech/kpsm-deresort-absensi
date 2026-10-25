@@ -6,7 +6,8 @@ const siteForm = $('#site-settings-form');
 const siteError = $('#site-settings-error');
 const opts = (list) => list.map((x) => ({ value: x.id, label: x.code ? `${x.name} (${x.code})` : x.name }));
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
-const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}–${hhmm(s.local_end)}${s.day_offset ? ' (+1)' : ''}`).join(', ');
+const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}${s.start_day_offset ? ' (+1)' : ''}–${hhmm(s.local_end)}${s.day_offset ? ` (+${s.day_offset})` : ''}`).join(', ');
+const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
 const roleLabel = { super_admin: 'Super Admin', admin: 'Admin', supervisor: 'Supervisor' };
 const scopeLabel = { global: 'Semua karyawan', department: 'Departemen', employee: 'Perorangan' };
 
@@ -29,8 +30,8 @@ const tabs = {
         ],
         fields: async () => [
             { name: 'name', label: 'Nama template', required: true, maxlength: 100 },
-            { name: 'type', label: 'Jenis', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi)' }, { value: 'special', label: 'Khusus (1 sampai 4 sesi)' }], default: 'regular' },
-            { name: 'sessions', label: 'Sesi kerja', type: 'sessions', hint: 'Jam selesai lebih kecil dari jam mulai berarti lewat tengah malam.' },
+            { name: 'type', label: 'Jenis', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi)' }, { value: 'special', label: 'Khusus (2 sampai 4 sesi)' }], default: 'regular' },
+            { name: 'sessions', label: 'Sesi kerja', type: 'sessions', hint: 'Tentukan hari mulai dan selesai untuk sesi yang melewati tengah malam.' },
         ],
         deletable: true,
     },
@@ -77,6 +78,55 @@ const tabs = {
             { name: 'max_accuracy_meters', label: 'Akurasi GPS terburuk yang diterima (meter)', type: 'number', min: 5, max: 1000, showIf: (v) => v.mode === 'radius' },
         ],
         deletable: true,
+    },
+    levels: {
+        title: 'Level karyawan', hint: 'Level terpisah dari jabatan dan menjadi dasar tarif tunjangan.', singular: 'level',
+        columns: [{ label: 'Nama level', cell: (x) => `<b>${esc(x.name)}</b><small>${esc(x.code)}</small>` }, { label: 'Karyawan', cell: (x) => esc(x.employees_count ?? 0) }],
+        fields: async () => [
+            { name: 'code', label: 'Kode level', required: true, maxlength: 32 },
+            { name: 'name', label: 'Nama level', required: true, maxlength: 100 },
+        ], deletable: true,
+    },
+    allowances: {
+        endpoint: 'allowance-policies', title: 'Tarif tunjangan', hint: 'Tarif efektif per level. Snapshot tarif dibuat saat siklus absensi dimulai.', singular: 'tarif', readOnly: true,
+        columns: [
+            { label: 'Level', cell: (x) => `<b>${esc(x.level?.name)}</b><small>${esc(x.level?.code)}</small>` },
+            { label: 'Makan', cell: (x) => `Rp ${Number(x.meal_amount).toLocaleString('id-ID')}` },
+            { label: 'Transport', cell: (x) => `Rp ${Number(x.transport_amount).toLocaleString('id-ID')}` },
+            { label: 'Berlaku', cell: (x) => `${esc(x.effective_from)}<small>${x.effective_to ? `sampai ${esc(x.effective_to)}` : 'selanjutnya'}</small>` },
+        ],
+        fields: async () => {
+            const levels = await lookup('employee-levels');
+            return [
+                { name: 'level_id', label: 'Level', type: 'select', numeric: true, required: true, blank: 'Pilih level', options: opts(levels) },
+                { name: 'meal_amount', label: 'Uang makan per siklus (rupiah)', type: 'number', min: 0, max: 100000000, required: true },
+                { name: 'transport_amount', label: 'Uang transport per siklus (rupiah)', type: 'number', min: 0, max: 100000000, required: true },
+                { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true, default: todayKey() },
+                { name: 'effective_to', label: 'Berlaku sampai', type: 'date' },
+                { name: 'retro_reason', label: 'Alasan perubahan surut', required: true, maxlength: 1000, showIf: (value) => value.effective_from && value.effective_from < todayKey() },
+            ];
+        }, preview: true, deletable: false,
+    },
+    'allowance-overrides': {
+        endpoint: 'allowance-overrides', title: 'Pengecualian individu', hint: 'Nilai yang kosong mengikuti tarif level. Setiap pengecualian memiliki alasan dan masa berlaku.', singular: 'pengecualian', readOnly: true,
+        columns: [
+            { label: 'Karyawan', cell: (x) => `<b>${esc(x.employee?.name)}</b><small>${esc(x.employee?.code)}</small>` },
+            { label: 'Makan', cell: (x) => x.meal_amount == null ? 'Tarif level' : `Rp ${Number(x.meal_amount).toLocaleString('id-ID')}` },
+            { label: 'Transport', cell: (x) => x.transport_amount == null ? 'Tarif level' : `Rp ${Number(x.transport_amount).toLocaleString('id-ID')}` },
+            { label: 'Berlaku', cell: (x) => `${esc(x.effective_from)}<small>${x.effective_to ? `sampai ${esc(x.effective_to)}` : 'selanjutnya'}</small>` },
+        ],
+        fields: async () => {
+            const employees = (await api('employees', { query: { status: 'active' } })).data;
+            return [
+                { name: 'employee_id', label: 'Karyawan', type: 'select', numeric: true, required: true, blank: 'Pilih karyawan', options: opts(employees, (x) => `${x.name} (${x.code})`) },
+                { name: 'meal_amount', label: 'Uang makan per siklus (kosong = tarif level)', type: 'number', min: 0, max: 100000000 },
+                { name: 'transport_amount', label: 'Uang transport per siklus (kosong = tarif level)', type: 'number', min: 0, max: 100000000 },
+                { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true, default: todayKey() },
+                { name: 'effective_to', label: 'Berlaku sampai', type: 'date' },
+                { name: 'reason', label: 'Alasan pengecualian', required: true, maxlength: 1000 },
+                { name: 'retro_reason', label: 'Alasan perubahan surut', required: true, maxlength: 1000, showIf: (value) => value.effective_from && value.effective_from < todayKey() },
+            ];
+        }, preview: true, deletable: false,
     },
     users: {
         title: 'Akun admin', hint: 'Akun untuk masuk ke admin web.', singular: 'akun',
@@ -198,6 +248,7 @@ async function loadGeneral() {
 async function load() {
     if (active === 'general') return loadGeneral();
     const tab = tabs[active];
+    const endpoint = tab.endpoint ?? active;
     $('#settings-title').textContent = tab.title;
     $('#settings-hint').textContent = tab.hint;
     $('#settings-add').textContent = `+ Tambah ${tab.singular}`;
@@ -206,12 +257,12 @@ async function load() {
     table.hidden = false;
     loadingInto(table);
     try {
-        rows = (await api(active)).data;
+        rows = (await api(endpoint)).data;
         renderTable(table, {
             rows,
             columns: tab.columns,
             empty: `Belum ada ${tab.singular}.`,
-            actions: (x) => `<button type="button" class="text-button" data-action="edit" data-id="${x.id}">Ubah</button>${tab.extraAction?.(x) ?? ''}${tab.deletable ? `<button type="button" class="text-button danger-text" data-action="delete" data-id="${x.id}">Hapus</button>` : ''}`,
+            actions: (x) => `${tab.readOnly ? '' : `<button type="button" class="text-button" data-action="edit" data-id="${x.id}">Ubah</button>`}${tab.extraAction?.(x) ?? ''}${tab.deletable ? `<button type="button" class="text-button danger-text" data-action="delete" data-id="${x.id}">Hapus</button>` : ''}`,
         });
     } catch (error) {
         errorInto(table, error);
@@ -220,12 +271,18 @@ async function load() {
 
 async function openItem(item) {
     const tab = tabs[active];
-    const path = active;
+    const path = tab.endpoint ?? active;
     openForm({
         title: item ? `Ubah ${tab.singular}` : `Tambah ${tab.singular}`,
         fields: await tab.fields(item),
         values: item ?? {},
         onSubmit: async (body) => {
+            if (tab.preview && body.effective_from < todayKey()) {
+                const { data: preview } = await api(`${path}/preview`, { method: 'POST', body });
+                const message = `Tarif ini berdampak pada ${preview.affected_cycles} siklus; ${preview.snapshots_to_recalculate} snapshot lama akan dihitung ulang. Total sekarang: makan Rp ${Number(preview.current_meal_amount).toLocaleString('id-ID')} dan transport Rp ${Number(preview.current_transport_amount).toLocaleString('id-ID')}.`;
+                if (!await confirmDialog({ title: 'Pratinjau perubahan surut', message, confirmLabel: 'Terapkan perubahan' })) return false;
+                body.preview_token = preview.preview_token;
+            }
             await api(item ? `${path}/${item.id}` : path, { method: item ? 'PUT' : 'POST', body });
             invalidate(path);
             toast(`${tab.title} disimpan.`);
