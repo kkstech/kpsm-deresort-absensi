@@ -58,6 +58,9 @@ Route::middleware(['auth', 'admin'])->group(function () {
 
         Route::get('unlinked-users', [EmployeeController::class, 'unlinkedUsers']);
         Route::get('unlinked-employees', [EmployeeController::class, 'unlinkedEmployees']);
+        Route::get('employees/import-template', [EmployeeController::class, 'downloadImportTemplate']);
+        Route::post('employees/import-preview', [EmployeeController::class, 'previewImport']);
+        Route::post('employees/import', [EmployeeController::class, 'importEmployees']);
 
         Route::apiResource('employees', EmployeeController::class)->except('destroy');
         Route::post('employees/{employee}/account', [EmployeeController::class, 'account']);

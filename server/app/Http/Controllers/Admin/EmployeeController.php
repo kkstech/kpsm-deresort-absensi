@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\BulkImportEmployees;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\EmploymentTerm;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\Response;
 
 class EmployeeController extends Controller
 {
@@ -345,6 +347,62 @@ class EmployeeController extends Controller
             ->values();
 
         return response()->json(['data' => $terms]);
+    }
+
+    public function downloadImportTemplate(BulkImportEmployees $importer): Response
+    {
+        Gate::authorize('admin');
+
+        $csv = $importer::templateCsv();
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="template_import_karyawan.csv"',
+        ]);
+    }
+
+    public function previewImport(Request $request, BulkImportEmployees $importer): JsonResponse
+    {
+        Gate::authorize('admin');
+
+        $request->validate([
+            'file' => ['required', 'file', 'max:5120'],
+        ]);
+
+        $content = file_get_contents($request->file('file')->getRealPath());
+        $result = $importer->preview($content);
+
+        return response()->json($result);
+    }
+
+    public function importEmployees(Request $request, BulkImportEmployees $importer): JsonResponse
+    {
+        Gate::authorize('admin');
+
+        $validated = $request->validate([
+            'rows' => ['required', 'array', 'min:1'],
+            'rows.*.code' => ['required', 'string'],
+            'rows.*.name' => ['required', 'string'],
+            'rows.*.department' => ['required', 'string'],
+            'rows.*.position' => ['required', 'string'],
+            'rows.*.started_on' => ['required', 'date_format:Y-m-d'],
+            'rows.*.employment_type' => ['required', 'in:permanent,contract'],
+            'rows.*.ends_on' => ['nullable', 'date_format:Y-m-d'],
+            'rows.*.email' => ['nullable'],
+            'rows.*.phone' => ['nullable', 'string'],
+            'rows.*.level' => ['nullable', 'string'],
+            'rows.*.work_location' => ['nullable', 'string'],
+            'rows.*.status' => ['required', 'in:active,inactive'],
+            'rows.*.make_account' => ['nullable', 'boolean'],
+            'rows.*.password' => ['nullable', 'string'],
+        ]);
+
+        $result = $importer->import($validated['rows'], $request->user());
+
+        return response()->json([
+            'ok' => true,
+            'imported_count' => $result['imported_count'],
+        ]);
     }
 
     public function devices(Employee $employee): JsonResponse

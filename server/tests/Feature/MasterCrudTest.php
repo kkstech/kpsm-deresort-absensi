@@ -9,6 +9,7 @@ use App\Models\Position;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class MasterCrudTest extends TestCase
@@ -274,6 +275,105 @@ class MasterCrudTest extends TestCase
         $this->postJson("/admin/api/employees/{$employee->id}/revoke-devices")->assertOk();
         $this->assertSame(0, $user->devices()->whereNull('revoked_at')->count());
         $this->assertSame(0, $user->tokens()->count());
+    }
+
+    public function test_admin_can_download_import_template(): void
+    {
+        $response = $this->asAdmin()->get('/admin/api/employees/import-template');
+        $response->assertOk();
+        $this->assertStringContainsString('text/csv', (string) $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('template_import_karyawan.csv', (string) $response->headers->get('Content-Disposition'));
+        $content = $response->getContent();
+        $this->assertStringContainsString('kode_karyawan', $content);
+        $this->assertStringContainsString('nama_lengkap', $content);
+        $this->assertStringContainsString('FO-001', $content);
+    }
+
+    public function test_admin_can_preview_csv_and_get_validation_errors(): void
+    {
+        $csvContent = implode("\n", [
+            'kode_karyawan,nama_lengkap,departemen,jabatan,tanggal_mulai_kerja,status_kerja,tanggal_selesai_kontrak,email,no_telepon,status,buat_akun,password_awal',
+            'BULK-01,Budi Santoso,Front Office,Staff,2026-02-01,tetap,,budi@deresort.test,0811111111,aktif,ya,password123',
+            'BULK-02,Siti Aminah,Housekeeping,Cleaner,tanggal-salah,kontrak,,siti@deresort.test,0822222222,aktif,tidak,password123',
+        ]);
+
+        $file = UploadedFile::fake()->createWithContent('karyawan.csv', $csvContent);
+
+        $response = $this->asAdmin()->postJson('/admin/api/employees/import-preview', [
+            'file' => $file,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(2, $response->json('total_rows'));
+        $this->assertSame(1, $response->json('valid_count'));
+        $this->assertSame(1, $response->json('error_count'));
+        $rows = $response->json('rows');
+        $this->assertTrue($rows[0]['_valid']);
+        $this->assertFalse($rows[1]['_valid']);
+        $this->assertNotEmpty($rows[1]['_errors']);
+    }
+
+    public function test_admin_can_bulk_import_employees_creating_departments_positions_terms_and_accounts(): void
+    {
+        $payload = [
+            'rows' => [
+                [
+                    'code' => 'IMP-001',
+                    'name' => 'Imported User One',
+                    'department' => 'Food & Beverage',
+                    'position' => 'Waiter',
+                    'started_on' => '2026-03-01',
+                    'employment_type' => 'permanent',
+                    'ends_on' => null,
+                    'email' => 'imp1@deresort.test',
+                    'phone' => '0833333333',
+                    'level' => null,
+                    'work_location' => null,
+                    'status' => 'active',
+                    'make_account' => true,
+                    'password' => 'secret123',
+                ],
+                [
+                    'code' => 'IMP-002',
+                    'name' => 'Imported User Two',
+                    'department' => 'Engineering',
+                    'position' => 'Technician',
+                    'started_on' => '2026-03-15',
+                    'employment_type' => 'contract',
+                    'ends_on' => '2026-12-31',
+                    'email' => 'imp2@deresort.test',
+                    'phone' => '0844444444',
+                    'level' => null,
+                    'work_location' => null,
+                    'status' => 'active',
+                    'make_account' => false,
+                    'password' => null,
+                ],
+            ],
+        ];
+
+        $response = $this->asAdmin()->postJson('/admin/api/employees/import', $payload);
+        $response->assertOk();
+        $this->assertSame(2, $response->json('imported_count'));
+
+        $emp1 = Employee::query()->where('code', 'IMP-001')->firstOrFail();
+        $this->assertSame('Imported User One', $emp1->name);
+        $this->assertSame('Food & Beverage', $emp1->department->name);
+        $this->assertSame('Waiter', $emp1->position->name);
+        $this->assertNotNull($emp1->user_id);
+        $this->assertSame('imp1@deresort.test', $emp1->user->email);
+        $this->assertSame(1, $emp1->placements()->count());
+        $this->assertSame('permanent', $emp1->employmentTerms()->first()->type);
+
+        $emp2 = Employee::query()->where('code', 'IMP-002')->firstOrFail();
+        $this->assertSame('Imported User Two', $emp2->name);
+        $this->assertNull($emp2->user_id);
+        $this->assertSame('contract', $emp2->employmentTerms()->first()->type);
+        $this->assertSame('2026-12-31', $emp2->employmentTerms()->first()->ends_on->format('Y-m-d'));
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'employees.bulk_imported',
+        ]);
     }
 
     private function asAdmin(): static

@@ -169,7 +169,7 @@ main:focus { outline: none; }
 
 /* Dialog */
 .app-dialog { position: fixed; inset: 0; width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); margin: auto; padding: 0; overflow: hidden; border: 0; border-radius: 16px; color: var(--ink); box-shadow: var(--shadow); }
-.schedule-editor-dialog, .schedule-swap-dialog { width: min(760px, calc(100vw - 32px)); }
+.schedule-editor-dialog, .schedule-swap-dialog, .employee-import-dialog { width: min(880px, calc(100vw - 32px)); }
 .schedule-swap-row, .schedule-swap-vacancy { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .schedule-swap-vacancy { margin-top: 10px; }
 .schedule-swap-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }

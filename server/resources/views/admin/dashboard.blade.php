@@ -238,7 +238,11 @@
                 <section class="view" data-view-panel="employees">
                     <div class="page-heading">
                         <div><h1>Karyawan</h1><span>Data pegawai, akun app, dan status aktif.</span></div>
-                        <button type="button" class="primary-button" id="employee-add" data-requires="admin">+ Tambah karyawan</button>
+                        <div class="page-heading-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <a href="/admin/api/employees/import-template" class="secondary-button" download="template_import_karyawan.csv" data-requires="admin">Unduh Template CSV</a>
+                            <button type="button" class="secondary-button" id="employee-import-btn" data-requires="admin">Import CSV</button>
+                            <button type="button" class="primary-button" id="employee-add" data-requires="admin">+ Tambah karyawan</button>
+                        </div>
                     </div>
                     <div class="panel">
                         <div class="toolbar">
@@ -451,6 +455,55 @@
                 <button type="button" class="secondary-button" data-close-modal>Batal</button>
                 <button type="button" class="secondary-button" id="schedule-swap-preview">Pratinjau</button>
                 <button type="submit" class="primary-button" id="schedule-swap-save" disabled>Terapkan tukar</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog class="app-dialog employee-import-dialog" id="employee-import-modal" aria-labelledby="employee-import-modal-title">
+        <form id="employee-import-form">
+            <div class="modal-heading">
+                <div>
+                    <h2 id="employee-import-modal-title">Import Karyawan Massal (CSV)</h2>
+                    <p id="employee-import-modal-hint">Unggah file CSV untuk mendaftarkan banyak data karyawan sekaligus.</p>
+                </div>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-fields">
+                    <div style="background: var(--surface-soft, #f8fafc); border: 1px dashed var(--line, #cbd5e1); border-radius: 10px; padding: 16px; text-align: center;">
+                        <input type="file" id="employee-import-file" accept=".csv,text/csv,text/plain" style="margin-bottom: 8px; width: auto; max-width: 100%;">
+                        <div style="font-size: 12px; color: var(--muted, #64748b); line-height: 1.5;">
+                            Mendukung pemisah koma (<code>,</code>) atau titik koma (<code>;</code>). Format UTF-8 / Excel CSV (maks. 5MB).<br>
+                            Gunakan format kolom resmi: <a href="/admin/api/employees/import-template" download="template_import_karyawan.csv" style="color: var(--primary, #1e40af); text-decoration: underline; font-weight: 600;">Unduh Template CSV</a>
+                        </div>
+                    </div>
+
+                    <div id="employee-import-preview-container" hidden>
+                        <div id="employee-import-stats" style="margin: 4px 0; font-size: 13px; font-weight: 600;"></div>
+                        <div style="max-height: 280px; overflow: auto; border: 1px solid var(--line, #e2e8f0); border-radius: 8px;">
+                            <table class="data-table" style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                                <thead>
+                                    <tr>
+                                        <th style="padding: 8px; text-align: left;">Baris</th>
+                                        <th style="padding: 8px; text-align: left;">Status</th>
+                                        <th style="padding: 8px; text-align: left;">Kode</th>
+                                        <th style="padding: 8px; text-align: left;">Nama</th>
+                                        <th style="padding: 8px; text-align: left;">Departemen</th>
+                                        <th style="padding: 8px; text-align: left;">Jabatan</th>
+                                        <th style="padding: 8px; text-align: left;">Status Kerja</th>
+                                        <th style="padding: 8px; text-align: left;">Keterangan / Error</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="employee-import-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <p class="form-error" id="employee-import-error" role="alert" hidden></p>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="submit" class="primary-button" id="employee-import-submit" disabled>Simpan & Impor Karyawan</button>
             </div>
         </form>
     </dialog>

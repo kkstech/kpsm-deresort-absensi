@@ -321,6 +321,151 @@ filters.q.addEventListener('input', () => { clearTimeout(debounce); debounce = s
 filters.department_id.addEventListener('change', load);
 filters.status.addEventListener('change', load);
 
+const importModal = $('#employee-import-modal');
+const importBtn = $('#employee-import-btn');
+const importForm = $('#employee-import-form');
+const importFile = $('#employee-import-file');
+const importContainer = $('#employee-import-preview-container');
+const importStats = $('#employee-import-stats');
+const importTbody = $('#employee-import-table-body');
+const importError = $('#employee-import-error');
+const importSubmit = $('#employee-import-submit');
+
+let currentValidatedRows = [];
+
+function resetImportDialog() {
+    if (importFile) importFile.value = '';
+    if (importContainer) importContainer.hidden = true;
+    if (importError) {
+        importError.hidden = true;
+        importError.textContent = '';
+    }
+    if (importSubmit) {
+        importSubmit.disabled = true;
+        importSubmit.textContent = 'Simpan & Impor Karyawan';
+    }
+    currentValidatedRows = [];
+}
+
+if (importBtn && importModal) {
+    importBtn.addEventListener('click', () => {
+        resetImportDialog();
+        importModal.showModal();
+    });
+}
+
+if (importFile) {
+    importFile.addEventListener('change', async () => {
+        const file = importFile.files?.[0];
+        if (!file) {
+            resetImportDialog();
+            return;
+        }
+
+        importError.hidden = true;
+        importStats.textContent = 'Memvalidasi baris data file CSV…';
+        importContainer.hidden = false;
+        importSubmit.disabled = true;
+        importSubmit.textContent = 'Memvalidasi...';
+        importTbody.innerHTML = '<tr><td colspan="8" style="padding: 12px; text-align: center; color: var(--muted);">Memvalidasi data…</td></tr>';
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const result = await api('employees/import-preview', {
+                method: 'POST',
+                body: formData,
+            });
+
+            currentValidatedRows = result.rows || [];
+            const validRows = currentValidatedRows.filter((r) => r._valid !== false);
+
+            if (result.error_count === 0 && validRows.length > 0) {
+                importStats.innerHTML = `<span style="color: var(--success, #16a34a);">✓ Siap diimpor: <b>${result.valid_count}</b> dari <b>${result.total_rows}</b> karyawan valid.</span>`;
+                importSubmit.disabled = false;
+                importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan`;
+            } else if (validRows.length > 0) {
+                importStats.innerHTML = `<span style="color: var(--danger, #dc2626);">⚠️ Ditemukan kesalahan: <b>${result.error_count}</b> baris bermasalah, <b>${result.valid_count}</b> valid dari total <b>${result.total_rows}</b> baris.</span>`;
+                importSubmit.disabled = false;
+                importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan Valid`;
+            } else {
+                importStats.innerHTML = `<span style="color: var(--danger, #dc2626);">❌ Semua baris (${result.total_rows}) memiliki kesalahan. Perbaiki file CSV terlebih dahulu.</span>`;
+                importSubmit.disabled = true;
+                importSubmit.textContent = 'Perbaiki File CSV';
+            }
+
+            if (!currentValidatedRows.length) {
+                importTbody.innerHTML = '<tr><td colspan="8" style="padding: 12px; text-align: center; color: var(--muted);">File tidak memiliki baris data.</td></tr>';
+            } else {
+                importTbody.innerHTML = currentValidatedRows.map((r) => {
+                    const statusBadge = r._valid
+                        ? '<span class="status success" style="font-size: 11px;">Valid</span>'
+                        : '<span class="status danger" style="font-size: 11px; color: #dc2626; background: #fee2e2;">Error</span>';
+                    const empType = r.employment_type === 'contract'
+                        ? `Kontrak${r.ends_on ? ` (${esc(r.ends_on)})` : ''}`
+                        : 'Tetap';
+                    const detail = r._valid
+                        ? `<span style="color: var(--muted); font-size: 11px;">${r.make_account ? `Akun: ${esc(r.email)}` : 'Tanpa akun'}</span>`
+                        : `<div style="color: var(--danger, #dc2626); font-size: 11px; line-height: 1.3;">${(r._errors || []).map(esc).join('<br>')}</div>`;
+
+                    return `
+                        <tr style="border-bottom: 1px solid var(--line, #f1f5f9); ${r._valid ? '' : 'background: #fff5f5;'}">
+                            <td style="padding: 6px 8px; font-weight: 600;">${r._line}</td>
+                            <td style="padding: 6px 8px;">${statusBadge}</td>
+                            <td style="padding: 6px 8px; font-family: monospace;">${esc(r.code)}</td>
+                            <td style="padding: 6px 8px;"><b>${esc(r.name)}</b></td>
+                            <td style="padding: 6px 8px;">${esc(r.department)}</td>
+                            <td style="padding: 6px 8px;">${esc(r.position)}</td>
+                            <td style="padding: 6px 8px;">${esc(empType)}</td>
+                            <td style="padding: 6px 8px;">${detail}</td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        } catch (err) {
+            importError.textContent = err.message || 'Gagal memproses file CSV.';
+            importError.hidden = false;
+            importContainer.hidden = true;
+            importSubmit.disabled = true;
+            importSubmit.textContent = 'Simpan & Impor Karyawan';
+        }
+    });
+}
+
+if (importForm) {
+    importForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const validRows = currentValidatedRows.filter((r) => r._valid !== false);
+        if (!validRows.length) {
+            importError.textContent = 'Tidak ada baris valid untuk diimpor.';
+            importError.hidden = false;
+            return;
+        }
+
+        importSubmit.disabled = true;
+        importSubmit.textContent = 'Mengimpor…';
+        importError.hidden = true;
+
+        try {
+            const res = await api('employees/import', {
+                method: 'POST',
+                body: { rows: validRows },
+            });
+            toast(`Berhasil mengimpor ${res.imported_count} karyawan.`);
+            importModal.close();
+            resetImportDialog();
+            refreshEmployeeLookups();
+            load();
+        } catch (err) {
+            importError.textContent = err.message || 'Gagal menyimpan data import.';
+            importError.hidden = false;
+            importSubmit.disabled = false;
+            importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan Valid`;
+        }
+    });
+}
+
 let started = false;
 export async function showEmployees() {
     if (!started) {
