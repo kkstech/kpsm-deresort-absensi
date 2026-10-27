@@ -201,7 +201,7 @@ main:focus { outline: none; }
 .app-dialog input, .app-dialog select, .app-dialog textarea, .auth-card input { width: 100%; min-height: 48px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
 .form-error { margin: 0; padding: 12px; border-radius: 8px; color: var(--danger); background: var(--danger-soft); font-size: 13px; font-weight: 600; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 12px; padding: 16px 24px 20px; border-top: 1px solid var(--line); background: var(--surface); }
-.confirm-dialog { width: min(440px, calc(100vw - 32px)); }
+.confirm-dialog { width: min(480px, calc(100vw - 32px)); }
 #confirm-modal-message { margin: 0; line-height: 1.5; }
 #confirm-modal-submit.danger { background: var(--danger); box-shadow: none; }
 #confirm-modal-submit.danger:hover { background: #7e3028; }

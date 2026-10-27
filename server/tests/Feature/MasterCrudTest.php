@@ -253,6 +253,29 @@ class MasterCrudTest extends TestCase
         $this->assertTrue($adminUser->fresh()->is_active, 'User admin web tidak boleh dinonaktifkan ketika profil karyawannya dinonaktifkan');
     }
 
+    public function test_employee_devices_endpoint_and_revoking_all_devices(): void
+    {
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $employee = $this->makeEmployee('EMP-DEV-1', $fo);
+        $user = User::factory()->role('employee')->create(['email' => 'emp.dev@deresort.test']);
+        $employee->update(['user_id' => $user->id]);
+
+        $user->devices()->create(['device_uuid' => 'uuid-iphone', 'name' => 'iPhone 15 Pro', 'last_seen_at' => now()]);
+        $user->devices()->create(['device_uuid' => 'uuid-ipad', 'name' => 'iPad Air', 'last_seen_at' => now()]);
+        $user->createToken('device:1');
+        $user->createToken('device:2');
+
+        $res = $this->asAdmin()->getJson("/admin/api/employees/{$employee->id}/devices")->assertOk();
+        $this->assertCount(2, $res->json('data'));
+        $names = collect($res->json('data'))->pluck('name')->all();
+        $this->assertContains('iPhone 15 Pro', $names);
+        $this->assertContains('iPad Air', $names);
+
+        $this->postJson("/admin/api/employees/{$employee->id}/revoke-devices")->assertOk();
+        $this->assertSame(0, $user->devices()->whereNull('revoked_at')->count());
+        $this->assertSame(0, $user->tokens()->count());
+    }
+
     private function asAdmin(): static
     {
         return $this->actingAs(User::factory()->role('admin')->create());

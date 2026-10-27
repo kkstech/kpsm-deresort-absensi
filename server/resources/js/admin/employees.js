@@ -224,6 +224,20 @@ async function act(path, message) {
     }
 }
 
+function formatDateTime(iso) {
+    if (!iso) return '-';
+    try {
+        const d = new Date(iso);
+        return new Intl.DateTimeFormat('id-ID', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+            timeZone: 'Asia/Jakarta',
+        }).format(d);
+    } catch (_) {
+        return String(iso).slice(0, 16).replace('T', ' ');
+    }
+}
+
 table.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-action]');
     const employee = button && rows.find((e) => String(e.id) === button.dataset.id);
@@ -234,7 +248,71 @@ table.addEventListener('click', async (event) => {
     if (action === 'level') openLevel(employee);
     if (action === 'account') openAccount(employee);
     if (action === 'unlink' && await confirmDialog({ title: 'Putuskan tautan akun?', message: `Putuskan hubungan antara karyawan ${employee.name} dengan akun ${employee.user.email}? Karyawan tidak akan dapat login ke mobile app sampai ditautkan kembali.`, confirmLabel: 'Putuskan tautan', danger: true })) act(`employees/${employee.id}/unlink-user`, 'Tautan akun berhasil diputuskan.');
-    if (action === 'revoke' && await confirmDialog({ title: 'Keluarkan perangkat?', message: `Keluarkan semua perangkat ${employee.name}? Karyawan harus login ulang.`, confirmLabel: 'Keluarkan', danger: true })) act(`employees/${employee.id}/revoke-devices`, 'Perangkat dikeluarkan.');
+    if (action === 'revoke') {
+        try {
+            const { data: devices } = await api(`employees/${employee.id}/devices`);
+            if (!devices || devices.length === 0) {
+                toast('Tidak ada perangkat aktif untuk karyawan ini.');
+                return;
+            }
+
+            const isMultiple = devices.length > 1;
+            const title = isMultiple ? `Keluarkan Semua Perangkat (${devices.length})` : 'Keluarkan Perangkat';
+            const confirmLabel = isMultiple ? `Ya, Keluarkan Semua (${devices.length})` : 'Keluarkan Perangkat';
+
+            const html = isMultiple ? `
+                <p style="margin-bottom: 12px; font-size: 13.5px; color: var(--ink);">
+                    Karyawan <b>${esc(employee.name)}</b> saat ini terhubung di <b>${devices.length} perangkat aktif</b>:
+                </p>
+                <div style="display: grid; gap: 8px; margin: 12px 0 16px; max-height: 240px; overflow-y: auto; padding-right: 4px;">
+                    ${devices.map((d, idx) => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--canvas, #f2f5f1); border: 1px solid var(--line, #dfe5df); border-radius: 8px;">
+                            <div>
+                                <div style="font-weight: 700; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 6px;">
+                                    <span>📱</span> <span>${esc(d.name || 'Perangkat Seluler')}</span>
+                                    <small style="color: var(--muted); font-weight: normal; font-size: 11px;">#${idx + 1}</small>
+                                </div>
+                                <div style="font-size: 11.5px; color: var(--muted); margin-top: 3px;">
+                                    Terakhir aktif: <strong>${esc(formatDateTime(d.last_seen_at))}</strong>
+                                </div>
+                                <div style="font-size: 10.5px; color: #88958c; font-family: monospace; margin-top: 1px;">
+                                    UUID: ${esc(d.device_uuid ? d.device_uuid.slice(0, 16) + '…' : '-')}
+                                </div>
+                            </div>
+                            <span class="status success" style="font-size: 10.5px; padding: 2px 7px;">Aktif</span>
+                        </div>
+                    `).join('')}
+                </div>
+                <p style="margin: 0; font-size: 12.5px; color: var(--danger); font-weight: 600;">
+                    ⚠️ Semua sesi login pada ${devices.length} perangkat di atas akan dibatalkan dan karyawan harus login ulang.
+                </p>
+            ` : `
+                <p style="margin-bottom: 12px; font-size: 13.5px; color: var(--ink);">
+                    Keluarkan perangkat untuk karyawan <b>${esc(employee.name)}</b>?
+                </p>
+                <div style="margin: 12px 0 16px; padding: 10px 14px; background: var(--canvas, #f2f5f1); border: 1px solid var(--line, #dfe5df); border-radius: 8px;">
+                    <div style="font-weight: 700; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 6px;">
+                        <span>📱</span> <span>${esc(devices[0].name || 'Perangkat Seluler')}</span>
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--muted); margin-top: 3px;">
+                        Terakhir aktif: <strong>${esc(formatDateTime(devices[0].last_seen_at))}</strong>
+                    </div>
+                    <div style="font-size: 10.5px; color: #88958c; font-family: monospace; margin-top: 1px;">
+                        UUID: ${esc(devices[0].device_uuid ? devices[0].device_uuid.slice(0, 16) + '…' : '-')}
+                    </div>
+                </div>
+                <p style="margin: 0; font-size: 12.5px; color: var(--muted);">
+                    Karyawan harus login ulang untuk dapat mengakses aplikasi kembali.
+                </p>
+            `;
+
+            if (await confirmDialog({ title, html, confirmLabel, danger: true })) {
+                await act(`employees/${employee.id}/revoke-devices`, isMultiple ? `Semua (${devices.length}) perangkat berhasil dikeluarkan.` : 'Perangkat berhasil dikeluarkan.');
+            }
+        } catch (error) {
+            toast(error.message);
+        }
+    }
     if (action === 'deactivate' && await confirmDialog({ title: 'Nonaktifkan karyawan?', message: `Nonaktifkan ${employee.name}? Akun app ikut nonaktif.`, confirmLabel: 'Nonaktifkan', danger: true })) act(`employees/${employee.id}/deactivate`, 'Karyawan dinonaktifkan.');
 });
 

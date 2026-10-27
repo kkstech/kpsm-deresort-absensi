@@ -64,6 +64,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::post('employees/{employee}/link-user', [EmployeeController::class, 'linkUser']);
         Route::post('employees/{employee}/unlink-user', [EmployeeController::class, 'unlinkUser']);
         Route::post('employees/{employee}/deactivate', [EmployeeController::class, 'deactivate']);
+        Route::get('employees/{employee}/devices', [EmployeeController::class, 'devices']);
         Route::post('employees/{employee}/revoke-devices', [EmployeeController::class, 'revokeDevices']);
         Route::post('employees/{employee}/employment', [EmployeeController::class, 'setEmployment']);
         Route::get('employees/{employee}/levels', [EmployeeLevelController::class, 'history']);

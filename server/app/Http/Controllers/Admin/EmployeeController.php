@@ -347,6 +347,22 @@ class EmployeeController extends Controller
         return response()->json(['data' => $terms]);
     }
 
+    public function devices(Employee $employee): JsonResponse
+    {
+        Gate::authorize('admin');
+        $user = $employee->user;
+        if (! $user) {
+            return response()->json(['data' => []]);
+        }
+
+        $devices = $user->devices()
+            ->whereNull('revoked_at')
+            ->orderByDesc('last_seen_at')
+            ->get(['id', 'device_uuid', 'name', 'last_seen_at', 'created_at']);
+
+        return response()->json(['data' => $devices]);
+    }
+
     public function revokeDevices(Employee $employee): JsonResponse
     {
         Gate::authorize('admin');

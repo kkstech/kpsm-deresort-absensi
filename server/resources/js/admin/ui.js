@@ -51,11 +51,16 @@ export function renderTable(container, { columns, rows, empty, actions }) {
 export const loadingInto = (container) => { container.innerHTML = '<p class="list-empty">Memuat data…</p>'; };
 export const errorInto = (container, error) => { container.innerHTML = `<p class="form-error list-error" role="alert">${esc(error.message)}</p>`; };
 
-export function confirmDialog({ title = 'Konfirmasi', message, confirmLabel = 'Lanjutkan', danger = false }) {
+export function confirmDialog({ title = 'Konfirmasi', message, html, confirmLabel = 'Lanjutkan', danger = false }) {
     const dialog = $('#confirm-modal');
     const submit = $('#confirm-modal-submit');
+    const messageEl = $('#confirm-modal-message');
     $('#confirm-modal-title').textContent = title;
-    $('#confirm-modal-message').textContent = message;
+    if (html != null) {
+        messageEl.innerHTML = html;
+    } else {
+        messageEl.textContent = message ?? '';
+    }
     submit.textContent = confirmLabel;
     submit.classList.toggle('danger', danger);
     dialog.returnValue = 'cancel';
