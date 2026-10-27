@@ -53,6 +53,9 @@ class UserController extends Controller
         if (! $user->is_active) {
             $user->tokens()->delete();
         }
+        if ($user->employee) {
+            $user->employee->update(['email' => $user->email]);
+        }
         Audit::log('users.updated', $user, $before);
 
         return response()->json(['data' => $user]);
@@ -73,16 +76,16 @@ class UserController extends Controller
         DB::transaction(function () use ($user, $employee) {
             Employee::query()->where('user_id', $user->id)->where('id', '!=', $employee->id)->update(['user_id' => null]);
 
-            $updates = ['user_id' => $user->id];
-            if (empty($employee->email) && ! empty($user->email)) {
-                $updates['email'] = $user->email;
-            }
-            if (empty($employee->phone) && ! empty($user->phone)) {
+            $updates = [
+                'user_id' => $user->id,
+                'email' => $user->email,
+            ];
+            if (! empty($user->phone)) {
                 $updates['phone'] = $user->phone;
             }
             $employee->update($updates);
 
-            Audit::log('users.employee_linked', $user, null, ['employee_id' => $employee->id]);
+            Audit::log('users.employee_linked', $user, null, ['employee_id' => $employee->id, 'email' => $user->email]);
         });
 
         return response()->json(['data' => $user->fresh(['department:id,name', 'employee:id,code,name,user_id,department_id,position_id'])]);

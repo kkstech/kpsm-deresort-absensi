@@ -177,17 +177,20 @@ class MasterCrudTest extends TestCase
 
     public function test_link_and_unlink_user_from_employee(): void
     {
-        $supervisor = User::factory()->role('supervisor')->create(['name' => 'Supervisor Test']);
+        $supervisor = User::factory()->role('supervisor')->create(['name' => 'Supervisor Test', 'email' => 'spv.override@deresort.test']);
         $fo = Department::query()->where('name', 'Front Office')->value('id');
         $employee = $this->makeEmployee('EMP-LINK-1', $fo);
+        $employee->update(['email' => 'old.employee.email@deresort.test']);
 
         $this->assertNull($employee->user_id);
+        $this->assertSame('old.employee.email@deresort.test', $employee->email);
 
         $this->asAdmin()->postJson("/admin/api/employees/{$employee->id}/link-user", [
             'user_id' => $supervisor->id,
         ])->assertOk();
 
         $this->assertSame($supervisor->id, $employee->fresh()->user_id);
+        $this->assertSame('spv.override@deresort.test', $employee->fresh()->email, 'Email karyawan otomatis tertimpa email user');
         $this->assertDatabaseHas('audit_logs', ['action' => 'employees.user_linked', 'subject_id' => $employee->id]);
 
         $this->postJson("/admin/api/employees/{$employee->id}/unlink-user")->assertOk();
@@ -198,15 +201,17 @@ class MasterCrudTest extends TestCase
     public function test_link_and_unlink_employee_from_user(): void
     {
         $superAdmin = User::factory()->role('super_admin')->create();
-        $adminUser = User::factory()->role('admin')->create();
+        $adminUser = User::factory()->role('admin')->create(['email' => 'admin.override@deresort.test']);
         $fo = Department::query()->where('name', 'Front Office')->value('id');
         $employee = $this->makeEmployee('EMP-LINK-2', $fo);
+        $employee->update(['email' => 'old.emp2@deresort.test']);
 
         $this->actingAs($superAdmin)->postJson("/admin/api/users/{$adminUser->id}/link-employee", [
             'employee_id' => $employee->id,
         ])->assertOk();
 
         $this->assertSame($adminUser->id, $employee->fresh()->user_id);
+        $this->assertSame('admin.override@deresort.test', $employee->fresh()->email, 'Email karyawan otomatis tertimpa email user');
         $this->assertSame($employee->id, $adminUser->fresh()->employee->id);
 
         $this->postJson("/admin/api/users/{$adminUser->id}/unlink-employee")->assertOk();

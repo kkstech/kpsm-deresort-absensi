@@ -82,6 +82,10 @@ class EmployeeController extends Controller
                         $existingUser->update(['password' => $account['account_password']]);
                     }
                     $data['user_id'] = $existingUser->id;
+                    $data['email'] = $existingUser->email;
+                    if (! empty($existingUser->phone)) {
+                        $data['phone'] = $existingUser->phone;
+                    }
                 } elseif (! empty($account['account_password'])) {
                     $data['user_id'] = User::query()->create([
                         'name' => $data['name'],
@@ -110,6 +114,9 @@ class EmployeeController extends Controller
 
         DB::transaction(function () use ($employee, $data) {
             $before = $employee->attributesToArray();
+            if ($employee->user && ! empty($employee->user->email)) {
+                $data['email'] = $employee->user->email;
+            }
             $employee->update($data);
             if ($employee->wasChanged('department_id')) {
                 $employee->placements()->updateOrCreate(['effective_from' => WorkTime::today()], ['department_id' => $employee->department_id]);
@@ -173,16 +180,16 @@ class EmployeeController extends Controller
 
         DB::transaction(function () use ($employee, $user) {
             $before = $employee->attributesToArray();
-            $updates = ['user_id' => $user->id];
-            if (empty($employee->email) && ! empty($user->email)) {
-                $updates['email'] = $user->email;
-            }
-            if (empty($employee->phone) && ! empty($user->phone)) {
+            $updates = [
+                'user_id' => $user->id,
+                'email' => $user->email,
+            ];
+            if (! empty($user->phone)) {
                 $updates['phone'] = $user->phone;
             }
             $employee->update($updates);
 
-            Audit::log('employees.user_linked', $employee, $before, ['user_id' => $user->id]);
+            Audit::log('employees.user_linked', $employee, $before, ['user_id' => $user->id, 'email' => $user->email]);
         });
 
         return response()->json(['data' => $employee->fresh('user:id,name,email,role,is_active')]);
@@ -223,9 +230,10 @@ class EmployeeController extends Controller
                     if (User::query()->where('email', $targetEmail)->where('id', '!=', $user->id)->exists()) {
                         throw new BusinessRuleException('EMAIL_TAKEN', 'Email ini sudah digunakan oleh akun lain.', 422);
                     }
+                    $user->update(['email' => $targetEmail]);
+                    $employee->update(['email' => $targetEmail]);
                 }
                 $user->update(array_filter([
-                    'email' => isset($data['email']) ? Str::lower($data['email']) : null,
                     'phone' => $employee->phone,
                     'password' => $data['password'],
                 ]));
@@ -241,7 +249,10 @@ class EmployeeController extends Controller
                         'phone' => $employee->phone ?? $existingUser->phone,
                         'password' => $data['password'],
                     ]));
-                    $employee->update(['user_id' => $existingUser->id]);
+                    $employee->update([
+                        'user_id' => $existingUser->id,
+                        'email' => $existingUser->email,
+                    ]);
                     $user = $existingUser;
                 } else {
                     $user = User::query()->create([
@@ -251,7 +262,10 @@ class EmployeeController extends Controller
                         'password' => $data['password'],
                         'role' => 'employee',
                     ]);
-                    $employee->update(['user_id' => $user->id]);
+                    $employee->update([
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                    ]);
                 }
             }
             Audit::log('employees.account', $employee, null, ['user_id' => $user->id, 'email' => $user->email]);

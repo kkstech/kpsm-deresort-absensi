@@ -18,7 +18,7 @@ async function fields(withAccount, employee) {
         { name: 'work_location_id', label: 'Lokasi kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
         { name: 'status', label: 'Status', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
         { name: 'phone', label: 'No. HP', type: 'tel', maxlength: 32, autocomplete: 'off' },
-        { name: 'email', label: 'Email pribadi', type: 'email', maxlength: 255 },
+        { name: 'email', label: 'Email', type: 'email', maxlength: 255, hint: employee?.user ? `Mengikuti akun login: ${employee.user.email}` : 'Email pribadi karyawan.' },
     ];
     if (!employee) list.splice(5, 0, { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true });
     if (withAccount) {
@@ -80,7 +80,7 @@ async function openEmployee(employee) {
         title: employee ? `Ubah ${employee.name}` : 'Tambah karyawan',
         hint: employee ? 'Pindah departemen tercatat di riwayat penempatan.' : 'Akun app bisa dibuat sekarang atau nanti.',
         fields: await fields(!employee, employee),
-        values: employee ?? {},
+        values: employee ? { ...employee, email: employee.user?.email || employee.email } : {},
         onSubmit: async (values) => {
             const { make_account: _, ...body } = values;
             await api(employee ? `employees/${employee.id}` : 'employees', { method: employee ? 'PUT' : 'POST', body });
