@@ -1,5 +1,5 @@
 import { api, lookup } from './api';
-import { $, confirmDialog, esc, errorInto, loadingInto, openForm, toast } from './ui';
+import { $, confirmDialog, esc, errorInto, icon, loadingInto, openForm, toast } from './ui';
 
 const table = $('#leave-table');
 const settingsForm = $('#leave-settings-form');
@@ -42,7 +42,7 @@ async function loadBalances() {
     try {
         const { data } = await api('leave-balances', { query: { year: yearSettings?.year } });
         $('#leave-balance-count').textContent = `${data.length} karyawan · ${yearSettings?.year ?? ''}`;
-        target.innerHTML = data.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Karyawan</th><th>Cuti reguler</th><th>Day off</th><th>Aksi</th></tr></thead><tbody>${data.map((item) => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.code)} · ${esc(item.department ?? '')}</small></td><td>${item.regular.available} tersedia<small>${item.regular.used} dipakai · ${item.regular.reserved} dipesan dari ${item.regular.entitled}</small></td><td>${item.day_off.available} tersedia<small>${item.day_off.used} dipakai · ${item.day_off.reserved} dipesan dari ${item.day_off.entitled}</small></td><td><button class="text-button" data-adjust-quota="${item.employee_id}">Atur kuota</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="list-empty">Belum ada karyawan aktif.</p>';
+        target.innerHTML = data.length ? `<div class="table-scroll"><table class="data-table"><thead><tr><th>Karyawan</th><th>Cuti reguler</th><th>Day off</th><th>Aksi</th></tr></thead><tbody>${data.map((item) => `<tr><td><b>${esc(item.name)}</b><small>${esc(item.code)} · ${esc(item.department ?? '')}</small></td><td>${item.regular.available} tersedia<small>${item.regular.used} dipakai · ${item.regular.reserved} dipesan dari ${item.regular.entitled}</small></td><td>${item.day_off.available} tersedia<small>${item.day_off.used} dipakai · ${item.day_off.reserved} dipesan dari ${item.day_off.entitled}</small></td><td data-label="Aksi" class="row-actions"><button type="button" class="action-btn" data-adjust-quota="${item.employee_id}" title="Atur kuota cuti" aria-label="Atur kuota cuti ${esc(item.name)}">${icon('adjust')}</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="list-empty">Belum ada karyawan aktif.</p>';
     } catch (error) {
         errorInto(target, error);
     }
@@ -80,9 +80,12 @@ function render() {
     table.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr><th>Tanggal</th><th>Karyawan</th><th>Jenis</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${leaveRows.map((item) => {
         const [tone, label] = statusLabel[item.status] ?? ['neutral', item.status];
         const actions = item.status === 'PENDING'
-            ? `<button type="button" class="text-button" data-action="approve" data-id="${item.id}">Setujui</button><button type="button" class="text-button danger-text" data-action="reject" data-id="${item.id}">Tolak</button>`
-            : item.status === 'APPROVED' ? `<button type="button" class="text-button danger-text" data-action="cancel" data-id="${item.id}">Batalkan & kembalikan kuota</button>` : '';
-        return `<tr><td data-label="Tanggal">${esc(item.work_date)}</td><td data-label="Karyawan"><b>${esc(item.employee?.name ?? 'Karyawan')}</b><small>${esc(item.employee?.department?.name ?? '')}</small></td><td data-label="Jenis">${esc(typeLabel[item.type] ?? item.type)}</td><td data-label="Alasan">${esc(item.reason)}</td><td data-label="Status"><span class="status ${tone}">${label}</span>${item.decision_reason ? `<small>${esc(item.decision_reason)}</small>` : ''}</td><td data-label="Aksi" class="row-actions">${actions || '—'}</td></tr>`;
+            ? `<button type="button" class="action-btn success" data-action="approve" data-id="${item.id}" title="Setujui permohonan cuti" aria-label="Setujui permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('check')}</button><button type="button" class="action-btn danger" data-action="reject" data-id="${item.id}" title="Tolak permohonan cuti" aria-label="Tolak permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('x')}</button>`
+            : item.status === 'APPROVED' ? `<button type="button" class="action-btn danger" data-action="cancel" data-id="${item.id}" title="Batalkan cuti &amp; kembalikan kuota" aria-label="Batalkan cuti dan kembalikan kuota ${esc(item.employee?.name ?? '')}">${icon('undo')}</button>` : '';
+        const dateLabel = item.end_date && item.end_date !== item.work_date
+            ? `${esc(item.work_date)} s.d. ${esc(item.end_date)}<small>${item.days_count ?? 1} hari</small>`
+            : esc(item.work_date);
+        return `<tr><td data-label="Tanggal">${dateLabel}</td><td data-label="Karyawan"><b>${esc(item.employee?.name ?? 'Karyawan')}</b><small>${esc(item.employee?.department?.name ?? '')}</small></td><td data-label="Jenis">${esc(typeLabel[item.type] ?? item.type)}</td><td data-label="Alasan">${esc(item.reason)}</td><td data-label="Status"><span class="status ${tone}">${label}</span>${item.decision_reason ? `<small>${esc(item.decision_reason)}</small>` : ''}</td><td data-label="Aksi" class="row-actions">${actions || '—'}</td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
 
@@ -92,7 +95,8 @@ function openDirectLeave() {
         hint: 'Bisa untuk tanggal berjalan atau lampau selama periode masih terbuka. Absensi yang sudah tercatat tidak dapat diubah menjadi cuti.',
         fields: [
             { name: 'employee_id', label: 'Karyawan', type: 'select', numeric: true, required: true, blank: 'Pilih karyawan', options: employees.map((item) => ({ value: item.id, label: `${item.name} (${item.code})` })) },
-            { name: 'work_date', label: 'Tanggal kerja', type: 'date', required: true, default: todayKey() },
+            { name: 'work_date', label: 'Tanggal mulai', type: 'date', required: true, default: todayKey() },
+            { name: 'end_date', label: 'Tanggal akhir (opsional, jika > 1 hari)', type: 'date' },
             { name: 'type', label: 'Potong kuota', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti reguler' }, { value: 'day_off', label: 'Day off' }] },
             { name: 'reason', label: 'Alasan pencatatan', required: true, maxlength: 1000 },
         ],

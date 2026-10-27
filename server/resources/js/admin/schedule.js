@@ -1,5 +1,5 @@
 import { api, isAdmin, lookup } from './api';
-import { $, $$, confirmDialog, esc, toast } from './ui';
+import { $, $$, confirmDialog, esc, icon, toast } from './ui';
 
 /* ---------- Tanggal ---------- */
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -31,7 +31,10 @@ const summary = (e) => (e.sessions.length > 1 ? `${e.sessions.length} sesi` : `$
 const nameOf = (id) => employees.find((e) => e.id === id)?.name ?? 'Karyawan';
 const templateText = (t) => (t.sessions.length > 1 ? `${t.sessions.length} sesi` : `${t.sessions[0].local_start.slice(0, 5).replace(':', '.')}–${t.sessions[0].local_end.slice(0, 5).replace(':', '.')}`);
 
-const state = { view: 'week', anchor: parseKey(todayKey()), filter: 'all', selected: { date: todayKey(), emp: null } };
+const savedCalView = (() => {
+    try { return localStorage.getItem('deresort_cal_view'); } catch (_) { return null; }
+})();
+const state = { view: ['week', 'month'].includes(savedCalView) ? savedCalView : 'week', anchor: parseKey(todayKey()), filter: 'all', selected: { date: todayKey(), emp: null } };
 const personFilter = () => (state.filter === 'all' ? null : Number(state.filter));
 const visiblePeople = () => employees.filter((e) => !personFilter() || e.id === personFilter());
 const entriesOn = (key, emp) => entries
@@ -86,7 +89,10 @@ function renderToolbar() {
     $('#calendar-prev').setAttribute('aria-label', `${unit} sebelumnya`);
     $('#calendar-next').setAttribute('aria-label', `${unit} berikutnya`);
     const copy = $('#schedule-copy');
-    if (copy) copy.hidden = state.view !== 'week';
+    if (copy) {
+        copy.hidden = false;
+        copy.textContent = state.view === 'week' ? 'Salin ke minggu depan' : 'Salin ke bulan depan';
+    }
 }
 
 const chip = (e) => `<span class="shift-chip ${kind(e)}${e.status === 'DRAFT' ? ' draft' : ''}"><span>${esc(e.template_name)}</span><small>${esc(summary(e))}</small></span>`;
@@ -137,12 +143,12 @@ function renderMonth() {
 function panelItem(e) {
     const name = nameOf(e.employee_id);
     const [tone, label] = STATUS[e.status] ?? ['neutral', e.status];
-    const remove = isAdmin && e.editable ? `<button type="button" class="text-button danger-text" data-delete="${e.id}" aria-label="Batalkan jadwal ${esc(e.template_name)} ${esc(name)}">Batalkan</button>` : '';
-    const edit = isAdmin && e.sessions_editable ? `<button type="button" class="text-button" data-edit-sessions="${e.id}">Atur sesi</button>` : '';
-    const swap = isAdmin && e.editable ? `<button type="button" class="text-button" data-swap="${e.id}">Tukar jadwal</button>` : '';
+    const edit = isAdmin && e.sessions_editable ? `<button type="button" class="action-btn" data-edit-sessions="${e.id}" title="Atur sesi shift" aria-label="Atur sesi ${esc(e.template_name)} ${esc(name)}">${icon('edit')}</button>` : '';
+    const swap = isAdmin && e.editable ? `<button type="button" class="action-btn" data-swap="${e.id}" title="Tukar jadwal" aria-label="Tukar jadwal ${esc(e.template_name)} ${esc(name)}">${icon('swap')}</button>` : '';
+    const remove = isAdmin && e.editable ? `<button type="button" class="action-btn danger" data-delete="${e.id}" title="Batalkan jadwal" aria-label="Batalkan jadwal ${esc(e.template_name)} ${esc(name)}">${icon('trash')}</button>` : '';
     const locked = e.editable || e.sessions_editable ? '' : '<small>Jadwal sudah selesai.</small>';
     const sessions = e.sessions.map((s) => `<li>${esc(s.local_start)}–${esc(s.local_end)}</li>`).join('');
-    return `<article class="selected-shift"><i class="shift-dot ${kind(e)}" aria-hidden="true"></i><div><strong>${esc(name)}</strong><small>${esc(e.template_name)} · ${e.sessions.length} sesi</small><ul class="session-list">${sessions}</ul><div class="shift-actions"><span class="status ${tone}">${label}</span>${edit}${swap}${remove}</div>${locked}</div></article>`;
+    return `<article class="selected-shift"><i class="shift-dot ${kind(e)}" aria-hidden="true"></i><div><strong>${esc(name)}</strong><small>${esc(e.template_name)} · ${e.sessions.length} sesi</small><ul class="session-list">${sessions}</ul><div class="shift-actions"><span class="status ${tone}">${label}</span><div class="shift-action-btns">${edit}${swap}${remove}</div></div>${locked}</div></article>`;
 }
 
 function renderPanel() {
@@ -182,15 +188,38 @@ let editingSchedule = null;
 
 function scheduleSessionRow(session = {}, index = 0) {
     const locked = editingSchedule && new Date(session.end_at).getTime() <= Date.now();
-    return `<div class="session-row schedule-session-row">
+    return `<div class="schedule-session-card schedule-session-row ${locked ? 'session-locked' : ''}">
         <input type="hidden" data-s="id" value="${esc(session.id ?? '')}">
-        <label>Mulai<input type="date" data-s="start_date" value="${esc(session.local_start_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}></label>
-        <label>Jam mulai<input type="time" data-s="start_time" value="${esc(session.local_start_time ?? '')}" required${locked ? ' readonly' : ''}></label>
-        <label>Selesai<input type="date" data-s="end_date" value="${esc(session.local_end_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}></label>
-        <label>Jam selesai<input type="time" data-s="end_time" value="${esc(session.local_end_time ?? '')}" required${locked ? ' readonly' : ''}></label>
-        <label>Istirahat<input type="number" data-s="unpaid_break_minutes" min="0" max="720" value="${esc(session.unpaid_break_minutes ?? 0)}"${locked ? ' readonly' : ''}></label>
-        <button type="button" class="icon-button" data-remove-session aria-label="Hapus sesi ${index + 1}"${locked ? ' disabled' : ''}>×</button>
-        ${locked ? '<small class="field-hint">Sesi ini sudah selesai dan dikunci.</small>' : ''}
+        <div class="session-card-header">
+            <div class="session-title-wrap">
+                <span class="session-num-badge">Sesi ${index + 1}</span>
+                ${locked ? '<span class="session-status-badge locked">Terkunci (Selesai)</span>' : '<span class="session-status-badge editable">Dapat Diedit</span>'}
+            </div>
+            ${locked ? '' : `<button type="button" class="action-btn danger session-remove-btn" data-remove-session aria-label="Hapus sesi ${index + 1}" title="Hapus sesi ini">${icon('trash', 14)}</button>`}
+        </div>
+        <div class="session-fields-grid">
+            <label class="session-field">
+                <span>Tanggal mulai</span>
+                <input type="date" data-s="start_date" value="${esc(session.local_start_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}>
+            </label>
+            <label class="session-field">
+                <span>Jam mulai</span>
+                <input type="time" data-s="start_time" value="${esc(session.local_start_time ?? '')}" required${locked ? ' readonly' : ''}>
+            </label>
+            <label class="session-field">
+                <span>Tanggal selesai</span>
+                <input type="date" data-s="end_date" value="${esc(session.local_end_date ?? $('#schedule-date').value)}" required${locked ? ' readonly' : ''}>
+            </label>
+            <label class="session-field">
+                <span>Jam selesai</span>
+                <input type="time" data-s="end_time" value="${esc(session.local_end_time ?? '')}" required${locked ? ' readonly' : ''}>
+            </label>
+            <label class="session-field field-break">
+                <span>Istirahat (menit)</span>
+                <input type="number" data-s="unpaid_break_minutes" min="0" max="720" value="${esc(session.unpaid_break_minutes ?? 0)}"${locked ? ' readonly' : ''}>
+            </label>
+        </div>
+        ${locked ? '<p class="session-locked-notice">Sesi ini sudah berjalan atau selesai, sehingga jamnya dikunci untuk melindungi riwayat absensi.</p>' : ''}
     </div>`;
 }
 
@@ -210,6 +239,7 @@ function openScheduleModal() {
     editingSchedule = null;
     $('#schedule-modal-title').textContent = 'Buat jadwal';
     $('#schedule-form').querySelector('.modal-heading p').textContent = 'Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.';
+    $('#schedule-form [type="submit"]').textContent = 'Simpan draft';
     $('#schedule-employee').value = state.selected.emp ?? personFilter() ?? '';
     $('#schedule-employee').disabled = false;
     $('#schedule-date').value = state.selected.date;
@@ -228,6 +258,7 @@ function openScheduleEdit(assignment) {
     editingSchedule = assignment;
     $('#schedule-modal-title').textContent = `Atur sesi · ${assignment.template_name}`;
     $('#schedule-form').querySelector('.modal-heading p').textContent = 'Sesi berjalan dan yang sudah selesai tetap tercatat; sesi mendatang bisa disesuaikan.';
+    $('#schedule-form [type="submit"]').textContent = 'Simpan perubahan';
     $('#schedule-employee').value = assignment.employee_id;
     $('#schedule-employee').disabled = true;
     $('#schedule-date').value = assignment.work_date;
@@ -311,30 +342,182 @@ function swapAssignmentOptions(selected = '') {
     return `<option value="">Pilih jadwal</option>${entries.filter((item) => item.editable).map((item) => `<option value="${item.id}"${String(item.id) === String(selected) ? ' selected' : ''}>${esc(scheduleLabel(item))}</option>`).join('')}`;
 }
 
-function swapTargetOptions(sourceId, selected = '') {
-    return `<option value="">Pilih karyawan pengganti</option>${employees.filter((item) => item.id !== Number(sourceId)).map((item) => `<option value="${item.id}"${String(item.id) === String(selected) ? ' selected' : ''}>${esc(item.name)} · ${esc(item.dept)}</option>`).join('')}`;
+function swapTargetOptions(sourceId = null, selected = '') {
+    const available = sourceId ? employees.filter((item) => item.id !== Number(sourceId)) : employees;
+    const groups = new Map();
+    for (const item of available) {
+        const pos = item.position || 'Tanpa Jabatan';
+        if (!groups.has(pos)) groups.set(pos, []);
+        groups.get(pos).push(item);
+    }
+    const sortedPositions = [...groups.keys()].sort((a, b) => {
+        if (a === 'Tanpa Jabatan') return 1;
+        if (b === 'Tanpa Jabatan') return -1;
+        return a.localeCompare(b);
+    });
+    let html = '<option value="">Pilih karyawan pengganti</option>';
+    for (const pos of sortedPositions) {
+        const members = groups.get(pos).sort((a, b) => a.name.localeCompare(b.name));
+        html += `<optgroup label="${esc(pos)}">`;
+        for (const item of members) {
+            const isSel = String(item.id) === String(selected) ? ' selected' : '';
+            const dept = item.dept ? ` · ${esc(item.dept)}` : '';
+            html += `<option value="${item.id}"${isSel}>${esc(item.name)}${dept}</option>`;
+        }
+        html += `</optgroup>`;
+    }
+    return html;
 }
 
-function addSwapRow(item = null) {
+async function ensureEmployeeSchedules(employeeId) {
+    if (!employeeId) return;
+    try {
+        const from = todayKey();
+        const to = keyOf(addDays(parseKey(todayKey()), 35));
+        const res = await api('schedule', { query: { from, to, employee_id: employeeId } });
+        if (Array.isArray(res?.data)) {
+            for (const item of res.data) {
+                const idx = entries.findIndex((e) => e.id === item.id);
+                if (idx >= 0) entries[idx] = item;
+                else entries.push(item);
+            }
+        }
+    } catch {
+        // Fallback to loaded entries
+    }
+}
+
+async function onTargetEmployeeChange() {
+    const targetEmpId = Number($('#schedule-swap-target-employee').value);
+    const sourceAssId = Number($('#schedule-swap-source-assignment').value);
+    const sourceAss = entries.find((e) => e.id === sourceAssId);
+    const initiatorEmp = sourceAss ? employees.find((e) => e.id === sourceAss.employee_id) : null;
+    const targetEmp = employees.find((e) => e.id === targetEmpId);
+
+    const section = $('#schedule-swap-options-section');
+    if (!targetEmpId || !targetEmp) {
+        section.hidden = true;
+        invalidateSwapPreview();
+        return;
+    }
+
+    section.hidden = false;
+    $('#schedule-swap-options-title').textContent = `Pilihan pertukaran untuk jadwal ${targetEmp.name}`;
+    $('#swap-mode-direct-title').textContent = `Tukar langsung dengan ${initiatorEmp ? initiatorEmp.name : 'karyawan pengaju'}`;
+    $('#schedule-swap-direct-target-hint').textContent = initiatorEmp
+        ? `Jadwal ini akan diberikan kepada ${initiatorEmp.name} (${initiatorEmp.position || initiatorEmp.dept || 'Karyawan Pengaju'}).`
+        : '';
+
+    await ensureEmployeeSchedules(targetEmpId);
+
+    const targetSchedules = entries.filter((e) => e.employee_id === targetEmpId && e.editable && e.id !== sourceAssId);
+    const directRadio = $('#swap-mode-direct');
+    const chainRadio = $('#swap-mode-chain');
+    const noneRadio = $('#swap-mode-none');
+
+    if (targetSchedules.length === 0) {
+        $('#schedule-swap-options-hint').textContent = `${targetEmp.name} tidak memiliki jadwal aktif lain di periode ini untuk ditukarkan.`;
+        directRadio.disabled = true;
+        chainRadio.disabled = true;
+        noneRadio.checked = true;
+    } else {
+        $('#schedule-swap-options-hint').textContent = `Pilih perlakuan untuk jadwal milik ${targetEmp.name}.`;
+        directRadio.disabled = false;
+        chainRadio.disabled = false;
+        if (noneRadio.checked && !noneRadio.dataset.userChosen) {
+            directRadio.checked = true;
+        }
+
+        const sameDateAss = sourceAss ? targetSchedules.find((e) => e.work_date === sourceAss.work_date) : null;
+        const defaultAssId = sameDateAss ? sameDateAss.id : targetSchedules[0].id;
+
+        const scheduleOptionsHtml = targetSchedules.map((item) =>
+            `<option value="${item.id}"${item.id === defaultAssId ? ' selected' : ''}>${longDate(item.work_date)} · ${esc(item.template_name)} (${esc(summary(item))})</option>`
+        ).join('');
+
+        $('#schedule-swap-target-schedule').innerHTML = scheduleOptionsHtml;
+        $('#schedule-swap-chain-schedule').innerHTML = scheduleOptionsHtml;
+        $('#schedule-swap-chain-target').innerHTML = swapTargetOptions(targetEmpId);
+    }
+    updateSwapModeUi();
+}
+
+function updateSwapModeUi() {
+    const mode = $('input[name="swap_mode"]:checked')?.value || 'direct';
+    $('#schedule-swap-direct-config').hidden = mode !== 'direct';
+    $('#schedule-swap-chain-config').hidden = mode !== 'chain';
+    invalidateSwapPreview();
+}
+
+function addExtraSwapRow() {
     const row = document.createElement('div');
     row.className = 'form-fields schedule-swap-row';
-    row.innerHTML = `<label>Jadwal<select data-swap-assignment required>${swapAssignmentOptions(item?.id ?? '')}</select></label><label>Karyawan pengganti<select data-swap-target required>${swapTargetOptions(item?.employee_id ?? '')}</select></label><button type="button" class="text-button danger-text" data-swap-remove>Hapus dari rantai</button>`;
-    $('#schedule-swap-moves').append(row);
-    if (item) row.querySelector('[data-swap-target]').value = '';
+    row.innerHTML = `<label>Jadwal lanjutan<select data-swap-assignment required>${swapAssignmentOptions()}</select></label><label>Karyawan pengganti<select data-swap-target required>${swapTargetOptions()}</select></label><button type="button" class="action-btn danger" data-swap-remove title="Hapus baris rantai tukar" aria-label="Hapus baris rantai tukar">${icon('trash')}</button>`;
+    $('#schedule-swap-extra-moves').append(row);
+    invalidateSwapPreview();
 }
 
 function swapPayload() {
-    const moves = $$('.schedule-swap-row', $('#schedule-swap-moves')).map((row) => {
-        const assignment = entries.find((item) => item.id === Number(row.querySelector('[data-swap-assignment]').value));
-        return assignment ? { assignment_id: assignment.id, expected_revision: assignment.revision, to_employee_id: Number(row.querySelector('[data-swap-target]').value) } : null;
+    const moves = [];
+
+    const sourceAssId = Number($('#schedule-swap-source-assignment').value);
+    const targetEmpId = Number($('#schedule-swap-target-employee').value);
+    const sourceAss = entries.find((item) => item.id === sourceAssId);
+    if (sourceAss && targetEmpId) {
+        moves.push({
+            assignment_id: sourceAss.id,
+            expected_revision: sourceAss.revision,
+            to_employee_id: targetEmpId,
+        });
+    }
+
+    const mode = $('input[name="swap_mode"]:checked')?.value;
+    if (mode === 'direct') {
+        const targetAssId = Number($('#schedule-swap-target-schedule').value);
+        const targetAss = entries.find((item) => item.id === targetAssId);
+        if (targetAss && sourceAss) {
+            moves.push({
+                assignment_id: targetAss.id,
+                expected_revision: targetAss.revision,
+                to_employee_id: sourceAss.employee_id,
+            });
+        }
+    } else if (mode === 'chain') {
+        const chainAssId = Number($('#schedule-swap-chain-schedule').value);
+        const chainTargetEmpId = Number($('#schedule-swap-chain-target').value);
+        const chainAss = entries.find((item) => item.id === chainAssId);
+        if (chainAss && chainTargetEmpId) {
+            moves.push({
+                assignment_id: chainAss.id,
+                expected_revision: chainAss.revision,
+                to_employee_id: chainTargetEmpId,
+            });
+        }
+    }
+
+    $$('.schedule-swap-row', $('#schedule-swap-extra-moves')).forEach((row) => {
+        const assId = Number(row.querySelector('[data-swap-assignment]').value);
+        const toId = Number(row.querySelector('[data-swap-target]').value);
+        const ass = entries.find((item) => item.id === assId);
+        if (ass && toId) {
+            moves.push({
+                assignment_id: ass.id,
+                expected_revision: ass.revision,
+                to_employee_id: toId,
+            });
+        }
     });
+
     const vacancy_decisions = $$('.schedule-swap-vacancy', $('#schedule-swap-result')).map((row) => ({
-        employee_id: Number(row.dataset.employeeId), work_date: row.dataset.workDate,
+        employee_id: Number(row.dataset.employeeId),
+        work_date: row.dataset.workDate,
         action: row.querySelector('[data-vacancy-action]').value,
         reason: row.querySelector('[data-vacancy-reason]').value.trim(),
     }));
+
     return {
-        moves: moves.filter(Boolean), vacancy_decisions,
+        moves,
+        vacancy_decisions,
         confirm_cross_unit: $('#schedule-swap-cross-unit').checked,
     };
 }
@@ -347,12 +530,23 @@ function invalidateSwapPreview(clearResult = true) {
 
 function openSwap(assignment) {
     swapPreview = null;
-    $('#schedule-swap-moves').replaceChildren();
     $('#schedule-swap-result').replaceChildren();
+    $('#schedule-swap-extra-moves').replaceChildren();
     $('#schedule-swap-cross-unit').checked = false;
     $('#schedule-swap-reason').value = '';
     $('#schedule-swap-error').hidden = true;
-    addSwapRow(assignment);
+    $('#schedule-swap-save').disabled = true;
+    delete $('#swap-mode-none').dataset.userChosen;
+
+    $('#schedule-swap-source-assignment').innerHTML = swapAssignmentOptions(assignment.id);
+    $('#schedule-swap-target-employee').innerHTML = swapTargetOptions(assignment.employee_id);
+    $('#schedule-swap-target-employee').value = '';
+
+    $('#schedule-swap-options-section').hidden = true;
+    $('#swap-mode-direct').checked = true;
+    $('#schedule-swap-direct-config').hidden = false;
+    $('#schedule-swap-chain-config').hidden = true;
+
     swapModal.showModal();
 }
 
@@ -370,7 +564,17 @@ async function previewSwap() {
     error.hidden = true;
     try {
         const payload = swapPayload();
-        if (!payload.moves.length || payload.moves.some((item) => !item.to_employee_id)) throw new Error('Pilih jadwal dan karyawan pengganti untuk seluruh rantai.');
+        if (!payload.moves.length) throw new Error('Pilih jadwal dan karyawan pengganti.');
+        const mode = $('input[name="swap_mode"]:checked')?.value;
+        if (mode === 'direct' && !$('#schedule-swap-target-schedule').value) {
+            throw new Error('Pilih jadwal karyawan pengganti untuk ditukar balik.');
+        }
+        if (mode === 'chain' && (!$('#schedule-swap-chain-schedule').value || !$('#schedule-swap-chain-target').value)) {
+            throw new Error('Pilih jadwal yang dialihkan dan karyawan pengganti berikutnya.');
+        }
+        if (payload.moves.some((item) => !item.assignment_id || !item.to_employee_id)) {
+            throw new Error('Lengkapi seluruh jadwal dan karyawan pengganti sebelum pratinjau.');
+        }
         const result = await api('schedule/swap/preview', { method: 'POST', body: payload });
         swapPreview = result;
         renderSwapPreview(result);
@@ -388,6 +592,7 @@ $('#person-filter').addEventListener('change', (event) => {
 });
 $$('[data-cal-view]').forEach((button) => button.addEventListener('click', () => {
     state.view = button.dataset.calView;
+    try { localStorage.setItem('deresort_cal_view', state.view); } catch (_) {}
     state.anchor = parseKey(state.selected.date);
     state.selected = { date: state.selected.date, emp: personFilter() };
     load();
@@ -428,15 +633,47 @@ $('#selected-day-list').addEventListener('click', async (event) => {
     });
 });
 
-$('#schedule-swap-add').addEventListener('click', () => { addSwapRow(); invalidateSwapPreview(); });
-$('#schedule-swap-moves').addEventListener('change', invalidateSwapPreview);
-$('#schedule-swap-moves').addEventListener('click', (event) => {
+$('#schedule-swap-source-assignment').addEventListener('change', async () => {
+    const sourceAssId = Number($('#schedule-swap-source-assignment').value);
+    const sourceAss = entries.find((e) => e.id === sourceAssId);
+    const currentTarget = $('#schedule-swap-target-employee').value;
+    $('#schedule-swap-target-employee').innerHTML = swapTargetOptions(sourceAss?.employee_id ?? '', currentTarget);
+    await onTargetEmployeeChange();
+});
+$('#schedule-swap-target-employee').addEventListener('change', onTargetEmployeeChange);
+
+$$('input[name="swap_mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+        if (radio.value === 'none') radio.dataset.userChosen = 'true';
+        else delete $('#swap-mode-none').dataset.userChosen;
+        updateSwapModeUi();
+    });
+});
+
+$('#schedule-swap-target-schedule').addEventListener('change', () => invalidateSwapPreview());
+$('#schedule-swap-chain-schedule').addEventListener('change', () => invalidateSwapPreview());
+$('#schedule-swap-chain-target').addEventListener('change', () => invalidateSwapPreview());
+
+$('#schedule-swap-add').addEventListener('click', () => { addExtraSwapRow(); });
+$('#schedule-swap-extra-moves').addEventListener('change', (event) => {
+    const row = event.target.closest('.schedule-swap-row');
+    if (event.target.matches('[data-swap-assignment]')) {
+        const assId = Number(event.target.value);
+        const ass = entries.find((e) => e.id === assId);
+        const targetSelect = row?.querySelector('[data-swap-target]');
+        if (targetSelect) {
+            targetSelect.innerHTML = swapTargetOptions(ass?.employee_id ?? '', targetSelect.value);
+        }
+    }
+    invalidateSwapPreview();
+});
+$('#schedule-swap-extra-moves').addEventListener('click', (event) => {
     if (!event.target.closest('[data-swap-remove]')) return;
-    if ($$('.schedule-swap-row', $('#schedule-swap-moves')).length <= 1) return;
     event.target.closest('.schedule-swap-row').remove();
     invalidateSwapPreview();
 });
-$('#schedule-swap-cross-unit').addEventListener('change', invalidateSwapPreview);
+
+$('#schedule-swap-cross-unit').addEventListener('change', () => invalidateSwapPreview());
 $('#schedule-swap-result').addEventListener('input', () => invalidateSwapPreview(false));
 $('#schedule-swap-result').addEventListener('change', () => invalidateSwapPreview(false));
 $('#schedule-swap-preview').addEventListener('click', previewSwap);
@@ -482,7 +719,12 @@ $('#schedule-session-rows').addEventListener('click', (event) => {
     const minimum = editingSchedule ? 1 : 2;
     if (rows.children.length <= minimum) return;
     remove.closest('.schedule-session-row').remove();
-    $$('.schedule-session-row [data-remove-session]', rows).forEach((button, index) => button.setAttribute('aria-label', `Hapus sesi ${index + 1}`));
+    $$('.schedule-session-row', rows).forEach((row, index) => {
+        const badge = $('.session-num-badge', row);
+        if (badge) badge.textContent = `Sesi ${index + 1}`;
+        const button = $('[data-remove-session]', row);
+        if (button) button.setAttribute('aria-label', `Hapus sesi ${index + 1}`);
+    });
     $('#schedule-add-session').hidden = rows.children.length >= 4;
 });
 
@@ -497,16 +739,40 @@ $('#schedule-publish')?.addEventListener('click', async () => {
 });
 
 $('#schedule-copy')?.addEventListener('click', async () => {
-    const from = keyOf(weekStart(state.anchor));
-    const to = keyOf(addDays(weekStart(state.anchor), 7));
     const employee_id = personFilter();
-    if (!await confirmDialog({ title: 'Salin jadwal minggu?', message: `Salin jadwal minggu ini ke minggu ${longDate(to)}? Tanggal yang sudah terisi dilewati.`, confirmLabel: 'Salin jadwal' })) return;
-    runAction(async () => {
-        const { created, skipped } = await api('schedule/copy-week', { method: 'POST', body: { from, to, employee_id } });
-        state.anchor = parseKey(to);
-        state.selected = { date: to, emp: state.selected.emp };
-        return `${created} jadwal disalin${skipped.length ? `, ${skipped.length} dilewati` : ''}.`;
-    });
+    if (state.view === 'week') {
+        const from = keyOf(weekStart(state.anchor));
+        const to = keyOf(addDays(weekStart(state.anchor), 7));
+        if (!await confirmDialog({
+            title: 'Salin jadwal minggu?',
+            message: `Salin jadwal minggu ini ke minggu ${longDate(to)}${employee_id ? ` untuk ${nameOf(employee_id)}` : ''}? Tanggal yang sudah terisi dilewati.`,
+            confirmLabel: 'Salin jadwal',
+        })) return;
+        runAction(async () => {
+            const { created, skipped } = await api('schedule/copy-week', { method: 'POST', body: { from, to, employee_id } });
+            state.anchor = parseKey(to);
+            state.selected = { date: to, emp: state.selected.emp };
+            return `${created} jadwal disalin${skipped.length ? `, ${skipped.length} dilewati` : ''}.`;
+        });
+    } else {
+        const fromDate = new Date(state.anchor.getFullYear(), state.anchor.getMonth(), 1);
+        const toDate = addMonths(fromDate, 1);
+        const from = keyOf(fromDate);
+        const to = keyOf(toDate);
+        const fromLabel = `${MONTHS[fromDate.getMonth()]} ${fromDate.getFullYear()}`;
+        const toLabel = `${MONTHS[toDate.getMonth()]} ${toDate.getFullYear()}`;
+        if (!await confirmDialog({
+            title: 'Salin jadwal bulan?',
+            message: `Salin semua jadwal shift bulan ${fromLabel} ke bulan ${toLabel}${employee_id ? ` untuk ${nameOf(employee_id)}` : ''}? Tanggal yang sudah terisi dilewati.`,
+            confirmLabel: 'Salin jadwal',
+        })) return;
+        runAction(async () => {
+            const { created, skipped } = await api('schedule/copy-month', { method: 'POST', body: { from, to, employee_id } });
+            state.anchor = toDate;
+            state.selected = { date: to, emp: state.selected.emp };
+            return `${created} jadwal disalin${skipped.length ? `, ${skipped.length} dilewati` : ''}.`;
+        });
+    }
 });
 
 /** Pencarian global: pilih karyawan lalu tampilkan jadwalnya. */
@@ -524,7 +790,12 @@ export function focusEmployee(query) {
 let ready;
 export function initSchedule() {
     ready ??= Promise.all([api('employees', { query: { status: 'active' } }), lookup('templates')]).then(([emp, tpl]) => {
-        employees = emp.data.map((e) => ({ id: e.id, name: e.name, dept: e.department?.name ?? '' }));
+        employees = emp.data.map((e) => ({
+            id: e.id,
+            name: e.name,
+            dept: e.department?.name ?? '',
+            position: e.position?.name ?? 'Tanpa Jabatan',
+        }));
         templates = tpl;
         const options = employees.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
         $('#person-filter').innerHTML = `<option value="all">Semua karyawan</option>${options}`;

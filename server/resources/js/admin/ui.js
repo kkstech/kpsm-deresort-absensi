@@ -3,6 +3,31 @@ export const $$ = (selector, root = document) => [...root.querySelectorAll(selec
 
 export const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+const ICONS = {
+    edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+    trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>',
+    contract: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    award: '<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>',
+    key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3M18.5 4.5l3 3"/>',
+    'user-plus': '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
+    'device-logout': '<rect x="3" y="4" width="10" height="16" rx="2"/><path d="M15 8h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4"/><polyline points="16 10 18 12 16 14"/><line x1="12" y1="12" x2="18" y2="12"/>',
+    'user-x': '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/>',
+    check: '<polyline points="20 6 9 17 4 12"/>',
+    x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    undo: '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
+    adjust: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    'shield-check': '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z"/><polyline points="9 12 11 14 15 10"/>',
+    swap: '<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>',
+    eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    'link-slash': '<path d="m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="m5.16 11.75-1.72 1.71a5 5 0 0 0 7.07 7.07l1.72-1.71"/><line x1="2" y1="2" x2="22" y2="22"/>',
+};
+
+export function icon(name, size = 16) {
+    const body = ICONS[name] ?? '';
+    return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+}
+
 let toastTimer;
 export function toast(message) {
     const el = $('#toast');
@@ -76,7 +101,7 @@ function sessionRow(s = {}) {
         <label>Hari selesai<select data-s="day_offset"><option value="0"${endOffset === 0 ? ' selected' : ''}>Tanggal kerja</option><option value="1"${endOffset === 1 ? ' selected' : ''}>Hari berikutnya</option><option value="2"${endOffset === 2 ? ' selected' : ''}>2 hari berikutnya</option></select></label>
         <label>Selesai<input type="time" data-s="local_end" value="${esc(String(s.local_end ?? '').slice(0, 5))}" required></label>
         <label>Istirahat (menit)<input type="number" data-s="unpaid_break_minutes" min="0" max="240" value="${esc(s.unpaid_break_minutes ?? 0)}"></label>
-        <button type="button" class="icon-button" data-remove-session aria-label="Hapus sesi">×</button>
+        <button type="button" class="action-btn danger" data-remove-session aria-label="Hapus sesi" title="Hapus sesi">${icon('trash', 14)}</button>
     </div>`;
 }
 
@@ -84,7 +109,12 @@ function syncVisibility() {
     const values = collect();
     current.fields.forEach((f) => {
         const el = $(`[data-field="${f.name}"]`, fieldsBox);
-        if (el && f.showIf) el.hidden = !f.showIf(values);
+        if (el && f.showIf) {
+            const isHidden = !f.showIf(values);
+            el.hidden = isHidden;
+            const input = el.querySelector('input, select, textarea');
+            if (input) input.disabled = isHidden;
+        }
     });
     const rows = $('.session-rows', fieldsBox);
     if (rows) $('[data-add-session]', fieldsBox).hidden = rows.children.length >= 4;

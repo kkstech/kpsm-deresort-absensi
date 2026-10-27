@@ -139,6 +139,170 @@ class AuthTest extends TestCase
             ->assertStatus(429)->assertJsonPath('code', 'RATE_LIMITED');
     }
 
+    public function test_mobile_login_with_personal_email_and_optional_phone(): void
+    {
+        $this->seed(MasterDataSeeder::class);
+        $user = User::factory()->create([
+            'email' => 'nadia.official@deresort.test',
+            'phone' => null,
+        ]);
+        $employee = Employee::query()->create([
+            'code' => 'FO-001',
+            'name' => $user->name,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'),
+            'email' => 'nadia.personal@gmail.com',
+            'phone' => '081234567801',
+        ]);
+
+        // Login using personal email (from employee model) + optional phone
+        $response = $this->postJson('/api/v1/auth/login', [
+            'email' => 'nadia.personal@gmail.com',
+            'phone' => '081234567801',
+            'password' => 'password',
+            'device_uuid' => 'mobile-device-1',
+        ])->assertOk();
+
+        $token = $response->json('token');
+        $this->assertNotEmpty($token);
+        $this->assertSame('nadia.official@deresort.test', $response->json('user.email'));
+        $this->assertSame('081234567801', $response->json('user.phone'));
+        $this->assertSame('nadia.personal@gmail.com', $response->json('user.employee.email'));
+        $this->assertSame('081234567801', $response->json('user.employee.phone'));
+
+        $this->assertSame('081234567801', $user->fresh()->phone);
+    }
+
+    public function test_mobile_login_with_phone_number_only(): void
+    {
+        $this->seed(MasterDataSeeder::class);
+        $user = User::factory()->create([
+            'email' => 'dimas.official@deresort.test',
+            'phone' => '081299998888',
+        ]);
+        Employee::query()->create([
+            'code' => 'EN-001',
+            'name' => $user->name,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'),
+            'email' => 'dimas.personal@gmail.com',
+            'phone' => '081299998888',
+        ]);
+
+        // Login using phone only in +62 format
+        $response = $this->postJson('/api/v1/auth/login', [
+            'phone' => '+62 812-9999-8888',
+            'password' => 'password',
+            'device_uuid' => 'mobile-device-2',
+        ])->assertOk();
+
+        $this->assertNotEmpty($response->json('token'));
+        $this->assertSame('081299998888', $response->json('user.phone'));
+    }
+
+    public function test_mobile_login_with_phone_in_email_field(): void
+    {
+        $this->seed(MasterDataSeeder::class);
+        $user = User::factory()->create([
+            'email' => 'lina@deresort.test',
+            'phone' => '081255554444',
+        ]);
+        Employee::query()->create([
+            'code' => 'FI-001',
+            'name' => $user->name,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'),
+            'email' => 'lina.pribadi@yahoo.com',
+            'phone' => '081255554444',
+        ]);
+
+        // User typed phone into email field
+        $response = $this->postJson('/api/v1/auth/login', [
+            'email' => '081255554444',
+            'password' => 'password',
+            'device_uuid' => 'mobile-device-3',
+        ])->assertOk();
+
+        $this->assertNotEmpty($response->json('token'));
+    }
+
+    public function test_update_profile_and_change_password(): void
+    {
+        $user = $this->employeeUser();
+        $token = $this->postJson('/api/v1/auth/login', [
+            'email' => $user->email,
+            'password' => 'password',
+            'device_uuid' => 'device-profile-1',
+        ])->assertOk()->json('token');
+
+        // Update name, email, and phone
+        $response = $this->withToken($token)->patchJson('/api/v1/me', [
+            'name' => 'Nama Baru Mandiri',
+            'phone' => '081234567899',
+            'email' => 'emailbaru@example.com',
+        ])->assertOk();
+
+        $response->assertJsonPath('user.name', 'Nama Baru Mandiri')
+            ->assertJsonPath('user.phone', '081234567899')
+            ->assertJsonPath('user.email', 'emailbaru@example.com')
+            ->assertJsonPath('user.employee.name', 'Nama Baru Mandiri')
+            ->assertJsonPath('user.employee.phone', '081234567899')
+            ->assertJsonPath('user.employee.email', 'emailbaru@example.com');
+
+        // Change password
+        $this->withToken($token)->patchJson('/api/v1/me', [
+            'current_password' => 'password',
+            'password' => 'newpassword123',
+            'password_confirmation' => 'newpassword123',
+        ])->assertOk();
+
+        // Login with new password
+        $this->app['auth']->forgetGuards();
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'emailbaru@example.com',
+            'password' => 'newpassword123',
+            'device_uuid' => 'device-profile-2',
+        ])->assertOk();
+    }
+
+    public function test_upload_and_delete_avatar(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $user = $this->employeeUser();
+        $token = $this->postJson('/api/v1/auth/login', [
+            'email' => $user->email,
+            'password' => 'password',
+            'device_uuid' => 'device-avatar-1',
+        ])->assertOk()->json('token');
+
+        $file = \Illuminate\Http\UploadedFile::fake()->image('profile.jpg', 200, 200);
+
+        $upload = $this->withToken($token)->post('/api/v1/me/avatar', [
+            'avatar' => $file,
+        ], ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertNotNull($upload->json('user.avatar_path'));
+        $this->assertNotNull($upload->json('user.avatar_url'));
+        $this->assertNotNull($user->fresh()->avatar_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($user->fresh()->avatar_path);
+
+        // Delete avatar
+        $delete = $this->withToken($token)->deleteJson('/api/v1/me/avatar')->assertOk();
+        $this->assertNull($delete->json('user.avatar_path'));
+        $this->assertNull($delete->json('user.avatar_url'));
+        $this->assertNull($user->fresh()->avatar_path);
+    }
+
     private function employeeUser(): User
     {
         $this->seed(MasterDataSeeder::class);

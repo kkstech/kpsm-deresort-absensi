@@ -24,7 +24,38 @@ function closeSidebar() {
     menuButton.setAttribute('aria-expanded', 'false');
 }
 
-function showView(view) {
+function parseHash() {
+    const raw = window.location.hash.replace(/^#\/?/, '').trim();
+    if (!raw) return { view: null, sub: null };
+    const parts = raw.split('/');
+    return { view: parts[0] || null, sub: parts[1] || null };
+}
+
+function resolveCurrentView() {
+    const { view: hashView, sub: hashSub } = parseHash();
+    if (hashView && loaders[hashView] && (hashView === 'dashboard' || $(`[data-view="${hashView}"]`))) {
+        if (hashView === 'settings' && hashSub) {
+            try { localStorage.setItem('deresort_settings_tab', hashSub); } catch (_) {}
+        }
+        return hashView;
+    }
+
+    try {
+        const savedView = localStorage.getItem('deresort_active_view');
+        if (savedView && loaders[savedView] && (savedView === 'dashboard' || $(`[data-view="${savedView}"]`))) {
+            return savedView;
+        }
+    } catch (_) {}
+
+    return 'dashboard';
+}
+
+function showView(view, updateHash = true, isInit = false) {
+    const targetButton = $(`[data-view="${view}"]`);
+    if (!loaders[view] || (!targetButton && view !== 'dashboard')) {
+        view = 'dashboard';
+    }
+
     $$('[data-view-panel]').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view));
     $$('[data-view]').forEach((button) => {
         const active = button.dataset.view === view;
@@ -34,8 +65,26 @@ function showView(view) {
     });
     closeSidebar();
     loaders[view]?.();
-    $('#main-content').focus({ preventScroll: true });
-    window.scrollTo({ top: 0 });
+
+    try {
+        localStorage.setItem('deresort_active_view', view);
+    } catch (_) {}
+
+    if (updateHash) {
+        let hash = `#${view}`;
+        if (view === 'settings') {
+            const sub = localStorage.getItem('deresort_settings_tab');
+            if (sub && sub !== 'general') hash = `#settings/${sub}`;
+        }
+        if (window.location.hash !== hash) {
+            history.replaceState(null, '', hash);
+        }
+    }
+
+    if (!isInit) {
+        $('#main-content').focus({ preventScroll: true });
+        window.scrollTo({ top: 0 });
+    }
 }
 
 $$('[data-view]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)));
@@ -43,6 +92,11 @@ $$('[data-view-link]').forEach((button) => button.addEventListener('click', () =
 menuButton.addEventListener('click', () => {
     const open = sidebar.classList.toggle('open');
     menuButton.setAttribute('aria-expanded', String(open));
+});
+
+window.addEventListener('hashchange', () => {
+    const current = resolveCurrentView();
+    showView(current, false);
 });
 
 document.addEventListener('keydown', (event) => {
@@ -98,3 +152,16 @@ $('#global-search').addEventListener('change', async (event) => {
     event.target.value = '';
     showView('schedule');
 });
+
+const logoutForm = document.querySelector('form[action*="logout"]');
+if (logoutForm) {
+    logoutForm.addEventListener('submit', () => {
+        try {
+            localStorage.removeItem('deresort_active_view');
+            localStorage.removeItem('deresort_settings_tab');
+        } catch (_) {}
+    });
+}
+
+const initialView = resolveCurrentView();
+showView(initialView, true, true);

@@ -16,7 +16,13 @@ class AttendanceWorkflowController extends Controller
 {
     public function permissions(Request $request): JsonResponse
     {
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => []]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $items = LatePermission::query()->with('session.assignment', 'attachments')->where('employee_id', $employee->id)
             ->latest()->limit(100)->get()->map(fn (LatePermission $item) => $this->permissionData($item));
 
@@ -44,7 +50,13 @@ class AttendanceWorkflowController extends Controller
 
     public function corrections(Request $request): JsonResponse
     {
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => []]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $items = AttendanceCorrection::query()->with('session.assignment', 'attachments')->where('employee_id', $employee->id)
             ->latest()->limit(100)->get()->map(fn (AttendanceCorrection $item) => $this->correctionData($item));
 

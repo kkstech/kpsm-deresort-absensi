@@ -1,10 +1,10 @@
 import { api, invalidate, isAdmin, lookup } from './api';
-import { $, $$, confirmDialog, esc, errorInto, loadingInto, openForm, renderTable, toast } from './ui';
+import { $, $$, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderTable, toast } from './ui';
 
 const table = $('#settings-table');
 const siteForm = $('#site-settings-form');
 const siteError = $('#site-settings-error');
-const opts = (list) => list.map((x) => ({ value: x.id, label: x.code ? `${x.name} (${x.code})` : x.name }));
+const opts = (list, label = (x) => x.code ? `${x.name} (${x.code})` : x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
 const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}${s.start_day_offset ? ' (+1)' : ''}–${hhmm(s.local_end)}${s.day_offset ? ` (+${s.day_offset})` : ''}`).join(', ');
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
@@ -133,8 +133,15 @@ const tabs = {
         columns: [
             { label: 'Nama', cell: (u) => `<b>${esc(u.name)}</b><small>${esc(u.email)}</small>` },
             { label: 'Peran', cell: (u) => `${esc(roleLabel[u.role])}<small>${esc(u.can_view_all ? 'Semua departemen' : u.department?.name ?? '')}</small>` },
+            { label: 'Profil Karyawan (Absensi)', cell: (u) => u.employee
+                ? `<span class="status success">Terhubung</span><small>${esc(u.employee.code)} - ${esc(u.employee.name)}</small>`
+                : '<span class="status neutral">Belum terhubung</span>'
+            },
             { label: 'Status', cell: (u) => u.is_active ? '<span class="status success">Aktif</span>' : '<span class="status neutral">Nonaktif</span>' },
         ],
+        extraAction: (u) => u.employee
+            ? `<button type="button" class="action-btn" data-action="unlink-emp" data-id="${u.id}" title="Putuskan tautan karyawan" aria-label="Putuskan tautan karyawan ${esc(u.name)}">${icon('link-slash')}</button>`
+            : `<button type="button" class="action-btn" data-action="link-emp" data-id="${u.id}" title="Hubungkan ke data karyawan" aria-label="Hubungkan ke data karyawan ${esc(u.name)}">${icon('link')}</button>`,
         fields: async (item) => [
             { name: 'name', label: 'Nama', required: true, maxlength: 120 },
             { name: 'email', label: 'Email login', type: 'email', required: true },
@@ -147,7 +154,28 @@ const tabs = {
     },
 };
 
-let active = 'general';
+function getInitialSettingsTab() {
+    const raw = window.location.hash.replace(/^#\/?/, '').trim();
+    const parts = raw.split('/');
+    if (parts[0] === 'settings' && parts[1]) {
+        const sub = parts[1];
+        if (sub === 'general' || tabs[sub]) return sub;
+    }
+    try {
+        const saved = localStorage.getItem('deresort_settings_tab');
+        if (saved && (saved === 'general' || tabs[saved])) return saved;
+    } catch (_) {}
+    return 'general';
+}
+
+function validSettingsTab(tabName) {
+    if (tabName === 'general') return true;
+    if (!tabs[tabName]) return false;
+    const btn = $(`[data-settings-tab="${tabName}"]`);
+    return Boolean(btn);
+}
+
+let active = getInitialSettingsTab();
 let rows = [];
 let siteSettings = {};
 const previewUrls = {};
@@ -246,6 +274,11 @@ async function loadGeneral() {
 }
 
 async function load() {
+    if (!validSettingsTab(active)) {
+        active = 'general';
+        try { localStorage.setItem('deresort_settings_tab', 'general'); } catch (_) {}
+    }
+    $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === active)));
     if (active === 'general') return loadGeneral();
     const tab = tabs[active];
     const endpoint = tab.endpoint ?? active;
@@ -262,7 +295,7 @@ async function load() {
             rows,
             columns: tab.columns,
             empty: `Belum ada ${tab.singular}.`,
-            actions: (x) => `${tab.readOnly ? '' : `<button type="button" class="text-button" data-action="edit" data-id="${x.id}">Ubah</button>`}${tab.extraAction?.(x) ?? ''}${tab.deletable ? `<button type="button" class="text-button danger-text" data-action="delete" data-id="${x.id}">Hapus</button>` : ''}`,
+            actions: (x) => `${tab.readOnly ? '' : `<button type="button" class="action-btn" data-action="edit" data-id="${x.id}" title="Ubah ${esc(tab.singular)}" aria-label="Ubah ${esc(tab.singular)}">${icon('edit')}</button>`}${tab.extraAction?.(x) ?? ''}${tab.deletable ? `<button type="button" class="action-btn danger" data-action="delete" data-id="${x.id}" title="Hapus ${esc(tab.singular)}" aria-label="Hapus ${esc(tab.singular)}">${icon('trash')}</button>` : ''}`,
         });
     } catch (error) {
         errorInto(table, error);
@@ -302,11 +335,130 @@ async function run(fn, message) {
     }
 }
 
+async function openLinkEmployee(user) {
+    const [unlinkedEmployees, departments, positions, locations] = await Promise.all([
+        api('unlinked-employees').then((r) => r.data),
+        lookup('departments'),
+        lookup('positions'),
+        lookup('locations'),
+    ]);
+
+    const hasUnlinked = unlinkedEmployees.length > 0;
+
+    openForm({
+        title: `Hubungkan Karyawan · ${user.name}`,
+        hint: 'User dapat didaftarkan sebagai karyawan baru atau ditautkan ke data karyawan yang belum memiliki akun.',
+        submitLabel: 'Simpan',
+        fields: [
+            {
+                name: 'mode',
+                label: 'Metode integrasi',
+                type: 'select',
+                required: true,
+                options: [
+                    ...(hasUnlinked ? [{ value: 'link', label: 'Tautkan ke karyawan yang sudah ada' }] : []),
+                    { value: 'create', label: 'Buat profil karyawan baru untuk user ini' },
+                ],
+                default: hasUnlinked ? 'link' : 'create',
+            },
+            {
+                name: 'employee_id',
+                label: 'Pilih karyawan',
+                type: 'select',
+                numeric: true,
+                blank: 'Pilih karyawan…',
+                options: opts(unlinkedEmployees, (e) => `${e.name} (${e.code} - ${e.department?.name ?? ''})`),
+                showIf: (v) => v.mode === 'link',
+            },
+            {
+                name: 'code',
+                label: 'Kode karyawan baru',
+                maxlength: 32,
+                hint: 'Contoh: ADM-001, SPV-001, atau HR-001',
+                showIf: (v) => v.mode === 'create',
+            },
+            {
+                name: 'department_id',
+                label: 'Departemen',
+                type: 'select',
+                numeric: true,
+                blank: 'Pilih departemen',
+                options: opts(departments),
+                default: user.department_id,
+                showIf: (v) => v.mode === 'create',
+            },
+            {
+                name: 'position_id',
+                label: 'Jabatan',
+                type: 'select',
+                numeric: true,
+                blank: 'Pilih jabatan',
+                options: opts(positions),
+                showIf: (v) => v.mode === 'create',
+            },
+            {
+                name: 'work_location_id',
+                label: 'Lokasi kerja',
+                type: 'select',
+                numeric: true,
+                blank: 'Tidak diatur',
+                options: opts(locations),
+                showIf: (v) => v.mode === 'create',
+            },
+            {
+                name: 'started_on',
+                label: 'Tanggal mulai kerja',
+                type: 'date',
+                default: todayKey(),
+                showIf: (v) => v.mode === 'create',
+            },
+        ],
+        onSubmit: async (body) => {
+            if (body.mode === 'link') {
+                if (!body.employee_id) throw new Error('Pilih data karyawan terlebih dahulu.');
+                await api(`users/${user.id}/link-employee`, { method: 'POST', body: { employee_id: body.employee_id } });
+                toast('Karyawan berhasil ditautkan ke akun user.');
+            } else {
+                if (!body.code) throw new Error('Kode karyawan wajib diisi.');
+                if (!body.department_id) throw new Error('Departemen wajib dipilih.');
+                if (!body.position_id) throw new Error('Jabatan wajib dipilih.');
+                if (!body.started_on) throw new Error('Tanggal mulai kerja wajib diisi.');
+                await api(`users/${user.id}/create-employee`, {
+                    method: 'POST',
+                    body: {
+                        code: body.code,
+                        department_id: body.department_id,
+                        position_id: body.position_id,
+                        work_location_id: body.work_location_id || null,
+                        started_on: body.started_on,
+                    },
+                });
+                toast('Profil karyawan baru berhasil dibuat dan ditautkan ke user.');
+            }
+            invalidate('users');
+            invalidate('employees');
+            load();
+        },
+    });
+}
+
 table.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-action]');
     const item = button && rows.find((x) => String(x.id) === button.dataset.id);
     if (!item) return;
     if (button.dataset.action === 'edit') openItem(item);
+    if (button.dataset.action === 'link-emp') openLinkEmployee(item);
+    if (button.dataset.action === 'unlink-emp' && await confirmDialog({
+        title: 'Putuskan tautan karyawan?',
+        message: `Putuskan hubungan akun user ${item.name} dengan data karyawan ${item.employee?.name} (${item.employee?.code})? User ini tidak akan tercatat dalam jadwal dan tidak bisa absen di mobile app sampai ditautkan kembali.`,
+        confirmLabel: 'Putuskan tautan',
+        danger: true,
+    })) {
+        run(async () => {
+            await api(`users/${item.id}/unlink-employee`, { method: 'POST' });
+            invalidate('employees');
+        }, 'Tautan karyawan berhasil diputuskan.');
+    }
     if (button.dataset.action === 'delete' && await confirmDialog({ title: `Hapus ${tabs[active].singular}?`, message: 'Data yang sudah dihapus tidak dapat dipulihkan.', confirmLabel: 'Hapus', danger: true })) {
         run(() => api(`${active}/${item.id}`, { method: 'DELETE' }), 'Data dihapus.');
     }
@@ -315,11 +467,23 @@ table.addEventListener('click', async (event) => {
 $('#settings-add').addEventListener('click', () => openItem(null));
 $$('[data-settings-tab]').forEach((button) => button.addEventListener('click', () => {
     active = button.dataset.settingsTab;
+    try {
+        localStorage.setItem('deresort_settings_tab', active);
+    } catch (_) {}
+    if (active && active !== 'general') {
+        history.replaceState(null, '', `#settings/${active}`);
+    } else {
+        history.replaceState(null, '', '#settings');
+    }
     $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b === button)));
     load();
 }));
 
-export const showSettings = load;
+export async function showSettings() {
+    active = getInitialSettingsTab();
+    if (!validSettingsTab(active)) active = 'general';
+    await load();
+}
 
 const assetInputs = ['logo', 'favicon'];
 assetInputs.forEach((name) => {

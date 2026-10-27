@@ -1,5 +1,5 @@
 import { api, isAdmin, isSuperAdmin, role } from './api';
-import { $, esc, toast } from './ui';
+import { $, esc, icon, toast } from './ui';
 
 const today = document.body.dataset.today;
 const dashboardForm = $('#dashboard-filters');
@@ -101,7 +101,7 @@ function renderMonitoring({ data, meta }) {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
-            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="text-button" data-session-action="verify" data-session-id="${row.id}">Verifikasi</button>` : ''}<button type="button" class="text-button" data-session-action="correction" data-session-id="${row.id}">Koreksi langsung</button></td>` : '';
+            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button></td>` : '';
             return `<tr><td data-label="Tanggal">${formatDate(row.work_date)}</td><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · sesi ${row.shift.seq}</td><td data-label="Jadwal">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${attendance.provisional_out_at && !attendance.check_out_at ? ' · provisional' : ''}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small>${esc(attendance.review_reason)}</small>` : ''}</td><td data-label="Menit valid" class="number-cell">${attendance.verified_minutes}</td>${actions}</tr>`;
         }).join('')}</tbody></table></div>`;
     }
@@ -184,20 +184,91 @@ function openWorkflowModal(title, hint, fields, submit, submitLabel = 'Simpan') 
 function decisionModal(kind, item) {
     const isLate = kind === 'late';
     const path = isLate ? `late-permissions/${item.id}/decision` : `attendance-corrections/${item.id}/decision`;
-    openWorkflowModal(isLate ? 'Putuskan izin terlambat' : 'Putuskan koreksi absensi', `${item.employee.name} · ${formatDate(item.work_date)} · ${item.shift}`, `
-        <label>Keputusan<select name="decision" required><option value="APPROVED">Setujui</option><option value="REJECTED">Tolak</option></select></label>
-        <label>Alasan keputusan<textarea name="decision_reason" rows="3" maxlength="1000" required></textarea></label>`, (body) => api(path, { method: 'POST', body }));
+    const target = isLate
+        ? (item.allowed_until ? `Target jam hadir: <strong>${formatClock(item.allowed_until)}</strong>` : `Durasi izin: <strong>${item.allowed_minutes} menit</strong>`)
+        : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
+    const attachments = item.attachments?.length
+        ? `<div class="workflow-modal-summary-row"><span class="modal-label">Lampiran Bukti:</span><div class="workflow-files">${item.attachments.map((file) => `<a href="/admin/api/attachments/${file.id}" target="_blank" class="workflow-file-chip">${icon('contract', 13)} <span>${esc(file.name)}</span></a>`).join('')}</div></div>`
+        : '';
+
+    const summaryCard = `
+        <div class="workflow-modal-summary">
+            <div class="workflow-modal-summary-row"><span class="modal-label">Karyawan:</span> <strong>${esc(item.employee.name)}</strong> (${esc(item.employee.department ?? 'Tanpa departemen')})</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Jadwal:</span> ${formatDate(item.work_date)} · ${esc(item.shift)}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">${isLate ? 'Permintaan Izin:' : 'Usulan Koreksi:'}</span> ${target}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Alasan Karyawan:</span> <p class="modal-reason-text">"${esc(item.reason)}"</p></div>
+            ${attachments}
+        </div>
+        <hr class="modal-divider">
+        <label>Keputusan
+            <select name="decision" required>
+                <option value="APPROVED">Setujui permohonan</option>
+                <option value="REJECTED">Tolak permohonan</option>
+            </select>
+        </label>
+        <label>Alasan keputusan (wajib)
+            <textarea name="decision_reason" rows="3" maxlength="1000" placeholder="Contoh: Disetujui sesuai bukti lampiran..." required></textarea>
+        </label>`;
+
+    openWorkflowModal(isLate ? 'Putuskan Izin Terlambat' : 'Putuskan Koreksi Absensi', 'Tinjau rincian permohonan sebelum menetapkan keputusan.', summaryCard, (body) => api(path, { method: 'POST', body }), 'Simpan Keputusan');
 }
 
 function renderAttachments(items) {
-    return items.length ? `<small class="workflow-files">Bukti: ${items.map((file) => `<a href="/admin/api/attachments/${file.id}">${esc(file.name)}</a>`).join(', ')}</small>` : '';
+    if (!items.length) return '';
+    return `<div class="workflow-attachments-wrap">
+        <span class="workflow-attachment-label">Bukti lampiran:</span>
+        <div class="workflow-files">${items.map((file) => `<a href="/admin/api/attachments/${file.id}" target="_blank" class="workflow-file-chip" title="Buka lampiran ${esc(file.name)}">${icon('contract', 13)} <span>${esc(file.name)}</span></a>`).join('')}</div>
+    </div>`;
 }
 
 function renderQueueItem(item, kind) {
     const late = kind === 'late';
-    const target = late ? (item.allowed_until ? `Target hadir ${formatClock(item.allowed_until)}` : `Izin terlambat ${item.allowed_minutes} menit`) : `Check-in ${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'} · checkout ${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}`;
+    const targetLabel = late ? 'Izin Terlambat' : 'Usulan Koreksi';
+    const targetValue = late
+        ? (item.allowed_until ? `Target hadir pk <strong>${formatClock(item.allowed_until)}</strong>` : `Izin <strong>${item.allowed_minutes} menit</strong>`)
+        : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
+
     const canDecide = late ? (role === 'super_admin' || role === 'admin' || (role === 'supervisor' && item.requester_id !== Number(document.body.dataset.userId))) : isAdmin;
-    return `<article class="workflow-item"><div class="workflow-item-heading"><div><strong>${esc(item.employee.name)}</strong><small>${esc(item.employee.department ?? 'Tanpa departemen')} · ${formatDate(item.work_date)} · ${esc(item.shift)}</small></div><span class="status warning">Menunggu</span></div><p>${esc(item.reason)}</p><small>${target}</small>${renderAttachments(item.attachments)}${canDecide ? `<div class="workflow-item-actions"><button type="button" class="secondary-button" data-decision="${late ? 'late' : 'correction'}" data-request-id="${item.id}">Tinjau</button></div>` : ''}</article>`;
+    const initialLetter = esc(item.employee.name.charAt(0).toUpperCase());
+
+    return `<article class="workflow-card">
+        <div class="workflow-card-header">
+            <div class="workflow-user-info">
+                <span class="avatar workflow-avatar">${initialLetter}</span>
+                <div class="workflow-user-meta">
+                    <strong>${esc(item.employee.name)}</strong>
+                    <div class="workflow-sub-meta">
+                        <span class="meta-pill">${esc(item.employee.department ?? 'Tanpa departemen')}</span>
+                        <span>${formatDate(item.work_date)}</span>
+                        <span>·</span>
+                        <span>${esc(item.shift)}</span>
+                    </div>
+                </div>
+            </div>
+            <span class="status warning">Menunggu</span>
+        </div>
+
+        <div class="workflow-card-body">
+            <div class="workflow-target-badge">
+                ${icon(late ? 'clock' : 'check', 14)}
+                <span>${targetLabel}:</span> ${targetValue}
+            </div>
+
+            <div class="workflow-reason-box">
+                <span class="reason-label">Alasan:</span>
+                <p class="reason-text">"${esc(item.reason)}"</p>
+            </div>
+
+            ${renderAttachments(item.attachments)}
+        </div>
+
+        ${canDecide ? `
+        <div class="workflow-card-footer">
+            <button type="button" class="secondary-button workflow-review-btn" data-decision="${late ? 'late' : 'correction'}" data-request-id="${item.id}">
+                ${icon('eye', 15)} <span>Tinjau &amp; Putuskan</span>
+            </button>
+        </div>` : ''}
+    </article>`;
 }
 
 export async function showApprovals() {
@@ -205,10 +276,33 @@ export async function showApprovals() {
     error.hidden = true;
     try {
         const result = await api('workflows', { query: { status: 'PENDING' } });
-        $('#late-permission-count').textContent = `${result.late_permissions.length} menunggu keputusan`;
-        $('#correction-count').textContent = `${result.corrections.length} menunggu keputusan`;
-        $('#late-permission-queue').innerHTML = result.late_permissions.length ? result.late_permissions.map((item) => renderQueueItem(item, 'late')).join('') : '<p class="list-empty">Tidak ada izin terlambat yang menunggu.</p>';
-        $('#correction-queue').innerHTML = result.corrections.length ? result.corrections.map((item) => renderQueueItem(item, 'correction')).join('') : '<p class="list-empty">Tidak ada koreksi yang menunggu.</p>';
+        const lateCount = result.late_permissions.length;
+        const correctionCount = result.corrections.length;
+
+        const lateBadge = $('#late-permission-count-badge');
+        if (lateBadge) lateBadge.textContent = lateCount;
+        $('#late-permission-count').textContent = lateCount ? `${lateCount} permohonan menunggu keputusan` : 'Semua permohonan selesai';
+
+        const corrBadge = $('#correction-count-badge');
+        if (corrBadge) corrBadge.textContent = correctionCount;
+        $('#correction-count').textContent = correctionCount ? `${correctionCount} permohonan menunggu keputusan` : 'Semua permohonan selesai';
+
+        const emptyLate = `
+            <div class="workflow-empty-state">
+                <div class="empty-icon-wrap">${icon('check', 26)}</div>
+                <strong>Tidak ada izin terlambat</strong>
+                <span>Semua permohonan izin terlambat sudah ditinjau.</span>
+            </div>`;
+        const emptyCorrection = `
+            <div class="workflow-empty-state">
+                <div class="empty-icon-wrap">${icon('check', 26)}</div>
+                <strong>Tidak ada koreksi absensi</strong>
+                <span>Semua permohonan koreksi absensi sudah ditinjau.</span>
+            </div>`;
+
+        $('#late-permission-queue').innerHTML = lateCount ? result.late_permissions.map((item) => renderQueueItem(item, 'late')).join('') : emptyLate;
+        $('#correction-queue').innerHTML = correctionCount ? result.corrections.map((item) => renderQueueItem(item, 'correction')).join('') : emptyCorrection;
+
         $('#late-permission-queue').querySelectorAll('[data-decision]').forEach((button) => button.addEventListener('click', () => {
             const item = result.late_permissions.find((request) => request.id === Number(button.dataset.requestId));
             if (item) decisionModal('late', item);
@@ -267,9 +361,24 @@ export async function initAttendance() {
         if (button.dataset.sessionAction === 'correction') openDirectCorrection(row);
     });
     const directLateForm = $('#direct-late-form');
+    const directToggle = $('#direct-late-toggle');
+    const directCancel = $('#direct-late-cancel');
     if (directLateForm) {
         directLateForm.elements.work_date.value = today;
         directLateForm.elements.work_date.addEventListener('change', loadDirectSessions);
+
+        if (directToggle) {
+            const toggleForm = () => {
+                const willOpen = directLateForm.hidden;
+                directLateForm.hidden = !willOpen;
+                directToggle.setAttribute('aria-expanded', String(willOpen));
+                directToggle.innerHTML = willOpen ? '<span>− Tutup formulir</span>' : '<span>+ Buka formulir</span>';
+                if (willOpen) loadDirectSessions();
+            };
+            directToggle.addEventListener('click', toggleForm);
+            directCancel?.addEventListener('click', toggleForm);
+        }
+
         directLateForm.addEventListener('submit', async (event) => {
             event.preventDefault();
             const body = new FormData(directLateForm);
@@ -281,6 +390,11 @@ export async function initAttendance() {
                 toast('Izin terlambat langsung disimpan.');
                 directLateForm.reset();
                 directLateForm.elements.work_date.value = today;
+                directLateForm.hidden = true;
+                if (directToggle) {
+                    directToggle.setAttribute('aria-expanded', 'false');
+                    directToggle.innerHTML = '<span>+ Buka formulir</span>';
+                }
                 await Promise.all([loadDashboard(), loadMonitoring(monitoringPage), showApprovals()]);
             } catch (failure) {
                 showError('#workflow-error', failure.message);

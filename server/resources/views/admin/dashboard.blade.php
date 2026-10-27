@@ -150,23 +150,89 @@
                     <section class="panel monitoring-panel" aria-label="Daftar absensi"><div class="panel-heading"><div><h2>Absensi per sesi</h2><p id="monitoring-count" aria-live="polite">Memuat data…</p></div></div><div id="monitoring-table" aria-live="polite"><p class="list-empty">Memuat data…</p></div><div id="monitoring-pagination" class="table-pagination"></div></section>
                 </section>
                 <section class="view workflow-view" data-view-panel="requests">
-                    <div class="page-heading"><div><p data-site-name>{{ $siteSettings->site_name }}</p><h1>Persetujuan</h1><span>Permintaan izin dan koreksi menunggu keputusan.</span></div><button type="button" class="secondary-button" id="workflow-refresh">Muat ulang</button></div>
+                    <div class="page-heading">
+                        <div>
+                            <p data-site-name>{{ $siteSettings->site_name }}</p>
+                            <h1>Persetujuan</h1>
+                            <span>Permintaan izin dan koreksi menunggu keputusan.</span>
+                        </div>
+                        <button type="button" class="secondary-button workflow-refresh-btn" id="workflow-refresh">
+                            <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                            <span>Muat ulang</span>
+                        </button>
+                    </div>
                     <p class="form-error" id="workflow-error" role="alert" hidden></p>
-                    <section class="panel" id="direct-late-panel" data-requires="super_admin">
-                        <div class="panel-heading"><div><h2>Izin terlambat langsung</h2><p>Hanya Super Admin. Timestamp absensi tetap disimpan apa adanya.</p></div></div>
-                        <form class="attendance-filters" id="direct-late-form">
-                            <label>Tanggal kerja<input type="date" name="work_date" required></label>
-                            <label>Sesi<select name="shift_session_id" required><option value="">Pilih sesi</option></select></label>
-                            <label>Target jam hadir<input type="datetime-local" name="allowed_until"></label>
-                            <label>Durasi izin (menit)<input type="number" name="allowed_minutes" min="0" max="1440"></label>
-                            <label class="workflow-reason">Alasan<textarea name="reason" rows="2" maxlength="2000" required></textarea></label>
-                            <label>Bukti (JPG, PNG, PDF)<input type="file" name="evidence" accept="image/jpeg,image/png,application/pdf"></label>
-                            <button type="submit" class="secondary-button">Tetapkan izin</button>
+                    <section class="panel direct-late-panel" id="direct-late-panel" data-requires="super_admin">
+                        <div class="panel-heading">
+                            <div class="heading-title-group">
+                                <div class="heading-badge-wrap">
+                                    <h2>Izin terlambat langsung</h2>
+                                    <span class="super-admin-badge">Super Admin</span>
+                                </div>
+                                <p>Tetapkan izin keterlambatan tanpa permohonan mandiri dari karyawan. Timestamp absensi tetap terjaga.</p>
+                            </div>
+                            <button type="button" class="secondary-button direct-toggle-btn" id="direct-late-toggle" aria-expanded="false">
+                                <span>+ Buka formulir</span>
+                            </button>
+                        </div>
+                        <form class="direct-late-form" id="direct-late-form" hidden>
+                            <div class="direct-form-grid">
+                                <label>Tanggal kerja
+                                    <input type="date" name="work_date" required>
+                                </label>
+                                <label>Sesi shift
+                                    <select name="shift_session_id" required>
+                                        <option value="">Pilih sesi</option>
+                                    </select>
+                                </label>
+                                <label>Target jam hadir (opsional)
+                                    <input type="datetime-local" name="allowed_until">
+                                </label>
+                                <label>Durasi toleransi izin (menit)
+                                    <input type="number" name="allowed_minutes" min="0" max="1440" placeholder="Contoh: 30">
+                                </label>
+                                <label class="field-full">Alasan penetapan izin
+                                    <textarea name="reason" rows="2" maxlength="2000" placeholder="Tuliskan alasan izin langsung..." required></textarea>
+                                </label>
+                                <label class="field-full">Lampiran bukti (opsional: JPG, PNG, PDF)
+                                    <input type="file" name="evidence" accept="image/jpeg,image/png,application/pdf">
+                                </label>
+                            </div>
+                            <div class="direct-form-actions">
+                                <button type="button" class="secondary-button" id="direct-late-cancel">Tutup</button>
+                                <button type="submit" class="primary-button">Tetapkan izin</button>
+                            </div>
                         </form>
                     </section>
                     <div class="workflow-grid">
-                        <section class="panel"><div class="panel-heading"><div><h2>Izin terlambat</h2><p id="late-permission-count">Memuat…</p></div></div><div id="late-permission-queue" aria-live="polite"><p class="list-empty">Memuat data…</p></div></section>
-                        <section class="panel"><div class="panel-heading"><div><h2>Koreksi absensi</h2><p id="correction-count">Memuat…</p></div></div><div id="correction-queue" aria-live="polite"><p class="list-empty">Memuat data…</p></div></section>
+                        <section class="panel workflow-queue-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <div class="queue-title-wrap">
+                                        <h2>Izin Terlambat</h2>
+                                        <span class="queue-count-badge" id="late-permission-count-badge">0</span>
+                                    </div>
+                                    <p id="late-permission-count">Memuat…</p>
+                                </div>
+                            </div>
+                            <div id="late-permission-queue" class="workflow-queue-list" aria-live="polite">
+                                <p class="list-empty">Memuat data…</p>
+                            </div>
+                        </section>
+                        <section class="panel workflow-queue-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <div class="queue-title-wrap">
+                                        <h2>Koreksi Absensi</h2>
+                                        <span class="queue-count-badge" id="correction-count-badge">0</span>
+                                    </div>
+                                    <p id="correction-count">Memuat…</p>
+                                </div>
+                            </div>
+                            <div id="correction-queue" class="workflow-queue-list" aria-live="polite">
+                                <p class="list-empty">Memuat data…</p>
+                            </div>
+                        </section>
                     </div>
                 </section>
                 <section class="view" data-view-panel="employees">
@@ -217,74 +283,86 @@
                 </section>
                 <section class="view" data-view-panel="settings">
                     <div class="page-heading"><div><h1>Pengaturan</h1><span>Data dasar yang dipakai jadwal dan absensi.</span></div></div>
-                    <div class="tabs" role="tablist" aria-label="Bagian pengaturan">
-                        <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Umum</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Template shift</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg>Aturan kehadiran</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg>Departemen</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg>Jabatan</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-map-pin"/></svg>Lokasi kerja</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="levels" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg>Level karyawan</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Tarif tunjangan</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="allowance-overrides" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>Pengecualian individu</button>
-                        <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>Akun admin</button>
-                    </div>
-                    <div class="panel">
-                        <div class="panel-heading"><div><h2 id="settings-title"></h2><p id="settings-hint"></p></div><button type="button" class="secondary-button" id="settings-add">+ Tambah</button></div>
-                        <form id="site-settings-form" class="site-settings-form" hidden>
-                            <p class="form-error" id="site-settings-error" role="alert" hidden></p>
-                            <div class="site-settings-layout">
-                                <div class="site-settings-fields">
-                                    <section class="site-settings-section">
-                                        <h3>Identitas website</h3>
-                                        <label>Nama website<input name="site_name" maxlength="120" required><small class="field-error" id="site-site-name-error" hidden></small></label>
-                                        <label>Logo untuk halaman login dan sidebar<input id="site-logo-file" name="logo" type="file" accept="image/png,image/jpeg,image/webp"><small class="field-hint">PNG, JPG, atau WebP · Maksimal 2 MB</small></label>
-                                        <div class="site-asset-preview"><img id="site-logo-preview" alt="Pratinjau logo" hidden><span id="site-logo-empty">Belum ada logo</span><label class="check-field" id="site-logo-remove-wrap" hidden><input name="remove_logo" type="checkbox" value="1"><span>Hapus logo tersimpan</span></label><small class="field-error" id="site-logo-error" hidden></small></div>
-                                        <label>Favicon tab browser<input id="site-favicon-file" name="favicon" type="file" accept="image/png,.ico"><small class="field-hint">PNG atau ICO · Maksimal 2 MB</small></label>
-                                        <div class="site-asset-preview favicon-preview"><img id="site-favicon-preview" alt="Pratinjau favicon" hidden><span id="site-favicon-empty">Belum ada favicon</span><label class="check-field" id="site-favicon-remove-wrap" hidden><input name="remove_favicon" type="checkbox" value="1"><span>Hapus favicon tersimpan</span></label><small class="field-error" id="site-favicon-error" hidden></small></div>
-                                    </section>
-                                    <section class="site-settings-section">
-                                        <h3>Kontak website</h3>
-                                        <label>Email<input name="contact_email" type="email" maxlength="255" autocomplete="email"><small class="field-error" id="site-contact-email-error" hidden></small></label>
-                                        <label>Telepon / WhatsApp<input name="contact_phone" type="tel" maxlength="40" autocomplete="tel"><small class="field-error" id="site-contact-phone-error" hidden></small></label>
-                                        <label>Alamat<textarea name="contact_address" rows="3" maxlength="500" autocomplete="street-address"></textarea><small class="field-error" id="site-contact-address-error" hidden></small></label>
-                                        <p class="field-hint">Kontak yang diisi akan tampil di halaman login.</p>
-                                    </section>
-                                </div>
-                                <aside class="site-preview" aria-live="polite" aria-label="Pratinjau halaman login">
-                                    <h3>Pratinjau login</h3>
-                                    <div class="site-preview-card">
-                                        <img id="site-preview-logo" alt="" hidden>
-                                        <span id="site-preview-globe" class="auth-mark" aria-hidden="true">
-                                            <svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><ellipse cx="12" cy="12" rx="4" ry="9"></ellipse><path d="M3.5 9h17M3.5 15h17"></path></svg>
-                                        </span>
-                                        <strong id="site-preview-name">Deresort Attendance</strong>
-                                        <div id="site-preview-contact" class="site-preview-contact"></div>
-                                    </div>
-                                </aside>
+                    <div class="settings-view-layout">
+                        <aside class="settings-nav-aside" aria-label="Kategori pengaturan">
+                            <div class="tabs settings-vertical-tabs" role="tablist" aria-orientation="vertical" aria-label="Bagian pengaturan">
+                                <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Umum</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Aturan kehadiran</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg><span>Departemen</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg><span>Jabatan</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-map-pin"/></svg><span>Lokasi kerja</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="levels" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg><span>Level karyawan</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span>Tarif tunjangan</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="allowance-overrides" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Pengecualian individu</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Akun admin</span></button>
                             </div>
-                            <div class="site-settings-actions"><button type="submit" class="primary-button" id="site-settings-save">Simpan perubahan</button></div>
-                        </form>
-                        <div id="settings-table" aria-live="polite"></div>
+                        </aside>
+                        <div class="panel settings-content-panel">
+                            <div class="panel-heading"><div><h2 id="settings-title"></h2><p id="settings-hint"></p></div><button type="button" class="secondary-button" id="settings-add">+ Tambah</button></div>
+                            <form id="site-settings-form" class="site-settings-form" hidden>
+                                <p class="form-error" id="site-settings-error" role="alert" hidden></p>
+                                <div class="site-settings-layout">
+                                    <div class="site-settings-fields">
+                                        <section class="site-settings-section">
+                                            <h3>Identitas website</h3>
+                                            <label>Nama website<input name="site_name" maxlength="120" required><small class="field-error" id="site-site-name-error" hidden></small></label>
+                                            <label>Logo untuk halaman login dan sidebar<input id="site-logo-file" name="logo" type="file" accept="image/png,image/jpeg,image/webp"><small class="field-hint">PNG, JPG, atau WebP · Maksimal 2 MB</small></label>
+                                            <div class="site-asset-preview"><img id="site-logo-preview" alt="Pratinjau logo" hidden><span id="site-logo-empty">Belum ada logo</span><label class="check-field" id="site-logo-remove-wrap" hidden><input name="remove_logo" type="checkbox" value="1"><span>Hapus logo tersimpan</span></label><small class="field-error" id="site-logo-error" hidden></small></div>
+                                            <label>Favicon tab browser<input id="site-favicon-file" name="favicon" type="file" accept="image/png,.ico"><small class="field-hint">PNG atau ICO · Maksimal 2 MB</small></label>
+                                            <div class="site-asset-preview favicon-preview"><img id="site-favicon-preview" alt="Pratinjau favicon" hidden><span id="site-favicon-empty">Belum ada favicon</span><label class="check-field" id="site-favicon-remove-wrap" hidden><input name="remove_favicon" type="checkbox" value="1"><span>Hapus favicon tersimpan</span></label><small class="field-error" id="site-favicon-error" hidden></small></div>
+                                        </section>
+                                        <section class="site-settings-section">
+                                            <h3>Kontak website</h3>
+                                            <label>Email<input name="contact_email" type="email" maxlength="255" autocomplete="email"><small class="field-error" id="site-contact-email-error" hidden></small></label>
+                                            <label>Telepon / WhatsApp<input name="contact_phone" type="tel" maxlength="40" autocomplete="tel"><small class="field-error" id="site-contact-phone-error" hidden></small></label>
+                                            <label>Alamat<textarea name="contact_address" rows="3" maxlength="500" autocomplete="street-address"></textarea><small class="field-error" id="site-contact-address-error" hidden></small></label>
+                                            <p class="field-hint">Kontak yang diisi akan tampil di halaman login.</p>
+                                        </section>
+                                    </div>
+                                    <aside class="site-preview" aria-live="polite" aria-label="Pratinjau halaman login">
+                                        <h3>Pratinjau login</h3>
+                                        <div class="site-preview-card">
+                                            <img id="site-preview-logo" alt="" hidden>
+                                            <span id="site-preview-globe" class="auth-mark" aria-hidden="true">
+                                                <svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="9"></circle><ellipse cx="12" cy="12" rx="4" ry="9"></ellipse><path d="M3.5 9h17M3.5 15h17"></path></svg>
+                                            </span>
+                                            <strong id="site-preview-name">Deresort Attendance</strong>
+                                            <div id="site-preview-contact" class="site-preview-contact"></div>
+                                        </div>
+                                    </aside>
+                                </div>
+                                <div class="site-settings-actions"><button type="submit" class="primary-button" id="site-settings-save">Simpan perubahan</button></div>
+                            </form>
+                            <div id="settings-table" aria-live="polite"></div>
+                        </div>
                     </div>
                 </section>
             </main>
         </div>
     </div>
 
-    <dialog class="app-dialog" id="schedule-modal" aria-labelledby="schedule-modal-title">
+    <dialog class="app-dialog schedule-editor-dialog" id="schedule-modal" aria-labelledby="schedule-modal-title">
         <form method="dialog" id="schedule-form">
             <div class="modal-heading"><div><h2 id="schedule-modal-title">Buat jadwal</h2><p>Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
             <div class="modal-body">
-                <label>Karyawan<select id="schedule-employee" required></select></label>
-                <label>Tanggal kerja<input type="date" id="schedule-date" required></label>
-                <label>Jenis jadwal<select id="schedule-mode"><option value="template">Template shift</option><option value="custom">Split khusus</option></select></label>
-                <label id="schedule-template-wrap">Template shift<select id="schedule-template" required></select></label>
-                <div id="schedule-custom-wrap" hidden>
+                <div class="schedule-modal-top-grid">
+                    <label>Karyawan<select id="schedule-employee" required></select></label>
+                    <label>Tanggal kerja<input type="date" id="schedule-date" required></label>
+                    <label>Jenis jadwal<select id="schedule-mode"><option value="template">Template shift</option><option value="custom">Split khusus</option></select></label>
+                    <label id="schedule-template-wrap">Template shift<select id="schedule-template" required></select></label>
+                </div>
+                <div id="schedule-custom-wrap" class="schedule-custom-wrap" hidden>
                     <label>Nama jadwal<input id="schedule-name" maxlength="100" value="Shift khusus"></label>
-                    <div id="schedule-session-rows" class="schedule-session-rows"></div>
-                    <button type="button" class="text-button" id="schedule-add-session">+ Tambah sesi</button>
-                    <label id="schedule-reason-wrap" hidden>Alasan perubahan<input id="schedule-reason" maxlength="500" minlength="3"></label>
+                    <div class="schedule-sessions-section">
+                        <div class="schedule-sessions-heading">
+                            <strong>Daftar Sesi Shift Khusus</strong>
+                            <span class="field-hint">Maksimal 4 sesi per siklus kerja. Total jam kerja maksimal 12 jam, rentang maksimal 13 jam.</span>
+                        </div>
+                        <div id="schedule-session-rows" class="schedule-session-cards"></div>
+                        <button type="button" class="secondary-button add-session-button" id="schedule-add-session"><span style="font-size: 16px; font-weight: bold; line-height: 1;">+</span> Tambah sesi</button>
+                    </div>
+                    <label id="schedule-reason-wrap" hidden>Alasan perubahan<input id="schedule-reason" maxlength="500" minlength="3" placeholder="Contoh: Penyesuaian jam operasional shift"></label>
                 </div>
                 <p class="form-error" id="schedule-error" role="alert" hidden></p>
             </div>
@@ -293,16 +371,87 @@
     </dialog>
     <dialog class="app-dialog schedule-swap-dialog" id="schedule-swap-modal" aria-labelledby="schedule-swap-title">
         <form id="schedule-swap-form">
-            <div class="modal-heading"><div><h2 id="schedule-swap-title">Tukar siklus jadwal</h2><p>Rantai jadwal dikunci bersama setelah pratinjau berhasil.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
+            <div class="modal-heading">
+                <div>
+                    <h2 id="schedule-swap-title">Tukar siklus jadwal</h2>
+                    <p id="schedule-swap-subtitle">Tukar jadwal karyawan atau susun rantai pertukaran shift.</p>
+                </div>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+            </div>
             <div class="modal-body">
-                <div id="schedule-swap-moves" class="form-fields"></div>
-                <button type="button" class="text-button" id="schedule-swap-add">+ Tambah jadwal dalam rantai</button>
+                <div class="schedule-swap-main-card">
+                    <label>Jadwal yang ingin ditukar
+                        <select id="schedule-swap-source-assignment" required></select>
+                    </label>
+                    <label>Karyawan pengganti
+                        <select id="schedule-swap-target-employee" required></select>
+                    </label>
+                </div>
+
+                <div id="schedule-swap-options-section" class="schedule-swap-options-section" hidden>
+                    <div class="schedule-swap-section-title">
+                        <strong id="schedule-swap-options-title">Pilihan pertukaran jadwal</strong>
+                        <p class="field-hint" id="schedule-swap-options-hint">Pilih perlakuan untuk jadwal milik karyawan pengganti.</p>
+                    </div>
+
+                    <div class="schedule-swap-radio-group">
+                        <label class="schedule-swap-radio-label">
+                            <input type="radio" name="swap_mode" value="direct" id="swap-mode-direct" checked>
+                            <div>
+                                <span class="radio-title" id="swap-mode-direct-title">Tukar langsung dengan karyawan pengaju</span>
+                                <small class="radio-desc">Jadwal karyawan pengganti langsung ditukarkan kepada karyawan yang mengajukan perubahan jadwal.</small>
+                            </div>
+                        </label>
+
+                        <div id="schedule-swap-direct-config" class="schedule-swap-subfield">
+                            <label>Pilih jadwal karyawan pengganti untuk ditukar balik
+                                <select id="schedule-swap-target-schedule"></select>
+                            </label>
+                            <p class="field-hint" id="schedule-swap-direct-target-hint"></p>
+                        </div>
+
+                        <label class="schedule-swap-radio-label">
+                            <input type="radio" name="swap_mode" value="chain" id="swap-mode-chain">
+                            <div>
+                                <span class="radio-title">Digantikan karyawan lain lagi</span>
+                                <small class="radio-desc">Jadwal karyawan pengganti dialihkan ke karyawan ketiga dalam rantai pertukaran.</small>
+                            </div>
+                        </label>
+
+                        <div id="schedule-swap-chain-config" class="schedule-swap-subfield" hidden>
+                            <label>Pilih jadwal karyawan pengganti yang dialihkan
+                                <select id="schedule-swap-chain-schedule"></select>
+                            </label>
+                            <label>Karyawan pengganti berikutnya
+                                <select id="schedule-swap-chain-target"></select>
+                            </label>
+                        </div>
+
+                        <label class="schedule-swap-radio-label">
+                            <input type="radio" name="swap_mode" value="none" id="swap-mode-none">
+                            <div>
+                                <span class="radio-title">Tanpa tukar jadwal balik (Pelimpahan shift)</span>
+                                <small class="radio-desc">Hanya jadwal awal yang dialihkan; karyawan pengaju tidak menerima shift pengganti (libur/cuti).</small>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="schedule-swap-extra-section" class="schedule-swap-extra-section">
+                    <div id="schedule-swap-extra-moves" class="form-fields"></div>
+                    <button type="button" class="text-button" id="schedule-swap-add">+ Tambah jadwal lanjutan dalam rantai</button>
+                </div>
+
                 <label class="check-field"><input type="checkbox" id="schedule-swap-cross-unit"><span>Konfirmasi jika pratinjau menunjukkan perpindahan lintas departemen</span></label>
-                <label>Alasan perubahan<textarea id="schedule-swap-reason" rows="3" maxlength="1000" required></textarea></label>
+                <label>Alasan perubahan<textarea id="schedule-swap-reason" rows="3" maxlength="1000" required placeholder="Contoh: Tukar shift atas persetujuan bersama"></textarea></label>
                 <div id="schedule-swap-result" class="form-fields" aria-live="polite"></div>
                 <p class="form-error" id="schedule-swap-error" role="alert" hidden></p>
             </div>
-            <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="button" class="secondary-button" id="schedule-swap-preview">Pratinjau</button><button type="submit" class="primary-button" id="schedule-swap-save" disabled>Terapkan tukar</button></div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="button" class="secondary-button" id="schedule-swap-preview">Pratinjau</button>
+                <button type="submit" class="primary-button" id="schedule-swap-save" disabled>Terapkan tukar</button>
+            </div>
         </form>
     </dialog>
     <dialog class="app-dialog" id="form-modal" aria-labelledby="form-modal-title">

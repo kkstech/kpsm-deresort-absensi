@@ -171,6 +171,83 @@ class HrWorkflowTest extends TestCase
         $this->assertSame('active', $employee->fresh()->status);
     }
 
+    public function test_multi_day_leave_request_reserves_quota_detects_conflicts_and_approves_all_days(): void
+    {
+        $user = User::factory()->create();
+        $employee = $this->employee('LEV-MULTI', '2026-01-01', $user);
+        $device = DeviceRegistration::query()->create(['user_id' => $user->id, 'device_uuid' => 'multi-leave-phone']);
+        $token = $user->createToken("device:{$device->id}")->plainTextToken;
+
+        $this->postJson('/admin/api/leave-settings/confirm', ['reason' => 'Saldo awal diperiksa HRD'])->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        // 1. Validation fails if end_date is before work_date
+        $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-10',
+            'end_date' => '2026-11-08',
+            'type' => 'regular',
+            'reason' => 'Libur terbalik',
+        ])->assertStatus(422);
+
+        // 2. Submit multi-day leave for 3 days: 2026-11-10 to 2026-11-12
+        $res = $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-10',
+            'end_date' => '2026-11-12',
+            'type' => 'regular',
+            'reason' => 'Libur 3 hari berturut-turut',
+        ])->assertCreated();
+
+        $res->assertJsonPath('data.work_date', '2026-11-10')
+            ->assertJsonPath('data.end_date', '2026-11-12')
+            ->assertJsonPath('data.days_count', 3)
+            ->assertJsonPath('data.status', 'PENDING');
+
+        // Balance should reserve 3 days
+        $this->withToken($token)->getJson('/api/v1/me/leave-balance')
+            ->assertOk()
+            ->assertJsonPath('data.regular.reserved', 3)
+            ->assertJsonPath('data.regular.available', 9); // 12 - 3 = 9
+
+        // 3. Overlapping single day or multi-day leave is rejected
+        $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-11',
+            'type' => 'regular',
+            'reason' => 'Tumpang tindih',
+        ])->assertStatus(409)->assertJsonPath('code', 'LEAVE_ALREADY_REQUESTED');
+
+        // 4. Admin approves the 3-day leave
+        $requestId = $res->json('data.id');
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED',
+            'decision_reason' => 'Disetujui 3 hari',
+        ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
+
+        // Balance reflects 3 used days
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/me/leave-balance')
+            ->assertOk()
+            ->assertJsonPath('data.regular.used', 3)
+            ->assertJsonPath('data.regular.reserved', 0)
+            ->assertJsonPath('data.regular.available', 9);
+
+        // 5. Admin direct multi-day leave for 2 days
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($this->admin)->postJson('/admin/api/leaves/direct', [
+            'employee_id' => $employee->id,
+            'work_date' => '2026-11-20',
+            'end_date' => '2026-11-21',
+            'type' => 'regular',
+            'reason' => 'Cuti langsung HR 2 hari',
+        ])->assertCreated()->assertJsonPath('data.days_count', 2)->assertJsonPath('data.status', 'APPROVED');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/me/leave-balance')
+            ->assertOk()
+            ->assertJsonPath('data.regular.used', 5)
+            ->assertJsonPath('data.regular.available', 7);
+    }
+
     private function employee(string $code, string $startedOn, ?User $user = null): Employee
     {
         return Employee::query()->create([

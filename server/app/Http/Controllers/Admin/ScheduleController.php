@@ -180,6 +180,30 @@ class ScheduleController extends Controller
         return response()->json($this->schedules->copyWeek($data['from'], $data['to'], $this->targetIds($request, $data), $request->user()));
     }
 
+    public function copyMonth(Request $request): JsonResponse
+    {
+        Gate::authorize('admin');
+        $data = $request->validate([
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date', 'different:from'],
+            'employee_id' => ['nullable', 'integer'],
+        ]);
+
+        $fromStart = CarbonImmutable::parse($data['from'])->startOfMonth();
+        $toStart = CarbonImmutable::parse($data['to'])->startOfMonth();
+
+        if ($fromStart->equalTo($toStart)) {
+            throw new BusinessRuleException('VALIDATION_ERROR', 'Bulan asal dan tujuan tidak boleh sama.', 422);
+        }
+
+        return response()->json($this->schedules->copyMonth(
+            $fromStart->toDateString(),
+            $toStart->toDateString(),
+            $this->targetIds($request, $data),
+            $request->user()
+        ));
+    }
+
     private function targetIds(Request $request, array $data): array
     {
         return EmployeeController::visibleTo($request->user())

@@ -28,7 +28,7 @@ class EmployeeController extends Controller
         ]);
 
         $employees = self::visibleTo($request->user())
-            ->with(['department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,is_active'])
+            ->with(['department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,role,is_active'])
             ->with(['level:id,code,name', 'employmentTerms'])
             ->withCount(['devices' => fn (Builder $q) => $q->whereNull('revoked_at')])
             ->when($filters['q'] ?? null, fn (Builder $q, $term) => $q->where(fn (Builder $w) => $w
@@ -66,18 +66,31 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $data = $this->validated($request);
         $account = $request->validate([
-            'account_email' => ['nullable', 'email', 'max:255', 'unique:users,email'],
-            'account_password' => ['required_with:account_email', 'nullable', 'string', 'min:8', 'max:255'],
+            'account_email' => ['nullable', 'email', 'max:255'],
+            'account_password' => ['nullable', 'string', 'min:8', 'max:255'],
         ]);
 
         $employee = DB::transaction(function () use ($data, $account) {
-            if (! empty($account['account_email'])) {
-                $data['user_id'] = User::query()->create([
-                    'name' => $data['name'],
-                    'email' => Str::lower($account['account_email']),
-                    'password' => $account['account_password'],
-                    'role' => 'employee',
-                ])->id;
+            $accountEmail = ! empty($account['account_email']) ? Str::lower($account['account_email']) : (! empty($data['email']) && ! empty($account['account_password']) ? Str::lower($data['email']) : null);
+            if ($accountEmail) {
+                $existingUser = User::query()->where('email', $accountEmail)->first();
+                if ($existingUser) {
+                    if ($existingUser->employee()->exists()) {
+                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun dengan email tersebut sudah terhubung ke karyawan lain.', 422);
+                    }
+                    if (! empty($account['account_password'])) {
+                        $existingUser->update(['password' => $account['account_password']]);
+                    }
+                    $data['user_id'] = $existingUser->id;
+                } elseif (! empty($account['account_password'])) {
+                    $data['user_id'] = User::query()->create([
+                        'name' => $data['name'],
+                        'email' => $accountEmail,
+                        'phone' => $data['phone'] ?? null,
+                        'password' => $account['account_password'],
+                        'role' => 'employee',
+                    ])->id;
+                }
             }
             $employee = Employee::query()->create($data);
             $employee->placements()->create(['department_id' => $employee->department_id, 'effective_from' => $employee->started_on]);
@@ -102,12 +115,92 @@ class EmployeeController extends Controller
                 $employee->placements()->updateOrCreate(['effective_from' => WorkTime::today()], ['department_id' => $employee->department_id]);
             }
             if ($user = $employee->user) {
-                $user->update(['name' => $employee->name, 'is_active' => $employee->status === 'active']);
-                if ($employee->status !== 'active') {
+                $userUpdates = ['name' => $employee->name];
+                if (! in_array($user->role, User::WEB_ROLES, true)) {
+                    $userUpdates['is_active'] = $employee->status === 'active';
+                }
+                if ($employee->phone) {
+                    $userUpdates['phone'] = $employee->phone;
+                }
+                $user->update($userUpdates);
+                if ($employee->status !== 'active' && ! in_array($user->role, User::WEB_ROLES, true)) {
                     $this->revokeAll($user);
                 }
             }
             Audit::log('employees.updated', $employee, $before);
+        });
+
+        return response()->json(['data' => $employee->fresh()]);
+    }
+
+    public function unlinkedUsers(): JsonResponse
+    {
+        Gate::authorize('admin');
+        $users = User::query()
+            ->whereDoesntHave('employee')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'phone', 'role', 'department_id']);
+
+        return response()->json(['data' => $users]);
+    }
+
+    public function unlinkedEmployees(): JsonResponse
+    {
+        Gate::authorize('admin');
+        $employees = Employee::query()
+            ->whereNull('user_id')
+            ->where('status', 'active')
+            ->with(['department:id,name', 'position:id,name'])
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'email', 'phone', 'department_id', 'position_id']);
+
+        return response()->json(['data' => $employees]);
+    }
+
+    public function linkUser(Request $request, Employee $employee): JsonResponse
+    {
+        Gate::authorize('admin');
+        $data = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        $user = User::query()->findOrFail($data['user_id']);
+
+        if ($user->employee()->where('id', '!=', $employee->id)->exists()) {
+            throw new BusinessRuleException('USER_ALREADY_LINKED', 'Akun user ini sudah terhubung ke karyawan lain.', 422);
+        }
+
+        DB::transaction(function () use ($employee, $user) {
+            $before = $employee->attributesToArray();
+            $updates = ['user_id' => $user->id];
+            if (empty($employee->email) && ! empty($user->email)) {
+                $updates['email'] = $user->email;
+            }
+            if (empty($employee->phone) && ! empty($user->phone)) {
+                $updates['phone'] = $user->phone;
+            }
+            $employee->update($updates);
+
+            Audit::log('employees.user_linked', $employee, $before, ['user_id' => $user->id]);
+        });
+
+        return response()->json(['data' => $employee->fresh('user:id,name,email,role,is_active')]);
+    }
+
+    public function unlinkUser(Request $request, Employee $employee): JsonResponse
+    {
+        Gate::authorize('admin');
+        if (! $employee->user_id) {
+            throw new BusinessRuleException('NOT_LINKED', 'Karyawan ini belum terhubung ke akun user.', 422);
+        }
+
+        DB::transaction(function () use ($employee) {
+            $before = $employee->attributesToArray();
+            $userId = $employee->user_id;
+            $employee->update(['user_id' => null]);
+
+            Audit::log('employees.user_unlinked', $employee, $before, ['user_id' => $userId]);
         });
 
         return response()->json(['data' => $employee->fresh()]);
@@ -119,17 +212,47 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $user = $employee->user;
         $data = $request->validate([
-            'email' => [$user ? 'nullable' : 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
+            'email' => [$user ? 'nullable' : 'required', 'email', 'max:255'],
             'password' => ['required', 'string', 'min:8', 'max:255'],
         ]);
 
         DB::transaction(function () use ($employee, $user, $data) {
             if ($user) {
-                $user->update(array_filter(['email' => isset($data['email']) ? Str::lower($data['email']) : null, 'password' => $data['password']]));
+                if (! empty($data['email'])) {
+                    $targetEmail = Str::lower($data['email']);
+                    if (User::query()->where('email', $targetEmail)->where('id', '!=', $user->id)->exists()) {
+                        throw new BusinessRuleException('EMAIL_TAKEN', 'Email ini sudah digunakan oleh akun lain.', 422);
+                    }
+                }
+                $user->update(array_filter([
+                    'email' => isset($data['email']) ? Str::lower($data['email']) : null,
+                    'phone' => $employee->phone,
+                    'password' => $data['password'],
+                ]));
                 $user->tokens()->delete();
             } else {
-                $user = User::query()->create(['name' => $employee->name, 'email' => Str::lower($data['email']), 'password' => $data['password'], 'role' => 'employee']);
-                $employee->update(['user_id' => $user->id]);
+                $loginEmail = isset($data['email']) ? Str::lower($data['email']) : ($employee->email ? Str::lower($employee->email) : null);
+                $existingUser = User::query()->where('email', $loginEmail)->first();
+                if ($existingUser) {
+                    if ($existingUser->employee()->where('id', '!=', $employee->id)->exists()) {
+                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun user dengan email ini sudah terhubung ke karyawan lain.', 422);
+                    }
+                    $existingUser->update(array_filter([
+                        'phone' => $employee->phone ?? $existingUser->phone,
+                        'password' => $data['password'],
+                    ]));
+                    $employee->update(['user_id' => $existingUser->id]);
+                    $user = $existingUser;
+                } else {
+                    $user = User::query()->create([
+                        'name' => $employee->name,
+                        'email' => $loginEmail,
+                        'phone' => $employee->phone,
+                        'password' => $data['password'],
+                        'role' => 'employee',
+                    ]);
+                    $employee->update(['user_id' => $user->id]);
+                }
             }
             Audit::log('employees.account', $employee, null, ['user_id' => $user->id, 'email' => $user->email]);
         });
@@ -146,8 +269,10 @@ class EmployeeController extends Controller
             $before = $employee->attributesToArray();
             $employee->update(['status' => 'inactive', 'ended_on' => $data['ended_on'] ?? WorkTime::today()]);
             if ($user = $employee->user) {
-                $user->update(['is_active' => false]);
-                $this->revokeAll($user);
+                if (! in_array($user->role, User::WEB_ROLES, true)) {
+                    $user->update(['is_active' => false]);
+                    $this->revokeAll($user);
+                }
             }
             Audit::log('employees.deactivated', $employee, $before);
         });

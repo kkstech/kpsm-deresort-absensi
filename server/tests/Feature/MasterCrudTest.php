@@ -135,6 +135,119 @@ class MasterCrudTest extends TestCase
             ->getJson('/admin/api/users')->assertStatus(403);
     }
 
+    public function test_admin_user_can_be_linked_to_employee_and_keeps_admin_role(): void
+    {
+        $adminUser = User::factory()->role('admin')->create(['email' => 'hrd@deresort.test']);
+        $deptId = Department::query()->first()->id;
+        $posId = Position::query()->first()->id;
+
+        // Create employee with the same email as existing admin
+        $response = $this->actingAs($adminUser)->postJson('/admin/api/employees', [
+            'code' => 'HR-001',
+            'name' => 'HR Manager',
+            'department_id' => $deptId,
+            'position_id' => $posId,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'email' => 'hrd@deresort.test',
+            'account_email' => 'hrd@deresort.test',
+        ])->assertCreated();
+
+        $employeeId = $response->json('data.id');
+        $employee = Employee::query()->findOrFail($employeeId);
+
+        $this->assertSame($adminUser->id, $employee->user_id);
+        $this->assertSame('admin', $adminUser->fresh()->role, 'Role admin tetap tidak berubah');
+    }
+
+    public function test_unlinked_users_and_employees_endpoints(): void
+    {
+        $admin = User::factory()->role('admin')->create(['name' => 'Admin Unlinked']);
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $employee = $this->makeEmployee('EMP-UNLINKED', $fo);
+
+        $resUsers = $this->asAdmin()->getJson('/admin/api/unlinked-users')->assertOk();
+        $userIds = collect($resUsers->json('data'))->pluck('id')->all();
+        $this->assertContains($admin->id, $userIds);
+
+        $resEmployees = $this->getJson('/admin/api/unlinked-employees')->assertOk();
+        $empIds = collect($resEmployees->json('data'))->pluck('id')->all();
+        $this->assertContains($employee->id, $empIds);
+    }
+
+    public function test_link_and_unlink_user_from_employee(): void
+    {
+        $supervisor = User::factory()->role('supervisor')->create(['name' => 'Supervisor Test']);
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $employee = $this->makeEmployee('EMP-LINK-1', $fo);
+
+        $this->assertNull($employee->user_id);
+
+        $this->asAdmin()->postJson("/admin/api/employees/{$employee->id}/link-user", [
+            'user_id' => $supervisor->id,
+        ])->assertOk();
+
+        $this->assertSame($supervisor->id, $employee->fresh()->user_id);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'employees.user_linked', 'subject_id' => $employee->id]);
+
+        $this->postJson("/admin/api/employees/{$employee->id}/unlink-user")->assertOk();
+        $this->assertNull($employee->fresh()->user_id);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'employees.user_unlinked', 'subject_id' => $employee->id]);
+    }
+
+    public function test_link_and_unlink_employee_from_user(): void
+    {
+        $superAdmin = User::factory()->role('super_admin')->create();
+        $adminUser = User::factory()->role('admin')->create();
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $employee = $this->makeEmployee('EMP-LINK-2', $fo);
+
+        $this->actingAs($superAdmin)->postJson("/admin/api/users/{$adminUser->id}/link-employee", [
+            'employee_id' => $employee->id,
+        ])->assertOk();
+
+        $this->assertSame($adminUser->id, $employee->fresh()->user_id);
+        $this->assertSame($employee->id, $adminUser->fresh()->employee->id);
+
+        $this->postJson("/admin/api/users/{$adminUser->id}/unlink-employee")->assertOk();
+        $this->assertNull($employee->fresh()->user_id);
+        $this->assertNull($adminUser->fresh()->employee);
+    }
+
+    public function test_create_employee_from_user(): void
+    {
+        $superAdmin = User::factory()->role('super_admin')->create();
+        $adminUser = User::factory()->role('admin')->create(['name' => 'Budi Supervisor', 'email' => 'budi.spv@deresort.test']);
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $pos = Position::query()->value('id');
+
+        $this->actingAs($superAdmin)->postJson("/admin/api/users/{$adminUser->id}/create-employee", [
+            'code' => 'SPV-001',
+            'department_id' => $fo,
+            'position_id' => $pos,
+            'started_on' => '2026-02-01',
+        ])->assertCreated();
+
+        $employee = Employee::query()->where('code', 'SPV-001')->firstOrFail();
+        $this->assertSame($adminUser->id, $employee->user_id);
+        $this->assertSame('Budi Supervisor', $employee->name);
+        $this->assertSame('budi.spv@deresort.test', $employee->email);
+        $this->assertSame(1, $employee->placements()->count());
+        $this->assertSame(1, $employee->employmentTerms()->count());
+    }
+
+    public function test_deactivating_employee_preserves_web_admin_user(): void
+    {
+        $adminUser = User::factory()->role('admin')->create(['is_active' => true]);
+        $fo = Department::query()->where('name', 'Front Office')->value('id');
+        $employee = $this->makeEmployee('EMP-ADMIN-DEACT', $fo);
+        $employee->update(['user_id' => $adminUser->id]);
+
+        $this->asAdmin()->postJson("/admin/api/employees/{$employee->id}/deactivate")->assertOk();
+        $this->assertSame('inactive', $employee->fresh()->status);
+        $this->assertTrue($adminUser->fresh()->is_active, 'User admin web tidak boleh dinonaktifkan ketika profil karyawannya dinonaktifkan');
+    }
+
     private function asAdmin(): static
     {
         return $this->actingAs(User::factory()->role('admin')->create());

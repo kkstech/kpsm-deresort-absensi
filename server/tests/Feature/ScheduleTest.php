@@ -166,6 +166,55 @@ class ScheduleTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.roster_off_recorded']);
     }
 
+    public function test_schedule_swap_with_chain_replacement_to_another_employee(): void
+    {
+        $firstEmployee = $this->employee;
+        $replacementEmployee = $this->makeEmployee('FO-B', 'Front Office');
+        $thirdEmployee = $this->makeEmployee('FO-C', 'Front Office');
+
+        $firstShift = $this->assign('2026-10-26', 'Reguler', $firstEmployee)->assertCreated()->json('data');
+        $secondShift = $this->assign('2026-10-26', 'Reguler', $replacementEmployee)->assertCreated()->json('data');
+
+        $moves = [
+            ['assignment_id' => $firstShift['id'], 'expected_revision' => $firstShift['revision'], 'to_employee_id' => $replacementEmployee->id],
+            ['assignment_id' => $secondShift['id'], 'expected_revision' => $secondShift['revision'], 'to_employee_id' => $thirdEmployee->id],
+        ];
+
+        $decision = ['employee_id' => $firstEmployee->id, 'work_date' => '2026-10-26', 'action' => 'roster_off', 'reason' => 'Off setelah jadwal dialihkan'];
+        $ready = $this->postJson('/admin/api/schedule/swap/preview', [
+            'moves' => $moves,
+            'vacancy_decisions' => [$decision],
+            'confirm_cross_unit' => true,
+        ])->assertOk()->assertJsonPath('can_commit', true);
+
+        $this->postJson('/admin/api/schedule/swap', [
+            'moves' => $moves,
+            'vacancy_decisions' => [$decision],
+            'confirm_cross_unit' => true,
+            'preview_token' => $ready->json('preview_token'),
+            'reason' => 'Rantai tukar jadwal ke karyawan lain',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('shift_assignments', ['id' => $firstShift['id'], 'employee_id' => $replacementEmployee->id, 'revision' => 2]);
+        $this->assertDatabaseHas('shift_assignments', ['id' => $secondShift['id'], 'employee_id' => $thirdEmployee->id, 'revision' => 2]);
+        $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.swap_chain_completed']);
+    }
+
+    public function test_employees_endpoint_returns_position_for_dropdown_grouping(): void
+    {
+        $response = $this->getJson('/admin/api/employees?status=active')->assertOk();
+        $response->assertJsonStructure([
+            'data' => [
+                '*' => [
+                    'id',
+                    'name',
+                    'department' => ['id', 'name'],
+                    'position' => ['id', 'name'],
+                ],
+            ],
+        ]);
+    }
+
     public function test_scheduled_minutes_follow_prd_examples(): void
     {
         $this->assign('2026-10-25', 'Reguler')->assertJsonPath('data.sessions.0.scheduled_minutes', 480);
@@ -233,6 +282,46 @@ class ScheduleTest extends TestCase
         $this->assertSame('DRAFT', ShiftAssignment::query()->where('work_date', '2026-11-02')->value('status'));
 
         $this->postJson('/admin/api/schedule/copy-week', ['from' => '2026-10-27', 'to' => '2026-11-03'])->assertStatus(422);
+    }
+
+    public function test_copy_month(): void
+    {
+        $this->assign('2026-11-01', 'Reguler');
+        $this->assign('2026-11-02', 'Malam');
+        $this->assign('2026-11-15', 'Khusus 2 sesi');
+
+        // Pre-existing schedule in December 2026 on the 2nd
+        $this->assign('2026-12-02', 'Reguler');
+
+        $response = $this->postJson('/admin/api/schedule/copy-month', [
+            'from' => '2026-11-01',
+            'to' => '2026-12-01',
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 2)
+            ->assertJsonPath('skipped.0.work_date', '2026-12-02');
+
+        $this->assertSame('DRAFT', ShiftAssignment::query()->where('work_date', '2026-12-01')->value('status'));
+        $this->assertSame('DRAFT', ShiftAssignment::query()->where('work_date', '2026-12-15')->value('status'));
+
+        // Reject if same month
+        $this->postJson('/admin/api/schedule/copy-month', [
+            'from' => '2026-11-01',
+            'to' => '2026-11-01',
+        ])->assertStatus(422)->assertJsonPath('code', 'VALIDATION_ERROR');
+    }
+
+    public function test_copy_month_skips_out_of_range_days(): void
+    {
+        // 2026-10 has 31 days. 2026-11 has 30 days.
+        $this->assign('2026-10-31', 'Reguler');
+        $response = $this->postJson('/admin/api/schedule/copy-month', [
+            'from' => '2026-10-01',
+            'to' => '2026-11-01',
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 0)
+            ->assertJsonPath('skipped.0.work_date', '2026-10-31');
     }
 
     public function test_supervisor_reads_own_team_only_and_cannot_write(): void

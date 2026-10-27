@@ -5,12 +5,27 @@
     "version": "0.1.0",
     "orientation": "default",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "plugins": [
       "./plugins/with-plus-jakarta-fonts.cjs",
-      ["expo-location", { "locationWhenInUsePermission": "Lokasi dipakai untuk memvalidasi absensi pada sesi yang mewajibkannya." }]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Lokasi dipakai untuk memvalidasi absensi pada sesi yang mewajibkannya."
+        }
+      ],
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-status-bar",
+      "expo-font"
     ],
-    "android": { "package": "id.deresort.attendance" },
-    "ios": { "bundleIdentifier": "id.deresort.attendance" }
+    "android": {
+      "package": "id.deresort.attendance"
+    },
+    "ios": {
+      "bundleIdentifier": "id.deresort.attendance"
+    }
   }
 }

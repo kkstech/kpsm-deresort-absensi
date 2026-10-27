@@ -32,23 +32,36 @@ class DemoDataSeeder extends Seeder
         }
 
         $people = [
-            ['FO-001', 'Nadia Anjani', 'Front Office', 'nadia@deresort.test'],
-            ['EN-001', 'Dimas Saputra', 'Engineering', 'dimas@deresort.test'],
-            ['FI-001', 'Lina Marlina', 'Finance', null],
-            ['HK-001', 'Rizky Kurnia', 'Housekeeping', null],
-            ['SE-001', 'Bagus Pratama', 'Security', null],
-            ['FB-001', 'Siti Maemunah', 'F&B Service', null],
-            ['EN-002', 'Reza Akbar', 'Engineering', null],
+            ['FO-001', 'Nadia Anjani', 'Front Office', 'nadia.anjani@gmail.com', '081234567801'],
+            ['EN-001', 'Dimas Saputra', 'Engineering', 'dimas.saputra@gmail.com', '081234567802'],
+            ['FI-001', 'Lina Marlina', 'Finance', 'lina.marlina@gmail.com', '081234567803'],
+            ['HK-001', 'Rizky Kurnia', 'Housekeeping', 'rizky.kurnia@gmail.com', '081234567804'],
+            ['SE-001', 'Bagus Pratama', 'Security', 'bagus.pratama@gmail.com', '081234567805'],
+            ['FB-001', 'Siti Maemunah', 'F&B Service', 'siti.maemunah@gmail.com', '081234567806'],
+            ['EN-002', 'Reza Akbar', 'Engineering', 'reza.akbar@gmail.com', '081234567807'],
         ];
 
         $employees = collect($people)->map(function ($p) {
-            [$code, $name, $department, $email] = $p;
+            [$code, $name, $department, $email, $phone] = $p;
             $departmentId = Department::query()->where('name', $department)->value('id');
-            $user = $email ? User::query()->firstOrCreate(['email' => $email], ['name' => $name, 'password' => 'password123', 'role' => 'employee']) : null;
+            $user = $email ? User::query()->firstOrCreate(
+                ['email' => $email],
+                ['name' => $name, 'phone' => $phone, 'password' => 'password123', 'role' => 'employee']
+            ) : null;
+            if ($user && ! $user->phone) {
+                $user->update(['phone' => $phone]);
+            }
             $employee = Employee::query()->firstOrCreate(['code' => $code], [
-                'name' => $name, 'department_id' => $departmentId, 'user_id' => $user?->id, 'status' => 'active', 'started_on' => '2026-01-01',
+                'name' => $name,
+                'department_id' => $departmentId,
+                'user_id' => $user?->id,
+                'status' => 'active',
+                'started_on' => '2026-01-01',
+                'email' => $email,
+                'phone' => $phone,
                 'position_id' => Position::query()->where('name', $department)->value('id') ?? Position::query()->value('id'),
             ]);
+            $employee->update(['email' => $email, 'phone' => $phone]);
             $employee->placements()->firstOrCreate(['effective_from' => '2026-01-01'], ['department_id' => $departmentId]);
 
             return $employee;

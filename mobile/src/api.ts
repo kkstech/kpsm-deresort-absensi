@@ -7,11 +7,16 @@ export class ApiError extends Error {
   }
 }
 
+export function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '').replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
+}
+
 export async function request<T>(baseUrl: string, path: string, token?: string | null, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const form = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const cleanBase = normalizeBaseUrl(baseUrl);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/${path.replace(/^\//, '')}`, {
+    response = await fetch(`${cleanBase}/api/v1/${path.replace(/^\//, '')}`, {
       method: options.method ?? 'GET',
       headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.body && !form ? { 'Content-Type': 'application/json' } : {}) },
       body: options.body ? (form ? options.body as FormData : JSON.stringify(options.body)) : undefined,
@@ -26,18 +31,54 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
 
 const keys = { token: 'auth-token', url: 'api-url', device: 'device-uuid' };
 export const authStore = {
-  token: () => SecureStore.getItemAsync(keys.token),
-  saveToken: (value: string) => SecureStore.setItemAsync(keys.token, value),
-  clearToken: () => SecureStore.deleteItemAsync(keys.token),
-  url: () => SecureStore.getItemAsync(keys.url),
-  saveUrl: (value: string) => SecureStore.setItemAsync(keys.url, value),
-  device: async () => {
-    let value = await SecureStore.getItemAsync(keys.device);
-    if (!value) {
-      value = uuid();
-      await SecureStore.setItemAsync(keys.device, value);
+  token: async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync(keys.token);
+    } catch {
+      return null;
     }
-    return value;
+  },
+  saveToken: async (value?: string | null): Promise<void> => {
+    if (!value || typeof value !== 'string' || !value.trim()) {
+      try {
+        await SecureStore.deleteItemAsync(keys.token);
+      } catch {}
+      return;
+    }
+    await SecureStore.setItemAsync(keys.token, value.trim());
+  },
+  clearToken: async (): Promise<void> => {
+    try {
+      await SecureStore.deleteItemAsync(keys.token);
+    } catch {}
+  },
+  url: async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync(keys.url);
+    } catch {
+      return null;
+    }
+  },
+  saveUrl: async (value?: string | null): Promise<void> => {
+    if (!value || typeof value !== 'string' || !value.trim()) {
+      try {
+        await SecureStore.deleteItemAsync(keys.url);
+      } catch {}
+      return;
+    }
+    await SecureStore.setItemAsync(keys.url, value.trim());
+  },
+  device: async (): Promise<string> => {
+    try {
+      let value = await SecureStore.getItemAsync(keys.device);
+      if (!value || typeof value !== 'string' || !value.trim()) {
+        value = uuid();
+        await SecureStore.setItemAsync(keys.device, value);
+      }
+      return value;
+    } catch {
+      return uuid();
+    }
   },
 };
 
@@ -47,6 +88,78 @@ export function uuid(): string {
     return (char === 'x' ? random : (random & 3) | 8).toString(16);
   });
 }
+
+export type Colleague = {
+  id: number;
+  code: string;
+  name: string;
+  department?: string;
+  position?: string;
+  email?: string | null;
+  phone?: string | null;
+};
+
+export type ShiftExchangeSchedule = {
+  id: number;
+  work_date: string;
+  template_name: string;
+  status: string;
+  revision: number;
+  scheduled_minutes: number;
+  sessions: Array<{
+    id: number;
+    seq: number;
+    local_start: string;
+    local_end: string;
+  }>;
+};
+
+export type ShiftExchangeItem = {
+  id: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  swap_mode: 'direct' | 'delegation';
+  vacancy_action?: 'roster_off' | 'regular' | 'day_off' | null;
+  reason: string;
+  decision_reason?: string | null;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
+  created_at: string;
+  is_requester: boolean;
+  employee: Colleague | null;
+  target_employee: Colleague | null;
+  assignment: ShiftExchangeSchedule | null;
+  target_assignment: ShiftExchangeSchedule | null;
+};
+
+export type SwapPreviewMove = {
+  work_date: string;
+  shift: string;
+  from_employee: string;
+  to_employee: string;
+  cross_unit: boolean;
+};
+
+export type SwapPreviewVacancy = {
+  employee_id: number;
+  work_date: string;
+  name: string;
+  existing_leave?: string | null;
+};
+
+export type SwapPreviewBlocker = {
+  code: string;
+  message: string;
+  assignment_id?: number;
+};
+
+export type SwapPreviewResult = {
+  moves: SwapPreviewMove[];
+  cross_unit_confirmation_required: boolean;
+  vacancies: SwapPreviewVacancy[];
+  blockers: SwapPreviewBlocker[];
+  preview_token: string;
+  can_commit: boolean;
+};
 
 export type OutboxStatus = 'pending' | 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted';
 export type OutboxRow = { event_uuid: string; batch_uuid: string; payload: string; created_at: string; first_sent_at: string | null; local_sequence: number; status: OutboxStatus; message: string | null };
@@ -65,7 +178,7 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
 }
 
 export async function saveCache(key: string, value: unknown): Promise<void> {
-  await (await db()).runAsync('INSERT OR REPLACE INTO app_cache(cache_key,value,saved_at) VALUES(?,?,?)', key, JSON.stringify(value), new Date().toISOString());
+  await (await db()).runAsync('INSERT OR REPLACE INTO app_cache(cache_key,value,saved_at) VALUES(?,?,?)', key, JSON.stringify(value ?? null), new Date().toISOString());
 }
 
 export async function readCache<T>(key: string): Promise<T | null> {

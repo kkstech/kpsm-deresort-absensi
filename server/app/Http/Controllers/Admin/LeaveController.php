@@ -15,6 +15,7 @@ use App\Models\LeaveYear;
 use App\Models\ShiftAssignment;
 use App\Support\Audit;
 use App\Support\WorkTime;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -97,7 +98,13 @@ class LeaveController extends Controller
 
     public function balance(Request $request): JsonResponse
     {
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => null]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $year = (int) ($request->validate(['year' => ['nullable', 'integer', 'between:2000,2100']])['year'] ?? substr(WorkTime::today(), 0, 4));
 
         return response()->json(['data' => $this->balanceFor($employee, $year)]);
@@ -105,7 +112,13 @@ class LeaveController extends Controller
 
     public function employeeIndex(Request $request): JsonResponse
     {
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => []]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $requests = LeaveRequestModel::query()->where('employee_id', $employee->id)->orderByDesc('work_date')->limit(100)->get();
 
         return response()->json(['data' => $requests]);
@@ -116,29 +129,61 @@ class LeaveController extends Controller
         $employee = $this->employee($request);
         $data = $request->validate([
             'work_date' => ['required', 'date_format:Y-m-d', 'after:'.WorkTime::today()],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
             'type' => ['required', 'in:regular,day_off'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
-        $item = DB::transaction(function () use ($employee, $data, $request) {
+
+        $startDate = $data['work_date'];
+        $endDate = ! empty($data['end_date']) ? $data['end_date'] : $startDate;
+        $daysCount = CarbonImmutable::parse($startDate)->diffInDays(CarbonImmutable::parse($endDate)) + 1;
+
+        $item = DB::transaction(function () use ($employee, $data, $startDate, $endDate, $daysCount, $request) {
             $lockedEmployee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
-            $year = (int) substr($data['work_date'], 0, 4);
+            $year = (int) substr($startDate, 0, 4);
             $settings = LeaveYear::query()->where('year', $year)->lockForUpdate()->first();
             if (! $settings?->opening_confirmed_at) {
                 throw new BusinessRuleException('LEAVE_BALANCE_NOT_OPEN', 'HR belum mengonfirmasi saldo cuti tahun ini.');
             }
-            AttendancePeriod::assertOpen($data['work_date']);
-            $this->assertEmploymentCovers($lockedEmployee, $data['work_date']);
-            if (LeaveRequestModel::query()->where('employee_id', $lockedEmployee->id)->where('work_date', $data['work_date'])->whereIn('status', ['PENDING', 'APPROVED'])->exists()) {
-                throw new BusinessRuleException('LEAVE_ALREADY_REQUESTED', 'Sudah ada pengajuan cuti aktif untuk tanggal ini.');
+            AttendancePeriod::assertOpen($startDate);
+            if ($endDate !== $startDate) {
+                AttendancePeriod::assertOpen($endDate);
             }
+            $this->assertEmploymentCovers($lockedEmployee, $startDate);
+            if ($endDate !== $startDate) {
+                $this->assertEmploymentCovers($lockedEmployee, $endDate);
+            }
+
+            $conflict = LeaveRequestModel::query()
+                ->where('employee_id', $lockedEmployee->id)
+                ->whereIn('status', ['PENDING', 'APPROVED'])
+                ->where('work_date', '<=', $endDate)
+                ->whereRaw('COALESCE(end_date, work_date) >= ?', [$startDate])
+                ->exists();
+            if ($conflict) {
+                throw new BusinessRuleException('LEAVE_ALREADY_REQUESTED', 'Sudah ada pengajuan cuti aktif pada rentang tanggal ini.');
+            }
+
             $balance = $this->balanceFor($lockedEmployee, $year);
-            if (($balance[$data['type']]['available'] ?? 0) < 1) {
-                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', 'Sisa kuota cuti ini tidak mencukupi.');
+            if (($balance[$data['type']]['available'] ?? 0) < $daysCount) {
+                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota cuti ini ({$balance[$data['type']]['available']}) tidak mencukupi untuk {$daysCount} hari cuti.");
             }
-            $assignment = ShiftAssignment::query()->where('employee_id', $lockedEmployee->id)->where('work_date', $data['work_date'])->where('status', '!=', 'CANCELLED')->first();
+
+            $assignment = ShiftAssignment::query()
+                ->where('employee_id', $lockedEmployee->id)
+                ->whereBetween('work_date', [$startDate, $endDate])
+                ->where('status', '!=', 'CANCELLED')
+                ->first();
+
             $item = LeaveRequestModel::query()->create([
-                'employee_id' => $lockedEmployee->id, 'work_date' => $data['work_date'], 'type' => $data['type'],
-                'status' => 'PENDING', 'reason' => $data['reason'], 'requested_by' => $request->user()->id,
+                'employee_id' => $lockedEmployee->id,
+                'work_date' => $startDate,
+                'end_date' => $endDate !== $startDate ? $endDate : null,
+                'days_count' => $daysCount,
+                'type' => $data['type'],
+                'status' => 'PENDING',
+                'reason' => $data['reason'],
+                'requested_by' => $request->user()->id,
                 'shift_assignment_id' => $assignment?->id,
             ]);
             Audit::log('leave.requested', $item);
@@ -159,6 +204,9 @@ class LeaveController extends Controller
                 throw new BusinessRuleException('FORBIDDEN', 'Pengajuan ini tidak dapat dibatalkan.', 403);
             }
             AttendancePeriod::assertOpen($item->work_date);
+            if ($item->end_date && $item->end_date !== $item->work_date) {
+                AttendancePeriod::assertOpen($item->end_date);
+            }
             $before = $item->attributesToArray();
             $item->update(['status' => 'CANCELLED', 'cancelled_at' => WorkTime::now()]);
             Audit::log('leave.request_cancelled_by_employee', $item, $before);
@@ -175,7 +223,7 @@ class LeaveController extends Controller
         $filters = $request->validate(['status' => ['nullable', 'in:PENDING,APPROVED,REJECTED,CANCELLED'], 'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d']]);
         $rows = LeaveRequestModel::query()->with('employee:id,code,name,department_id', 'employee.department:id,name', 'assignment:id,status,template_name')
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
-            ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('work_date', '>=', $from))
+            ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereRaw('COALESCE(end_date, work_date) >= ?', [$from]))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('work_date', '<=', $to))
             ->orderByRaw("CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END")->orderBy('work_date')->get();
 
@@ -192,17 +240,37 @@ class LeaveController extends Controller
             if ($item->status !== 'PENDING') {
                 throw new BusinessRuleException('STATE_CONFLICT', 'Pengajuan sudah diputuskan.');
             }
-            AttendancePeriod::assertOpen($item->work_date);
+
+            $startDate = $item->work_date;
+            $endDate = $item->end_date ?: $item->work_date;
+
+            AttendancePeriod::assertOpen($startDate);
+            if ($endDate !== $startDate) {
+                AttendancePeriod::assertOpen($endDate);
+            }
+
             if ($data['decision'] === 'APPROVED') {
-                $this->assertEmploymentCovers($employee, $item->work_date);
-                $assignment = ShiftAssignment::query()->with('sessions')->where('employee_id', $employee->id)
-                    ->where('work_date', $item->work_date)->where('status', '!=', 'CANCELLED')->lockForUpdate()->first();
-                if ($assignment && $assignment->sessions->pluck('id')->contains(fn ($id) => AttendanceRecord::query()->where('shift_session_id', $id)->exists()
-                    || DB::table('attendance_events')->where('shift_session_id', $id)->exists())) {
-                    throw new BusinessRuleException('ATTENDANCE_EXISTS', 'Sudah ada absensi pada tanggal ini. HR tidak dapat mengubahnya menjadi cuti.');
+                $this->assertEmploymentCovers($employee, $startDate);
+                if ($endDate !== $startDate) {
+                    $this->assertEmploymentCovers($employee, $endDate);
                 }
-                if ($assignment) {
-                    $item->shift_assignment_id = $assignment->id;
+
+                $assignments = ShiftAssignment::query()->with('sessions')
+                    ->where('employee_id', $employee->id)
+                    ->whereBetween('work_date', [$startDate, $endDate])
+                    ->where('status', '!=', 'CANCELLED')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($assignments as $assignment) {
+                    $sessionIds = $assignment->sessions->pluck('id');
+                    if (AttendanceRecord::query()->whereIn('shift_session_id', $sessionIds)->exists()
+                        || DB::table('attendance_events')->whereIn('shift_session_id', $sessionIds)->exists()) {
+                        throw new BusinessRuleException('ATTENDANCE_EXISTS', "Sudah ada absensi pada tanggal {$assignment->work_date}. HR tidak dapat mengubahnya menjadi cuti.");
+                    }
+                }
+
+                foreach ($assignments as $assignment) {
                     if ($assignment->sessions->first()?->start_at->gt(WorkTime::now())) {
                         app(PublishSchedule::class)->cancel($assignment);
                     } else {
@@ -211,6 +279,11 @@ class LeaveController extends Controller
                         Audit::log('schedule.cancelled_for_leave', $assignment, $beforeSchedule, ['leave_request_id' => $item->id]);
                     }
                 }
+
+                if ($assignments->isNotEmpty()) {
+                    $item->shift_assignment_id = $assignments->first()->id;
+                }
+
                 $item->fill(['status' => 'APPROVED', 'decided_by' => $request->user()->id, 'decision_reason' => $data['decision_reason'], 'approved_at' => WorkTime::now()]);
             } else {
                 $item->fill(['status' => 'REJECTED', 'decided_by' => $request->user()->id, 'decision_reason' => $data['decision_reason']]);
@@ -231,37 +304,72 @@ class LeaveController extends Controller
         $data = $request->validate([
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'work_date' => ['required', 'date_format:Y-m-d'],
+            'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
             'type' => ['required', 'in:regular,day_off'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
-        $item = DB::transaction(function () use ($request, $data) {
+
+        $startDate = $data['work_date'];
+        $endDate = ! empty($data['end_date']) ? $data['end_date'] : $startDate;
+        $daysCount = CarbonImmutable::parse($startDate)->diffInDays(CarbonImmutable::parse($endDate)) + 1;
+
+        $item = DB::transaction(function () use ($request, $data, $startDate, $endDate, $daysCount) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($data['employee_id']);
-            AttendancePeriod::assertOpen($data['work_date']);
-            $year = (int) substr($data['work_date'], 0, 4);
+            AttendancePeriod::assertOpen($startDate);
+            if ($endDate !== $startDate) {
+                AttendancePeriod::assertOpen($endDate);
+            }
+            $year = (int) substr($startDate, 0, 4);
             if (! LeaveYear::query()->where('year', $year)->value('opening_confirmed_at')) {
                 throw new BusinessRuleException('LEAVE_BALANCE_NOT_OPEN', 'HR belum mengonfirmasi saldo cuti tahun ini.');
             }
-            $this->assertEmploymentCovers($employee, $data['work_date']);
-            if (LeaveRequestModel::query()->where('employee_id', $employee->id)->where('work_date', $data['work_date'])->whereIn('status', ['PENDING', 'APPROVED'])->exists()) {
-                throw new BusinessRuleException('LEAVE_ALREADY_REQUESTED', 'Sudah ada pengajuan cuti aktif untuk tanggal ini.');
+            $this->assertEmploymentCovers($employee, $startDate);
+            if ($endDate !== $startDate) {
+                $this->assertEmploymentCovers($employee, $endDate);
             }
-            if (($this->balanceFor($employee, $year)[$data['type']]['available'] ?? 0) < 1) {
-                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', 'Sisa kuota cuti ini tidak mencukupi.');
+
+            $conflict = LeaveRequestModel::query()
+                ->where('employee_id', $employee->id)
+                ->whereIn('status', ['PENDING', 'APPROVED'])
+                ->where('work_date', '<=', $endDate)
+                ->whereRaw('COALESCE(end_date, work_date) >= ?', [$startDate])
+                ->exists();
+            if ($conflict) {
+                throw new BusinessRuleException('LEAVE_ALREADY_REQUESTED', 'Sudah ada pengajuan cuti aktif pada rentang tanggal ini.');
             }
-            $assignment = ShiftAssignment::query()->with('sessions')->where('employee_id', $employee->id)
-                ->where('work_date', $data['work_date'])->where('status', '!=', 'CANCELLED')->lockForUpdate()->first();
-            if ($assignment && $assignment->sessions->pluck('id')->contains(fn ($id) => AttendanceRecord::query()->where('shift_session_id', $id)->exists()
-                || DB::table('attendance_events')->where('shift_session_id', $id)->exists())) {
-                throw new BusinessRuleException('ATTENDANCE_EXISTS', 'Sudah ada absensi pada tanggal ini. HR tidak dapat mengubahnya menjadi cuti.');
+
+            if (($this->balanceFor($employee, $year)[$data['type']]['available'] ?? 0) < $daysCount) {
+                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota cuti ini tidak mencukupi untuk {$daysCount} hari cuti.");
             }
+
+            $assignments = ShiftAssignment::query()->with('sessions')->where('employee_id', $employee->id)
+                ->whereBetween('work_date', [$startDate, $endDate])->where('status', '!=', 'CANCELLED')->lockForUpdate()->get();
+
+            foreach ($assignments as $assignment) {
+                $sessionIds = $assignment->sessions->pluck('id');
+                if (AttendanceRecord::query()->whereIn('shift_session_id', $sessionIds)->exists()
+                    || DB::table('attendance_events')->whereIn('shift_session_id', $sessionIds)->exists()) {
+                    throw new BusinessRuleException('ATTENDANCE_EXISTS', "Sudah ada absensi pada tanggal {$assignment->work_date}. HR tidak dapat mengubahnya menjadi cuti.");
+                }
+            }
+
             $item = LeaveRequestModel::query()->create([
-                'employee_id' => $employee->id, 'work_date' => $data['work_date'], 'type' => $data['type'],
-                'status' => 'APPROVED', 'reason' => $data['reason'], 'decision_reason' => $data['reason'],
-                'requested_by' => $request->user()->id, 'direct_by' => $request->user()->id,
-                'decided_by' => $request->user()->id, 'approved_at' => WorkTime::now(),
-                'shift_assignment_id' => $assignment?->id,
+                'employee_id' => $employee->id,
+                'work_date' => $startDate,
+                'end_date' => $endDate !== $startDate ? $endDate : null,
+                'days_count' => $daysCount,
+                'type' => $data['type'],
+                'status' => 'APPROVED',
+                'reason' => $data['reason'],
+                'decision_reason' => $data['reason'],
+                'requested_by' => $request->user()->id,
+                'direct_by' => $request->user()->id,
+                'decided_by' => $request->user()->id,
+                'approved_at' => WorkTime::now(),
+                'shift_assignment_id' => $assignments->first()?->id,
             ]);
-            if ($assignment) {
+
+            foreach ($assignments as $assignment) {
                 if ($assignment->sessions->first()?->start_at->gt(WorkTime::now())) {
                     app(PublishSchedule::class)->cancel($assignment);
                 } else {
@@ -289,9 +397,12 @@ class LeaveController extends Controller
                 throw new BusinessRuleException('STATE_CONFLICT', 'Hanya cuti yang disetujui yang dapat dibatalkan HR.');
             }
             AttendancePeriod::assertOpen($item->work_date);
+            if ($item->end_date && $item->end_date !== $item->work_date) {
+                AttendancePeriod::assertOpen($item->end_date);
+            }
             $before = $item->attributesToArray();
             $item->update(['status' => 'CANCELLED', 'cancelled_at' => WorkTime::now(), 'decision_reason' => $data['reason'], 'decided_by' => $request->user()->id]);
-            Audit::log('leave.approved_cancelled_by_hr', $item, $before, [...$item->attributesToArray(), 'refund' => 1, 'reason' => $data['reason']]);
+            Audit::log('leave.approved_cancelled_by_hr', $item, $before, [...$item->attributesToArray(), 'refund' => $item->days_count, 'reason' => $data['reason']]);
 
             return $item;
         });

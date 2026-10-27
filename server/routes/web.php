@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\SiteSettingController;
 use App\Http\Controllers\Admin\TemplateController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\AttendanceAttachmentController;
 use App\Http\Controllers\Auth\WebAuthController;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,9 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('attachments/{attachment}', [AttendanceAttachmentController::class, 'admin'])->whereNumber('attachment');
         Route::get('site-settings', [SiteSettingController::class, 'show']);
         Route::post('site-settings', [SiteSettingController::class, 'update']);
+        Route::patch('me', [AuthController::class, 'updateProfile']);
+        Route::post('me/avatar', [AuthController::class, 'uploadAvatar']);
+        Route::delete('me/avatar', [AuthController::class, 'deleteAvatar']);
 
         Route::get('{catalog}', [CatalogController::class, 'index'])->whereIn('catalog', ['departments', 'positions']);
         Route::post('{catalog}', [CatalogController::class, 'store'])->whereIn('catalog', ['departments', 'positions']);
@@ -52,8 +56,13 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::apiResource('templates', TemplateController::class)->except('show');
         Route::apiResource('policies', PolicyController::class)->except('show');
 
+        Route::get('unlinked-users', [EmployeeController::class, 'unlinkedUsers']);
+        Route::get('unlinked-employees', [EmployeeController::class, 'unlinkedEmployees']);
+
         Route::apiResource('employees', EmployeeController::class)->except('destroy');
         Route::post('employees/{employee}/account', [EmployeeController::class, 'account']);
+        Route::post('employees/{employee}/link-user', [EmployeeController::class, 'linkUser']);
+        Route::post('employees/{employee}/unlink-user', [EmployeeController::class, 'unlinkUser']);
         Route::post('employees/{employee}/deactivate', [EmployeeController::class, 'deactivate']);
         Route::post('employees/{employee}/revoke-devices', [EmployeeController::class, 'revokeDevices']);
         Route::post('employees/{employee}/employment', [EmployeeController::class, 'setEmployment']);
@@ -92,7 +101,11 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::delete('schedule/{assignment}', [ScheduleController::class, 'destroy']);
         Route::post('schedule/publish', [ScheduleController::class, 'publish']);
         Route::post('schedule/copy-week', [ScheduleController::class, 'copyWeek']);
+        Route::post('schedule/copy-month', [ScheduleController::class, 'copyMonth']);
 
         Route::apiResource('users', UserController::class)->only(['index', 'store', 'update']);
+        Route::post('users/{user}/link-employee', [UserController::class, 'linkEmployee']);
+        Route::post('users/{user}/unlink-employee', [UserController::class, 'unlinkEmployee']);
+        Route::post('users/{user}/create-employee', [UserController::class, 'createEmployee']);
     });
 });

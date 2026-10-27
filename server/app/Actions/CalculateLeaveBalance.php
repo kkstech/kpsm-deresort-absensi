@@ -20,8 +20,8 @@ class CalculateLeaveBalance
             $entitled = $hireYear === $year ? (int) floor($quota * $months / 12) : ($hireYear < $year ? $quota : 0);
             $adjustment = (int) LeaveAdjustment::query()->where('employee_id', $employee->id)->where('year', $year)->where('type', $type)->sum('delta');
             $requests = LeaveRequest::query()->where('employee_id', $employee->id)->whereYear('work_date', $year)->where('type', $type);
-            $used = (clone $requests)->where('status', 'APPROVED')->count();
-            $reserved = (clone $requests)->where('status', 'PENDING')->count();
+            $used = (int) (clone $requests)->where('status', 'APPROVED')->sum('days_count');
+            $reserved = (int) (clone $requests)->where('status', 'PENDING')->sum('days_count');
             $total = max(0, $entitled + $adjustment);
             $result[$type] = ['entitled' => $total, 'used' => $used, 'reserved' => $reserved, 'available' => max(0, $total - $used - $reserved)];
         }

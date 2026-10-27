@@ -22,7 +22,13 @@ class AttendanceController extends Controller
     public function schedule(Request $request): JsonResponse
     {
         $range = $this->range($request);
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => []]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $assignments = ShiftAssignment::query()
             ->with('sessions.attendanceRecord')
             ->where('employee_id', $employee->id)
@@ -135,7 +141,13 @@ class AttendanceController extends Controller
     public function history(Request $request): JsonResponse
     {
         $range = $this->range($request);
-        $employee = $this->employee($request);
+        $employee = $request->user()->employee;
+        if (! $employee) {
+            return response()->json(['data' => []]);
+        }
+        if ($employee->status !== 'active') {
+            throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
+        }
         $assignments = ShiftAssignment::query()
             ->with('sessions.attendanceRecord', 'sessions.attendanceEvents')
             ->where('employee_id', $employee->id)

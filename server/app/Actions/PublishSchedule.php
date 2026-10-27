@@ -201,6 +201,93 @@ class PublishSchedule
         return ['created' => $created, 'skipped' => $skipped];
     }
 
+    /** Salin jadwal satu bulan ke bulan tujuan (berdasarkan tanggal 1..N). Tanggal yang sudah terisi atau bentrok dilewati. */
+    public function copyMonth(string $fromMonthStart, string $toMonthStart, array $employeeIds, User $actor): array
+    {
+        $fromStart = CarbonImmutable::parse($fromMonthStart)->startOfMonth();
+        $fromEnd = $fromStart->endOfMonth();
+        $toStart = CarbonImmutable::parse($toMonthStart)->startOfMonth();
+        $toEnd = $toStart->endOfMonth();
+
+        $source = ShiftAssignment::query()
+            ->with(['template.sessions', 'sessions', 'employee'])
+            ->whereBetween('work_date', [$fromStart->toDateString(), $fromEnd->toDateString()])
+            ->whereIn('employee_id', $employeeIds)
+            ->where('status', '!=', 'CANCELLED')
+            ->orderBy('work_date')
+            ->get();
+
+        $created = 0;
+        $skipped = [];
+        foreach ($source as $assignment) {
+            $sourceDate = CarbonImmutable::parse($assignment->work_date);
+            $day = $sourceDate->day;
+
+            if ($day > $toEnd->day) {
+                $skipped[] = [
+                    'employee' => $assignment->employee->name,
+                    'work_date' => $assignment->work_date,
+                    'reason' => "Tanggal {$day} tidak ada di bulan tujuan ({$toStart->format('Y-m')}).",
+                ];
+
+                continue;
+            }
+
+            $target = $toStart->setDay($day)->toDateString();
+            $taken = ShiftAssignment::query()
+                ->where('employee_id', $assignment->employee_id)
+                ->where('work_date', $target)
+                ->where('status', '!=', 'CANCELLED')
+                ->exists();
+
+            if ($taken) {
+                $skipped[] = [
+                    'employee' => $assignment->employee->name,
+                    'work_date' => $target,
+                    'reason' => 'Sudah ada jadwal.',
+                ];
+
+                continue;
+            }
+
+            try {
+                if ($assignment->shift_template_id && $assignment->template) {
+                    $this->upsert($assignment->employee, $target, $assignment->template, $actor);
+                    $created++;
+                } elseif ($assignment->sessions->isNotEmpty()) {
+                    $sourceWorkDate = CarbonImmutable::parse($assignment->work_date);
+                    $sessionsData = $assignment->sessions->map(function ($s) use ($sourceWorkDate, $target) {
+                        $startOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->start_at)->startOfDay(), false);
+                        $endOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->end_at)->startOfDay(), false);
+
+                        return [
+                            'seq' => $s->seq,
+                            'start_date' => CarbonImmutable::parse($target)->addDays($startOffset)->toDateString(),
+                            'start_time' => WorkTime::local($s->start_at)->format('H:i'),
+                            'end_date' => CarbonImmutable::parse($target)->addDays($endOffset)->toDateString(),
+                            'end_time' => WorkTime::local($s->end_at)->format('H:i'),
+                            'unpaid_break_minutes' => $s->unpaid_break_minutes,
+                        ];
+                    })->all();
+
+                    $this->upsertCustom($assignment->employee, $target, [
+                        'name' => $assignment->template_name,
+                        'sessions' => $sessionsData,
+                    ], $actor);
+                    $created++;
+                }
+            } catch (BusinessRuleException $e) {
+                $skipped[] = [
+                    'employee' => $assignment->employee->name,
+                    'work_date' => $target,
+                    'reason' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return ['created' => $created, 'skipped' => $skipped];
+    }
+
     private function buildSessions(Employee $employee, string $workDate, ShiftTemplate $template): array
     {
         $policy = AttendancePolicy::resolveFor($employee, $workDate);

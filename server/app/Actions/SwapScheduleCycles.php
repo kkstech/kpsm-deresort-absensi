@@ -211,7 +211,12 @@ class SwapScheduleCycles
                 || DB::table('attendance_events')->whereIn('shift_session_id', $sessionIds)->exists()) {
                 $blockers[] = ['code' => 'ATTENDANCE_EXISTS', 'assignment_id' => $assignment->id, 'message' => 'Siklus sudah memiliki catatan absensi.'];
             }
-            $leave = LeaveRequest::query()->where('employee_id', $employee->id)->where('work_date', $assignment->work_date)->whereIn('status', ['PENDING', 'APPROVED'])->exists();
+            $leave = LeaveRequest::query()
+                ->where('employee_id', $employee->id)
+                ->whereIn('status', ['PENDING', 'APPROVED'])
+                ->where('work_date', '<=', $assignment->work_date)
+                ->whereRaw('COALESCE(end_date, work_date) >= ?', [$assignment->work_date])
+                ->exists();
             if ($leave) {
                 $blockers[] = ['code' => 'LEAVE_CONFLICT', 'assignment_id' => $assignment->id, 'message' => 'Karyawan pengganti memiliki pengajuan cuti aktif pada tanggal ini.'];
             }
@@ -237,7 +242,12 @@ class SwapScheduleCycles
             if ($reassignedBack) {
                 continue;
             }
-            $existingLeave = LeaveRequest::query()->where('employee_id', $source['employee_id'])->where('work_date', $source['work_date'])->whereIn('status', ['PENDING', 'APPROVED'])->first();
+            $existingLeave = LeaveRequest::query()
+                ->where('employee_id', $source['employee_id'])
+                ->whereIn('status', ['PENDING', 'APPROVED'])
+                ->where('work_date', '<=', $source['work_date'])
+                ->whereRaw('COALESCE(end_date, work_date) >= ?', [$source['work_date']])
+                ->first();
             if ($existingLeave?->status === 'APPROVED') {
                 continue;
             }
