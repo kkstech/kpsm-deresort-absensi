@@ -45,8 +45,8 @@ type Profile = {
     id: number;
     code: string;
     name: string;
-    department?: string;
-    position?: string;
+    department?: string | { id?: number; name?: string } | null;
+    position?: string | { id?: number; name?: string } | null;
     email?: string | null;
     phone?: string | null;
     avatar_path?: string | null;
@@ -83,6 +83,14 @@ const localDate = (value?: string | Date | null) => {
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
 const clock = (value?: string | null) => value ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
 const shortClock = (value: string) => value.replace('.', ':').replace(' (+1)', ' (+1)');
+const nameOrString = (val: unknown, fallback = '—'): string => {
+  if (!val) return fallback;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object' && val !== null && 'name' in val) {
+    return String((val as { name: unknown }).name ?? fallback);
+  }
+  return fallback;
+};
 const dateRange = () => {
   const date = todayKey().split('-').map(Number);
   const year = date[0] ?? 2026; const month = date[1] ?? 1; const day = date[2] ?? 1;
@@ -372,9 +380,17 @@ function Main() {
 
   function applyCached(key: string, value: unknown) {
     if (key === 'profile') {
-      const p = value as Profile;
-      setProfile(p);
-      if (!p.employee && ['super_admin', 'admin', 'supervisor'].includes(p.role)) {
+      const p = value as any;
+      if (p?.employee) {
+        if (typeof p.employee.department === 'object' && p.employee.department !== null) {
+          p.employee.department = p.employee.department.name;
+        }
+        if (typeof p.employee.position === 'object' && p.employee.position !== null) {
+          p.employee.position = p.employee.position.name;
+        }
+      }
+      setProfile(p as Profile);
+      if (!p?.employee && ['super_admin', 'admin', 'supervisor'].includes(p?.role)) {
         setPengajuanView('admin');
       }
     }
@@ -384,10 +400,24 @@ function Main() {
     if (key === 'lateRequests') setLateRequests(value as WorkRequest[]);
     if (key === 'corrections') setCorrections(value as WorkRequest[]);
     if (key === 'shiftExchanges') setShiftExchanges(value as ShiftExchangeItem[]);
-    if (key === 'colleagues') setColleagues(value as Colleague[]);
+    if (key === 'colleagues') {
+      const list = Array.isArray(value) ? value : [];
+      setColleagues(list.map((e: any) => ({
+        ...e,
+        department: typeof e.department === 'object' && e.department !== null ? e.department.name : (e.department || ''),
+        position: typeof e.position === 'object' && e.position !== null ? e.position.name : (e.position || ''),
+      })));
+    }
     if (key === 'adminShiftExchanges') setAdminShiftExchanges(value as ShiftExchangeItem[]);
     if (key === 'adminSchedules') setAdminSchedules(value as Assignment[]);
-    if (key === 'allEmployees') setAllEmployees(value as Colleague[]);
+    if (key === 'allEmployees') {
+      const list = Array.isArray(value) ? value : [];
+      setAllEmployees(list.map((e: any) => ({
+        ...e,
+        department: typeof e.department === 'object' && e.department !== null ? e.department.name : (e.department || ''),
+        position: typeof e.position === 'object' && e.position !== null ? e.position.name : (e.position || ''),
+      })));
+    }
   }
 
   async function login() {
@@ -1196,7 +1226,7 @@ function Main() {
           </View>
           <Text style={styles.heroTitle}>{activeAssignment?.template_name ?? 'Belum ada jadwal'}</Text>
           <Text style={styles.heroTime}>{activeAssignment ? `${activeAssignment.sessions.length} sesi · ${Math.floor(activeAssignment.scheduled_minutes / 60)} jam` : 'Jadwal dari HR tampil di sini'}</Text>
-          <Text style={styles.heroMeta}>{profile?.employee?.department ?? 'Absensi'}{activeSession?.session.attendance_policy?.location_required ? ' · validasi lokasi aktif' : ''}</Text>
+          <Text style={styles.heroMeta}>{nameOrString(profile?.employee?.department, 'Absensi')}{activeSession?.session.attendance_policy?.location_required ? ' · validasi lokasi aktif' : ''}</Text>
           {activeIntent && (
             <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, pressed && styles.pressed]}>
               <Text style={styles.attendanceButtonText}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
@@ -1352,7 +1382,7 @@ function Main() {
             return (
               <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
                 <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{col.name}</Text>
-                <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{col.department ?? col.code}</Text>
+                <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(col.department, col.code)}</Text>
               </Pressable>
             );
           })}
@@ -1540,13 +1570,13 @@ function Main() {
                 <View style={styles.flex}>
                   <Text style={styles.fieldLabel}>Pemohon:</Text>
                   <Text style={styles.empName}>{item.employee?.name}</Text>
-                  <Text style={styles.cardCopy}>{item.employee?.department ?? '—'} · {item.employee?.position ?? '—'}</Text>
+                  <Text style={styles.cardCopy}>{nameOrString(item.employee?.department)} · {nameOrString(item.employee?.position)}</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={18} color={colors.primary} style={{ marginHorizontal: 8 }} />
                 <View style={styles.flex}>
                   <Text style={styles.fieldLabel}>Rekan Pengganti:</Text>
                   <Text style={styles.empName}>{item.target_employee?.name}</Text>
-                  <Text style={styles.cardCopy}>{item.target_employee?.department ?? '—'} · {item.target_employee?.position ?? '—'}</Text>
+                  <Text style={styles.cardCopy}>{nameOrString(item.target_employee?.department)} · {nameOrString(item.target_employee?.position)}</Text>
                 </View>
               </View>
 
@@ -1746,7 +1776,7 @@ function Main() {
 
           <Text style={styles.profileName}>{employee?.name ?? profile?.name ?? 'Karyawan'}</Text>
           <Text style={styles.cardCopy}>{employee?.code ?? (isAdminOrSupervisor ? 'Akun Pengelola' : 'Karyawan')}</Text>
-          <Text style={styles.cardCopy}>{employee?.department ?? (isAdminOrSupervisor ? 'Departemen Manajemen' : 'Departemen belum diatur')}{employee?.position ? ` · ${employee.position}` : ''}</Text>
+          <Text style={styles.cardCopy}>{nameOrString(employee?.department, isAdminOrSupervisor ? 'Departemen Manajemen' : 'Departemen belum diatur')}{employee?.position ? ` · ${nameOrString(employee.position)}` : ''}</Text>
 
           <View style={styles.profileMetaBox}>
             <View style={styles.profileMetaRow}>
@@ -1940,7 +1970,7 @@ function Main() {
                   return (
                     <Pressable key={emp.id} onPress={() => selectDirectSourceEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
                       <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{emp.department ?? '—'}</Text>
+                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(emp.department)}</Text>
                     </Pressable>
                   );
                 })}
@@ -1972,7 +2002,7 @@ function Main() {
                   return (
                     <Pressable key={emp.id} onPress={() => selectDirectTargetEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
                       <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{emp.department ?? '—'}</Text>
+                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(emp.department)}</Text>
                     </Pressable>
                   );
                 })}

@@ -93,8 +93,8 @@ export type Colleague = {
   id: number;
   code: string;
   name: string;
-  department?: string;
-  position?: string;
+  department?: string | { id?: number; name?: string } | null;
+  position?: string | { id?: number; name?: string } | null;
   email?: string | null;
   phone?: string | null;
 };
