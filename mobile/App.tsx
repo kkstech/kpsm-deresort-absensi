@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Image, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet,
+  Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet,
   Switch, Text as NativeText, TextInput, type TextProps, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -203,6 +203,27 @@ function Main() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('Hari ini');
+  const tabFade = useRef(new Animated.Value(1)).current;
+  const tabSlide = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    tabFade.setValue(0);
+    tabSlide.setValue(12);
+    Animated.parallel([
+      Animated.timing(tabFade, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(tabSlide, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [tab]);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -1854,23 +1875,33 @@ function Main() {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
-        <ScrollView contentContainerStyle={styles.loginContent} keyboardShouldPersistTaps="handled">
-          <View style={styles.loginMark}><Text style={styles.loginMarkText}>D</Text></View>
-          <Text style={styles.overline}>DERESORT · ABSENSI & SHIFT</Text>
-          <Text style={styles.loginHeading}>Masuk ke akun</Text>
-          <Text style={styles.intro}>Gunakan email pribadi atau nomor telepon yang terdaftar untuk mengakses jadwal dan absensi.</Text>
-          <View style={styles.formCard}>
-            <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
-            <TextField label="Email Pribadi" value={email} onChangeText={setEmail} placeholder="contoh: nama.karyawan@gmail.com" keyboardType="email-address" autoCapitalize="none" />
-            <TextField label="Nomor Telepon (Opsional)" value={phone} onChangeText={setPhone} placeholder="contoh: 081234567890" keyboardType="phone-pad" autoCapitalize="none" />
-            <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
-            {!!error && <Text style={styles.errorText}>{error}</Text>}
-            <Pressable disabled={loginBusy} onPress={login} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, loginBusy && styles.disabled]}>
-              <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
-            </Pressable>
-            <Text style={styles.cardCopy}>Masuk dengan email pribadi atau nomor HP (opsional) beserta password akun.</Text>
-          </View>
-        </ScrollView>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.loginContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.loginMark}><Text style={styles.loginMarkText}>D</Text></View>
+            <Text style={styles.overline}>DERESORT · ABSENSI & SHIFT</Text>
+            <Text style={styles.loginHeading}>Masuk ke akun</Text>
+            <Text style={styles.intro}>Gunakan email pribadi atau nomor telepon yang terdaftar untuk mengakses jadwal dan absensi.</Text>
+            <View style={styles.formCard}>
+              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
+              <TextField label="Email Pribadi" value={email} onChangeText={setEmail} placeholder="contoh: nama.karyawan@gmail.com" keyboardType="email-address" autoCapitalize="none" />
+              <TextField label="Nomor Telepon (Opsional)" value={phone} onChangeText={setPhone} placeholder="contoh: 081234567890" keyboardType="phone-pad" autoCapitalize="none" />
+              <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
+              {!!error && <Text style={styles.errorText}>{error}</Text>}
+              <Pressable disabled={loginBusy} onPress={login} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, loginBusy && styles.disabled]}>
+                <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
+              </Pressable>
+              <Text style={styles.cardCopy}>Masuk dengan email pribadi atau nomor HP (opsional) beserta password akun.</Text>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -1879,12 +1910,20 @@ function Main() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
       <View style={styles.app}>
-        {tab === 'Hari ini' ? renderToday() : tab === 'Jadwal' ? renderSchedule() : tab === 'Pengajuan' ? renderRequests() : renderProfile()}
+        <Animated.View style={[styles.flex, { opacity: tabFade, transform: [{ translateY: tabSlide }] }]}>
+          {tab === 'Hari ini' ? renderToday() : tab === 'Jadwal' ? renderSchedule() : tab === 'Pengajuan' ? renderRequests() : renderProfile()}
+        </Animated.View>
         <View style={styles.tabBar}>
           {tabItems.map(({ key, label, activeIcon, inactiveIcon }) => {
             const isSelected = tab === key;
             return (
-              <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: isSelected }} onPress={() => setTab(key)} style={({ pressed }) => [styles.tab, pressed && styles.pressed]}>
+              <Pressable
+                key={key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isSelected }}
+                onPress={() => setTab(key)}
+                style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] }]}
+              >
                 <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
                 <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{label}</Text>
                 <View style={[styles.tabIndicator, isSelected && styles.tabIndicatorActive]} />
@@ -2183,7 +2222,7 @@ const styles = StyleSheet.create({
   app: { flex: 1 },
   flex: { flex: 1, minWidth: 0 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 118 },
-  loginContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  loginContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 100 },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   overline: { color: colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },
   heading: { color: colors.ink, fontSize: 32, fontWeight: '700', letterSpacing: -0.8 },
@@ -2210,7 +2249,7 @@ const styles = StyleSheet.create({
   attendanceButton: { minHeight: 58, justifyContent: 'center', alignItems: 'center', marginTop: 20, borderRadius: 12, backgroundColor: colors.accent },
   attendanceButtonText: { color: colors.primary, fontSize: 15, fontWeight: '800' },
   attendanceHint: { color: '#40531C', fontSize: 11, marginTop: 3 },
-  pressed: { opacity: .76 },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
   disabled: { opacity: .55 },
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 23, marginBottom: 10 },
   sectionTitle: { color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 12, marginBottom: 6 },
