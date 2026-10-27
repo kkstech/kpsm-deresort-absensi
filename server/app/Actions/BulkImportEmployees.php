@@ -86,9 +86,11 @@ class BulkImportEmployees
         ];
 
         $output = fopen('php://temp', 'r+');
-        fputcsv($output, $headers);
-        fputcsv($output, $sampleRow1);
-        fputcsv($output, $sampleRow2);
+        // Prepend UTF-8 BOM so Excel opens it with proper encoding
+        fwrite($output, "\xEF\xBB\xBF");
+        fputcsv($output, $headers, ',', '"', '\\');
+        fputcsv($output, $sampleRow1, ',', '"', '\\');
+        fputcsv($output, $sampleRow2, ',', '"', '\\');
         rewind($output);
         $csv = stream_get_contents($output);
         fclose($output);

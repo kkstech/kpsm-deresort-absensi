@@ -330,6 +330,50 @@ const importStats = $('#employee-import-stats');
 const importTbody = $('#employee-import-table-body');
 const importError = $('#employee-import-error');
 const importSubmit = $('#employee-import-submit');
+const templateBtn = $('#employee-template-btn');
+const templateModalBtn = $('#employee-template-modal-btn');
+
+const FALLBACK_CSV = '\uFEFF' + [
+    'kode_karyawan,nama_lengkap,departemen,jabatan,tanggal_mulai_kerja,status_kerja,tanggal_selesai_kontrak,email,no_telepon,level,lokasi_kerja,status,buat_akun,password_awal',
+    'FO-001,Nadia Anjani,Front Office,Receptionist,2026-01-01,tetap,,nadia@deresort.test,081234567801,Staff,Resort Utama,aktif,ya,password123',
+    'EN-001,Dimas Saputra,Engineering,Technician,2026-01-15,kontrak,2026-12-31,dimas@deresort.test,081234567802,Staff,,aktif,ya,password123',
+].join('\r\n');
+
+function triggerDownload(content, filename = 'template_import_karyawan.csv') {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast('Template CSV berhasil diunduh.');
+}
+
+async function handleDownloadTemplate(btn) {
+    if (btn) btn.disabled = true;
+    try {
+        const response = await fetch('/admin/api/employees/import-template', {
+            headers: { Accept: 'text/csv' },
+            credentials: 'same-origin',
+        });
+        if (response.ok) {
+            const csvText = await response.text();
+            triggerDownload(csvText);
+        } else {
+            triggerDownload(FALLBACK_CSV);
+        }
+    } catch (_) {
+        triggerDownload(FALLBACK_CSV);
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+if (templateBtn) templateBtn.addEventListener('click', () => handleDownloadTemplate(templateBtn));
+if (templateModalBtn) templateModalBtn.addEventListener('click', () => handleDownloadTemplate(templateModalBtn));
 
 let currentValidatedRows = [];
 

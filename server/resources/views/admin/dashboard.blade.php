@@ -239,7 +239,7 @@
                     <div class="page-heading">
                         <div><h1>Karyawan</h1><span>Data pegawai, akun app, dan status aktif.</span></div>
                         <div class="page-heading-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                            <a href="/admin/api/employees/import-template" class="secondary-button" download="template_import_karyawan.csv" data-requires="admin">Unduh Template CSV</a>
+                            <button type="button" class="secondary-button" id="employee-template-btn" data-requires="admin">Unduh Template CSV</button>
                             <button type="button" class="secondary-button" id="employee-import-btn" data-requires="admin">Import CSV</button>
                             <button type="button" class="primary-button" id="employee-add" data-requires="admin">+ Tambah karyawan</button>
                         </div>
@@ -473,7 +473,7 @@
                         <input type="file" id="employee-import-file" accept=".csv,text/csv,text/plain" style="margin-bottom: 8px; width: auto; max-width: 100%;">
                         <div style="font-size: 12px; color: var(--muted, #64748b); line-height: 1.5;">
                             Mendukung pemisah koma (<code>,</code>) atau titik koma (<code>;</code>). Format UTF-8 / Excel CSV (maks. 5MB).<br>
-                            Gunakan format kolom resmi: <a href="/admin/api/employees/import-template" download="template_import_karyawan.csv" style="color: var(--primary, #1e40af); text-decoration: underline; font-weight: 600;">Unduh Template CSV</a>
+                            Gunakan format kolom resmi: <button type="button" id="employee-template-modal-btn" class="text-button" style="display: inline; padding: 0; min-height: auto; font-size: 12px; color: var(--primary, #1e40af); text-decoration: underline; font-weight: 600; cursor: pointer;">Unduh Template CSV</button>
                         </div>
                     </div>
 
