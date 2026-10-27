@@ -7,7 +7,10 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import * as Network from 'expo-network';
+import * as SplashScreen from 'expo-splash-screen';
 import { Ionicons } from '@expo/vector-icons';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
   ApiError, authStore, enqueueEvent, normalizeBaseUrl, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult
@@ -330,6 +333,8 @@ function Main() {
         setOutbox(await outboxRows());
       } catch (failure) {
         if (alive) setError(failure instanceof Error ? failure.message : 'Penyimpanan perangkat tidak tersedia.');
+      } finally {
+        await SplashScreen.hideAsync().catch(() => {});
       }
     })();
     return () => { alive = false; };
