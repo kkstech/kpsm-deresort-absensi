@@ -189,7 +189,7 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
 }
 
 function Main() {
-  const [baseUrl, setBaseUrl] = useState('http://192.168.106.188:8000');
+  const [baseUrl, setBaseUrl] = useState(process.env.EXPO_PUBLIC_API_URL || 'http://192.168.106.188:8000');
   const [token, setToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -1836,7 +1836,7 @@ function Main() {
           <Text style={styles.loginHeading}>Masuk ke akun</Text>
           <Text style={styles.intro}>Gunakan email pribadi atau nomor telepon yang terdaftar untuk mengakses jadwal dan absensi.</Text>
           <View style={styles.formCard}>
-            <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="http://192.168.106.188:8000" autoCapitalize="none" />
+            <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
             <TextField label="Email Pribadi" value={email} onChangeText={setEmail} placeholder="contoh: nama.karyawan@gmail.com" keyboardType="email-address" autoCapitalize="none" />
             <TextField label="Nomor Telepon (Opsional)" value={phone} onChangeText={setPhone} placeholder="contoh: 081234567890" keyboardType="phone-pad" autoCapitalize="none" />
             <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
