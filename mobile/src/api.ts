@@ -12,20 +12,34 @@ export function normalizeBaseUrl(url: string): string {
 }
 
 export async function request<T>(baseUrl: string, path: string, token?: string | null, options: { method?: string; body?: unknown } = {}): Promise<T> {
-  const form = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const isForm = options.body != null && (
+    (typeof FormData !== 'undefined' && options.body instanceof FormData) ||
+    (typeof options.body === 'object' && typeof (options.body as any).append === 'function')
+  );
   const cleanBase = normalizeBaseUrl(baseUrl);
   let response: Response;
   try {
     response = await fetch(`${cleanBase}/api/v1/${path.replace(/^\//, '')}`, {
       method: options.method ?? 'GET',
-      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.body && !form ? { 'Content-Type': 'application/json' } : {}) },
-      body: options.body ? (form ? options.body as FormData : JSON.stringify(options.body)) : undefined,
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: options.body ? (isForm ? (options.body as any) : JSON.stringify(options.body)) : undefined,
     });
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR', 'Server tidak dapat dijangkau. Periksa alamat server dan koneksi.');
   }
   const data = response.headers.get('content-type')?.includes('json') ? await response.json() : null;
-  if (!response.ok) throw new ApiError(response.status, data?.code, data?.message ?? 'Permintaan gagal.');
+  if (!response.ok) {
+    let msg = data?.message ?? 'Permintaan gagal.';
+    if (data?.details && typeof data.details === 'object') {
+      const detailsStr = Object.values(data.details).flat().filter(Boolean).join(' ');
+      if (detailsStr) msg = `${msg} (${detailsStr})`;
+    }
+    throw new ApiError(response.status, data?.code, msg);
+  }
   return data as T;
 }
 

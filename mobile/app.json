@@ -22,10 +22,19 @@
       "expo-font"
     ],
     "android": {
-      "package": "id.deresort.attendance"
+      "package": "id.deresort.attendance",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "ios": {
       "bundleIdentifier": "id.deresort.attendance"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "62ea25e6-3745-414f-945c-9872b79d15f6"
+      }
     }
   }
 }

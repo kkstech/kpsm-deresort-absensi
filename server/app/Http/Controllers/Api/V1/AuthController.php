@@ -153,14 +153,35 @@ class AuthController extends Controller
     public function uploadAvatar(Request $request): JsonResponse
     {
         $request->validate([
-            'avatar' => ['required', 'file', 'image', 'mimes:jpeg,png,jpg,webp', 'max:5120'],
+            'avatar' => ['required', 'file', 'max:5120'],
         ]);
+
+        $file = $request->file('avatar');
+        if (! $file || ! $file->isValid()) {
+            return response()->json([
+                'code' => 'INVALID_FILE',
+                'message' => 'File gambar tidak dapat dibaca.',
+            ], 422);
+        }
+
+        $mime = $file->getMimeType() ?: $file->getClientMimeType();
+        $allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
+        if (! in_array($mime, $allowed, true) && ! str_starts_with((string) $mime, 'image/')) {
+            return response()->json([
+                'code' => 'INVALID_IMAGE_TYPE',
+                'message' => 'Format file harus berupa gambar (JPG, PNG, atau WEBP).',
+            ], 422);
+        }
 
         $user = $request->user();
         $employee = $user->employee;
 
-        $file = $request->file('avatar');
-        $filename = 'avatar_' . $user->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $ext = match ($mime) {
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            default => 'jpg',
+        };
+        $filename = 'avatar_' . $user->id . '_' . time() . '.' . $ext;
         $path = $file->storeAs('avatars', $filename, 'public');
 
         if ($user->avatar_path && Storage::disk('public')->exists($user->avatar_path)) {

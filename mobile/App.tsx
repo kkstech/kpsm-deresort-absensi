@@ -962,27 +962,51 @@ function Main() {
   async function handleChooseAvatar() {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/jpeg', 'image/png', 'image/webp'],
+        type: ['image/*'],
         copyToCacheDirectory: true,
         multiple: false,
       });
-      if (result.canceled || !result.assets[0]) return;
+      if (result.canceled || !result.assets || !result.assets[0]) return;
       const asset = result.assets[0];
 
       setAvatarUploading(true);
+
+      let fileName = asset.name || 'avatar.jpg';
+      let mimeType = asset.mimeType || 'image/jpeg';
+
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        const lower = fileName.toLowerCase();
+        if (lower.endsWith('.png')) mimeType = 'image/png';
+        else if (lower.endsWith('.webp')) mimeType = 'image/webp';
+        else mimeType = 'image/jpeg';
+      }
+
+      if (!/\.(jpe?g|png|webp)$/i.test(fileName)) {
+        const ext = mimeType === 'image/png' ? '.png' : (mimeType === 'image/webp' ? '.webp' : '.jpg');
+        fileName = `${fileName.replace(/\.[^/.]+$/, '')}${ext}`;
+      }
+
+      let fileUri = asset.uri;
+      if (Platform.OS === 'ios' && fileUri.startsWith('file://')) {
+        fileUri = fileUri.replace('file://', '');
+      }
+
       const form = new FormData();
       form.append('avatar', {
-        uri: asset.uri,
-        name: asset.name || 'avatar.jpg',
-        type: asset.mimeType || 'image/jpeg',
+        uri: fileUri,
+        name: fileName,
+        type: mimeType,
       } as any);
 
       const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', token, {
         method: 'POST',
         body: form,
       });
-      setProfile(res.user);
-      await saveCache('profile', res.user);
+
+      if (res?.user) {
+        setProfile(res.user);
+        await saveCache('profile', res.user);
+      }
       Alert.alert('Sukses', res.message || 'Foto profil berhasil diperbarui.');
     } catch (err) {
       Alert.alert('Gagal Mengunggah Foto', err instanceof Error ? err.message : 'Terjadi kesalahan.');
