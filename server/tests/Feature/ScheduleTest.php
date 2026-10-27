@@ -336,6 +336,135 @@ class ScheduleTest extends TestCase
         $this->postJson('/admin/api/schedule', ['employee_id' => $other->id, 'work_date' => '2026-10-26', 'shift_template_id' => ShiftTemplate::query()->value('id')])->assertStatus(403);
     }
 
+    public function test_bulk_schedule_assigns_multiple_employees_and_dates(): void
+    {
+        $emp2 = $this->makeEmployee('FO-2', 'Front Office');
+        $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+
+        $response = $this->postJson('/admin/api/schedule/bulk', [
+            'employee_ids' => [$this->employee->id, $emp2->id],
+            'from' => '2026-10-26', // Senin
+            'to' => '2026-10-28',   // Rabu
+            'days_of_week' => [1, 2, 3],
+            'shift_template_id' => $template->id,
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 6)
+            ->assertJsonPath('skipped', []);
+
+        $this->assertDatabaseCount('shift_assignments', 6);
+        $this->assertDatabaseHas('shift_assignments', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-26',
+            'status' => 'DRAFT',
+        ]);
+        $this->assertDatabaseHas('shift_assignments', [
+            'employee_id' => $emp2->id,
+            'work_date' => '2026-10-28',
+            'status' => 'DRAFT',
+        ]);
+    }
+
+    public function test_bulk_schedule_skips_unselected_days(): void
+    {
+        $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+
+        $response = $this->postJson('/admin/api/schedule/bulk', [
+            'employee_ids' => [$this->employee->id],
+            'from' => '2026-10-26', // Senin (1)
+            'to' => '2026-11-01',   // Minggu (0) - 7 hari total
+            'days_of_week' => [1, 5], // Hanya Senin & Jumat
+            'shift_template_id' => $template->id,
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 2)
+            ->assertJsonPath('skipped', []);
+
+        $this->assertDatabaseCount('shift_assignments', 2);
+        $this->assertDatabaseHas('shift_assignments', ['work_date' => '2026-10-26']);
+        $this->assertDatabaseHas('shift_assignments', ['work_date' => '2026-10-30']); // Jumat
+        $this->assertDatabaseMissing('shift_assignments', ['work_date' => '2026-10-27']); // Selasa
+    }
+
+    public function test_bulk_schedule_skips_existing_unless_overwrite_true(): void
+    {
+        $templateReg = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+        $templateMalam = ShiftTemplate::query()->where('name', 'Malam')->firstOrFail();
+
+        // Buat jadwal manual di 2026-10-26
+        $this->assign('2026-10-26', 'Reguler')->assertCreated();
+
+        // Bulk assign dengan template Malam tanpa overwrite
+        $response = $this->postJson('/admin/api/schedule/bulk', [
+            'employee_ids' => [$this->employee->id],
+            'from' => '2026-10-26',
+            'to' => '2026-10-27',
+            'days_of_week' => [1, 2],
+            'shift_template_id' => $templateMalam->id,
+            'overwrite' => false,
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 1)
+            ->assertJsonCount(1, 'skipped')
+            ->assertJsonPath('skipped.0.work_date', '2026-10-26')
+            ->assertJsonPath('skipped.0.reason', 'Sudah ada jadwal draft.');
+
+        // 2026-10-26 tetap Reguler
+        $this->assertDatabaseHas('shift_assignments', [
+            'work_date' => '2026-10-26',
+            'shift_template_id' => $templateReg->id,
+        ]);
+
+        // Bulk assign lagi dengan overwrite = true
+        $responseOverwrite = $this->postJson('/admin/api/schedule/bulk', [
+            'employee_ids' => [$this->employee->id],
+            'from' => '2026-10-26',
+            'to' => '2026-10-27',
+            'days_of_week' => [1, 2],
+            'shift_template_id' => $templateMalam->id,
+            'overwrite' => true,
+        ])->assertOk();
+
+        // Keduanya ditimpa / di-upsert menjadi Malam
+        $responseOverwrite->assertJsonPath('created', 2)
+            ->assertJsonPath('skipped', []);
+
+        $this->assertDatabaseHas('shift_assignments', [
+            'work_date' => '2026-10-26',
+            'shift_template_id' => $templateMalam->id,
+        ]);
+    }
+
+    public function test_bulk_schedule_protects_running_schedules(): void
+    {
+        $templateReg = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+        $templateMalam = ShiftTemplate::query()->where('name', 'Malam')->firstOrFail();
+
+        $assignment = $this->assign('2026-10-26', 'Reguler');
+        $assId = $assignment->json('data.id');
+
+        ShiftAssignment::query()->where('id', $assId)->update(['status' => 'IN_PROGRESS']);
+
+        $response = $this->postJson('/admin/api/schedule/bulk', [
+            'employee_ids' => [$this->employee->id],
+            'from' => '2026-10-26',
+            'to' => '2026-10-26',
+            'days_of_week' => [1],
+            'shift_template_id' => $templateMalam->id,
+            'overwrite' => true,
+        ])->assertOk();
+
+        $response->assertJsonPath('created', 0)
+            ->assertJsonCount(1, 'skipped')
+            ->assertJsonPath('skipped.0.work_date', '2026-10-26');
+
+        $this->assertDatabaseHas('shift_assignments', [
+            'id' => $assId,
+            'status' => 'IN_PROGRESS',
+            'shift_template_id' => $templateReg->id,
+        ]);
+    }
+
     private function assign(string $date, string $template, ?Employee $employee = null)
     {
         return $this->postJson('/admin/api/schedule', [

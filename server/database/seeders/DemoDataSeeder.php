@@ -46,10 +46,19 @@ class DemoDataSeeder extends Seeder
             $departmentId = Department::query()->where('name', $department)->value('id');
             $user = $email ? User::query()->firstOrCreate(
                 ['email' => $email],
-                ['name' => $name, 'phone' => $phone, 'password' => 'password123', 'role' => 'employee']
+                ['name' => $name, 'username' => Str::lower($code), 'phone' => $phone, 'password' => 'password123', 'role' => 'employee']
             ) : null;
-            if ($user && ! $user->phone) {
-                $user->update(['phone' => $phone]);
+            if ($user) {
+                $userUpdates = [];
+                if (! $user->phone) {
+                    $userUpdates['phone'] = $phone;
+                }
+                if (! $user->username) {
+                    $userUpdates['username'] = Str::lower($code);
+                }
+                if ($userUpdates) {
+                    $user->update($userUpdates);
+                }
             }
             $employee = Employee::query()->firstOrCreate(['code' => $code], [
                 'name' => $name,

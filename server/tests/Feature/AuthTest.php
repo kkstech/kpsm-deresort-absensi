@@ -303,6 +303,63 @@ class AuthTest extends TestCase
         $this->assertNull($user->fresh()->avatar_path);
     }
 
+    public function test_employee_can_login_using_username_employee_code_case_insensitive(): void
+    {
+        $user = $this->employeeUser();
+        $user->update(['username' => 'emp-001']);
+
+        // Test with uppercase code
+        $respUpper = $this->postJson('/api/v1/auth/login', [
+            'username' => 'EMP-001',
+            'password' => 'password',
+            'device_uuid' => 'phone-username-1',
+            'device_name' => 'Android Device',
+        ])->assertOk();
+
+        $this->assertSame('EMP-001', $respUpper->json('user.employee.code'));
+
+        // Test with lowercase code
+        $respLower = $this->postJson('/api/v1/auth/login', [
+            'username' => 'emp-001',
+            'password' => 'password',
+            'device_uuid' => 'phone-username-2',
+            'device_name' => 'Android Device',
+        ])->assertOk();
+
+        $this->assertSame('EMP-001', $respLower->json('user.employee.code'));
+    }
+
+    public function test_admin_can_login_to_web_using_username(): void
+    {
+        $admin = User::factory()->role('admin')->create([
+            'email' => 'admin@deresort.test',
+            'username' => 'admin@deresort.test',
+            'password' => 'password123',
+        ]);
+
+        $this->post('/login', [
+            'username' => 'admin@deresort.test',
+            'password' => 'password123',
+        ])->assertRedirect('/admin');
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    public function test_login_fails_with_invalid_username(): void
+    {
+        $this->postJson('/api/v1/auth/login', [
+            'username' => 'non-existent-user',
+            'password' => 'password',
+            'device_uuid' => 'phone-x',
+        ])->assertStatus(401)
+          ->assertJsonPath('code', 'INVALID_CREDENTIALS');
+
+        $this->post('/login', [
+            'username' => 'non-existent-user',
+            'password' => 'password',
+        ])->assertSessionHasErrors('username');
+    }
+
     private function employeeUser(): User
     {
         $this->seed(MasterDataSeeder::class);

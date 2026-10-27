@@ -101,6 +101,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::post('schedule/swap/preview', [ScheduleController::class, 'previewSwap']);
         Route::post('schedule/swap', [ScheduleController::class, 'swap']);
         Route::post('schedule', [ScheduleController::class, 'store']);
+        Route::post('schedule/bulk', [ScheduleController::class, 'bulk']);
         Route::patch('schedule/{assignment}/sessions', [ScheduleController::class, 'updateSessions']);
         Route::delete('schedule/{assignment}', [ScheduleController::class, 'destroy']);
         Route::post('schedule/publish', [ScheduleController::class, 'publish']);

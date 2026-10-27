@@ -332,6 +332,152 @@ async function runAction(fn) {
     }
 }
 
+/* ---------- Penugasan Massal ---------- */
+const bulkModal = $('#schedule-bulk-modal');
+const bulkError = $('#bulk-modal-error');
+
+function updateBulkCounter() {
+    const checked = $$('input[name="bulk_emp_id"]:checked', $('#bulk-emp-list')).length;
+    const counter = $('#bulk-emp-counter');
+    if (counter) counter.textContent = `${checked} dipilih`;
+}
+
+function renderBulkEmployeeList(selectedDept = 'all', searchQuery = '') {
+    const container = $('#bulk-emp-list');
+    if (!container) return;
+    const q = searchQuery.toLowerCase().trim();
+    const list = employees.filter((e) => {
+        const matchDept = selectedDept === 'all' || e.dept === selectedDept;
+        const matchSearch = !q || e.name.toLowerCase().includes(q) || (e.dept && e.dept.toLowerCase().includes(q));
+        return matchDept && matchSearch;
+    });
+
+    if (!list.length) {
+        container.innerHTML = '<p class="list-empty" style="grid-column: 1 / -1; padding: 12px; margin: 0; text-align: center;">Tidak ada karyawan yang cocok.</p>';
+        updateBulkCounter();
+        return;
+    }
+
+    container.innerHTML = list.map((e) => `
+        <label class="bulk-emp-item">
+            <input type="checkbox" name="bulk_emp_id" value="${e.id}" data-dept="${esc(e.dept)}" checked>
+            <div class="bulk-emp-info">
+                <strong>${esc(e.name)}</strong>
+                <small>${esc(e.dept || 'Tanpa Departemen')}${e.position && e.position !== 'Tanpa Jabatan' ? ` · ${esc(e.position)}` : ''}</small>
+            </div>
+        </label>
+    `).join('');
+    updateBulkCounter();
+}
+
+function setDayPreset(preset) {
+    if (!bulkModal) return;
+    $$('.preset-pill', bulkModal).forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.preset === preset);
+    });
+    const checkboxes = $$('input[name="bulk_day"]', $('#bulk-days-group'));
+    checkboxes.forEach((cb) => {
+        const val = Number(cb.value);
+        if (preset === 'all') cb.checked = true;
+        else if (preset === 'weekdays') cb.checked = val >= 1 && val <= 5;
+        else if (preset === 'weekend') cb.checked = val === 0 || val === 6;
+    });
+}
+
+function openBulkModal() {
+    if (!bulkModal) return;
+    bulkError.hidden = true;
+
+    const start = state.view === 'week' ? keyOf(weekStart(state.anchor)) : todayKey();
+    const end = keyOf(addDays(parseKey(start), 6));
+    $('#bulk-start-date').value = start;
+    $('#bulk-end-date').value = end;
+
+    const depts = [...new Set(employees.map((e) => e.dept).filter(Boolean))].sort();
+    $('#bulk-dept-filter').innerHTML = '<option value="all">Semua Departemen</option>' + depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    $('#bulk-dept-filter').value = 'all';
+    $('#bulk-emp-search').value = '';
+
+    $('#bulk-template-select').innerHTML = templates.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(templateText(t))}</option>`).join('');
+
+    setDayPreset('weekdays');
+    $('#bulk-overwrite-checkbox').checked = false;
+
+    renderBulkEmployeeList();
+    bulkModal.showModal();
+}
+
+async function submitBulkSchedule(event) {
+    event.preventDefault();
+    bulkError.hidden = true;
+
+    const employee_ids = $$('input[name="bulk_emp_id"]:checked', $('#bulk-emp-list')).map((cb) => Number(cb.value));
+    if (!employee_ids.length) {
+        bulkError.textContent = 'Pilih minimal satu karyawan.';
+        bulkError.hidden = false;
+        return;
+    }
+
+    const from = $('#bulk-start-date').value;
+    const to = $('#bulk-end-date').value;
+    if (!from || !to) {
+        bulkError.textContent = 'Isi tanggal mulai dan tanggal selesai.';
+        bulkError.hidden = false;
+        return;
+    }
+    if (from > to) {
+        bulkError.textContent = 'Tanggal mulai tidak boleh lebih besar dari tanggal selesai.';
+        bulkError.hidden = false;
+        return;
+    }
+
+    const days_of_week = $$('input[name="bulk_day"]:checked', $('#bulk-days-group')).map((cb) => Number(cb.value));
+    if (!days_of_week.length) {
+        bulkError.textContent = 'Pilih minimal satu hari kerja.';
+        bulkError.hidden = false;
+        return;
+    }
+
+    const shift_template_id = Number($('#bulk-template-select').value);
+    if (!shift_template_id) {
+        bulkError.textContent = 'Pilih template shift.';
+        bulkError.hidden = false;
+        return;
+    }
+
+    const overwrite = $('#bulk-overwrite-checkbox').checked;
+    const submitBtn = $('#bulk-submit-btn');
+    submitBtn.disabled = true;
+    const originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Menugaskan...';
+
+    try {
+        const result = await api('schedule/bulk', {
+            method: 'POST',
+            body: { employee_ids, from, to, days_of_week, shift_template_id, overwrite },
+        });
+        bulkModal.close();
+        const created = result.created ?? 0;
+        const skipped = result.skipped?.length ?? 0;
+        if (created > 0 && skipped > 0) {
+            toast(`Berhasil membuat ${created} jadwal draft (${skipped} dilewati).`);
+        } else if (created > 0) {
+            toast(`Berhasil membuat ${created} jadwal draft.`);
+        } else if (skipped > 0) {
+            toast(`Tidak ada jadwal baru dibuat (${skipped} tanggal dilewati).`);
+        } else {
+            toast('Tidak ada tanggal yang cocok dengan hari yang dipilih.');
+        }
+        load();
+    } catch (error) {
+        bulkError.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
+        bulkError.hidden = false;
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+}
+
 /* ---------- Tukar rantai jadwal ---------- */
 const swapModal = $('#schedule-swap-modal');
 let swapPreview = null;
@@ -697,6 +843,33 @@ $('#schedule-swap-form').addEventListener('submit', async (event) => {
 });
 
 $$('[data-open-modal]').forEach((button) => button.addEventListener('click', openScheduleModal));
+$('#schedule-bulk-btn')?.addEventListener('click', openBulkModal);
+$('#bulk-dept-filter')?.addEventListener('change', () => {
+    renderBulkEmployeeList($('#bulk-dept-filter').value, $('#bulk-emp-search').value);
+});
+$('#bulk-emp-search')?.addEventListener('input', () => {
+    renderBulkEmployeeList($('#bulk-dept-filter').value, $('#bulk-emp-search').value);
+});
+$('#bulk-select-all')?.addEventListener('click', () => {
+    $$('input[name="bulk_emp_id"]', $('#bulk-emp-list')).forEach((cb) => { cb.checked = true; });
+    updateBulkCounter();
+});
+$('#bulk-clear-all')?.addEventListener('click', () => {
+    $$('input[name="bulk_emp_id"]', $('#bulk-emp-list')).forEach((cb) => { cb.checked = false; });
+    updateBulkCounter();
+});
+$('#bulk-emp-list')?.addEventListener('change', (event) => {
+    if (event.target.matches('input[name="bulk_emp_id"]')) updateBulkCounter();
+});
+if (bulkModal) {
+    $$('.preset-pill', bulkModal).forEach((btn) => {
+        btn.addEventListener('click', () => setDayPreset(btn.dataset.preset));
+    });
+}
+$('#bulk-days-group')?.addEventListener('change', () => {
+    if (bulkModal) $$('.preset-pill', bulkModal).forEach((btn) => btn.classList.remove('active'));
+});
+$('#schedule-bulk-form')?.addEventListener('submit', submitBulkSchedule);
 $('#add-selected-date')?.addEventListener('click', openScheduleModal);
 $('#schedule-form').addEventListener('submit', (event) => {
     event.preventDefault();

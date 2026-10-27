@@ -32,7 +32,11 @@ class UserController extends Controller
     {
         Gate::authorize('super-admin');
         $data = $this->validated($request);
-        $user = User::query()->create([...$data, 'email' => Str::lower($data['email'])]);
+        $user = User::query()->create([
+            ...$data,
+            'email' => Str::lower($data['email']),
+            'username' => Str::lower($data['email']),
+        ]);
         Audit::log('users.created', $user);
 
         return response()->json(['data' => $user], 201);
@@ -49,7 +53,11 @@ class UserController extends Controller
         }
 
         $before = $user->attributesToArray();
-        $user->update([...$data, 'email' => Str::lower($data['email'])]);
+        $userUpdates = [...$data, 'email' => Str::lower($data['email'])];
+        if (! $user->employee) {
+            $userUpdates['username'] = Str::lower($data['email']);
+        }
+        $user->update($userUpdates);
         if (! $user->is_active) {
             $user->tokens()->delete();
         }
@@ -84,6 +92,7 @@ class UserController extends Controller
                 $updates['phone'] = $user->phone;
             }
             $employee->update($updates);
+            $user->update(['username' => Str::lower($employee->code)]);
 
             Audit::log('users.employee_linked', $user, null, ['employee_id' => $employee->id, 'email' => $user->email]);
         });
@@ -101,6 +110,7 @@ class UserController extends Controller
 
         DB::transaction(function () use ($user, $employee) {
             $employee->update(['user_id' => null]);
+            $user->update(['username' => Str::lower($user->email)]);
             Audit::log('users.employee_unlinked', $user, null, ['employee_id' => $employee->id]);
         });
 

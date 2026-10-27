@@ -21,6 +21,7 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'username' => ['nullable', 'string', 'max:255'],
             'email' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:32'],
             'password' => ['required', 'string', 'max:255'],
@@ -28,16 +29,19 @@ class AuthController extends Controller
             'device_name' => ['nullable', 'string', 'max:100'],
         ]);
 
+        $rawUsername = isset($data['username']) ? trim($data['username']) : null;
         $rawEmail = isset($data['email']) ? trim($data['email']) : null;
         $rawPhone = isset($data['phone']) ? trim($data['phone']) : null;
 
-        if (empty($rawEmail) && empty($rawPhone)) {
-            throw new BusinessRuleException('VALIDATION_ERROR', 'Email pribadi atau nomor telepon wajib diisi.', 422);
+        $loginIdentifier = $rawUsername ?? $rawEmail;
+
+        if (empty($loginIdentifier) && empty($rawPhone)) {
+            throw new BusinessRuleException('VALIDATION_ERROR', 'Username atau password wajib diisi.', 422);
         }
 
-        $user = $this->resolveUser($rawEmail, $rawPhone);
+        $user = $this->resolveUser($loginIdentifier, $rawPhone);
         if (! $user || ! Hash::check($data['password'], $user->password)) {
-            throw new BusinessRuleException('INVALID_CREDENTIALS', 'Email pribadi, nomor telepon, atau password salah.', 401);
+            throw new BusinessRuleException('INVALID_CREDENTIALS', 'Username atau password salah.', 401);
         }
         if (! $user->is_active) {
             throw new BusinessRuleException('ACCOUNT_INACTIVE', 'Akun tidak aktif.', 403);
@@ -241,23 +245,50 @@ class AuthController extends Controller
         return $cleaned;
     }
 
-    private function resolveUser(?string $rawEmail, ?string $rawPhone): ?User
+    private function resolveUser(?string $identifier, ?string $rawPhone = null): ?User
     {
-        // 1. Try finding by email (if email format or provided in rawEmail)
-        if (! empty($rawEmail) && str_contains($rawEmail, '@')) {
-            $normalizedEmail = Str::lower($rawEmail);
-            $user = User::query()->where('email', $normalizedEmail)->first();
+        if (! empty($identifier)) {
+            $lowerIdentifier = Str::lower($identifier);
+
+            // 1. Try finding by users.username (case-insensitive)
+            $user = User::query()->where('username', $lowerIdentifier)->first();
             if ($user) {
                 return $user;
             }
-            $employee = Employee::query()->where('email', $normalizedEmail)->whereNotNull('user_id')->first();
+
+            // 2. Try finding by employee code (e.g. FO-001, fo-001)
+            $employee = Employee::query()
+                ->whereNotNull('user_id')
+                ->where(function ($q) use ($identifier, $lowerIdentifier) {
+                    $q->where('code', $identifier)
+                        ->orWhere('code', Str::upper($identifier))
+                        ->orWhere('code', $lowerIdentifier);
+                })
+                ->first();
             if ($employee && $employee->user) {
                 return $employee->user;
             }
+
+            // 3. Try finding by email
+            if (str_contains($identifier, '@')) {
+                $user = User::query()->where('email', $lowerIdentifier)->first();
+                if ($user) {
+                    return $user;
+                }
+                $employee = Employee::query()->where('email', $lowerIdentifier)->whereNotNull('user_id')->first();
+                if ($employee && $employee->user) {
+                    return $employee->user;
+                }
+            } else {
+                $user = User::query()->where('email', $lowerIdentifier)->first();
+                if ($user) {
+                    return $user;
+                }
+            }
         }
 
-        // 2. Identify candidate phone
-        $candidatePhone = ! empty($rawPhone) ? $rawPhone : (! empty($rawEmail) && ! str_contains($rawEmail, '@') ? $rawEmail : null);
+        // 4. Fallback: Identify candidate phone
+        $candidatePhone = ! empty($rawPhone) ? $rawPhone : (! empty($identifier) && ! str_contains($identifier, '@') && preg_match('/^[0-9+]+$/', $identifier) ? $identifier : null);
 
         if ($candidatePhone) {
             $normalizedPhone = static::normalizePhone($candidatePhone);
@@ -297,14 +328,6 @@ class AuthController extends Controller
             }
         }
 
-        // 3. Fallback: by employee code if entered in rawEmail
-        if (! empty($rawEmail)) {
-            $employee = Employee::query()->where('code', $rawEmail)->whereNotNull('user_id')->first();
-            if ($employee && $employee->user) {
-                return $employee->user;
-            }
-        }
-
         return null;
     }
 
@@ -316,6 +339,7 @@ class AuthController extends Controller
         return [
             'id' => $user->id,
             'name' => $user->name,
+            'username' => $user->username ?? $employee?->code ?? $user->email,
             'email' => $user->email,
             'phone' => $user->phone ?? $employee?->phone,
             'role' => $user->role,

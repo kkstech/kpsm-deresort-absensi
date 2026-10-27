@@ -105,6 +105,7 @@
                         <div class="heading-actions" data-requires="admin">
                             <button type="button" class="secondary-button" id="schedule-copy">Salin ke minggu depan</button>
                             <button type="button" class="secondary-button" id="schedule-publish">Terbitkan draft</button>
+                            <button type="button" class="secondary-button" id="schedule-bulk-btn">+ Penugasan Massal</button>
                             <button type="button" class="primary-button" data-open-modal="schedule-modal">+ Buat jadwal</button>
                         </div>
                     </div>
@@ -371,6 +372,84 @@
                 <p class="form-error" id="schedule-error" role="alert" hidden></p>
             </div>
             <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button">Simpan draft</button></div>
+        </form>
+    </dialog>
+    <dialog class="app-dialog schedule-bulk-dialog" id="schedule-bulk-modal" aria-labelledby="schedule-bulk-modal-title">
+        <form method="dialog" id="schedule-bulk-form">
+            <div class="modal-heading">
+                <div>
+                    <h2 id="schedule-bulk-modal-title">Penugasan Jadwal Massal</h2>
+                    <p>Tugaskan shift ke banyak karyawan dan rentang tanggal sekaligus dalam status draft.</p>
+                </div>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+            </div>
+            <div class="modal-body bulk-modal-body">
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>1. Pilih Karyawan</strong>
+                        <span class="bulk-counter" id="bulk-emp-counter">0 dipilih</span>
+                    </div>
+                    <div class="bulk-emp-toolbar">
+                        <input type="search" id="bulk-emp-search" placeholder="Cari nama karyawan..." class="bulk-search-input" aria-label="Cari nama karyawan">
+                        <select id="bulk-dept-filter" class="bulk-dept-select" aria-label="Filter departemen">
+                            <option value="all">Semua Departemen</option>
+                        </select>
+                        <div class="bulk-quick-actions">
+                            <button type="button" class="text-button" id="bulk-select-all">Pilih Semua</button>
+                            <span class="sep">|</span>
+                            <button type="button" class="text-button" id="bulk-clear-all">Batal</button>
+                        </div>
+                    </div>
+                    <div class="bulk-emp-list" id="bulk-emp-list" role="group" aria-label="Daftar karyawan"></div>
+                </div>
+
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>2. Rentang Tanggal &amp; Hari Kerja</strong>
+                    </div>
+                    <div class="schedule-modal-top-grid">
+                        <label>Tanggal mulai<input type="date" id="bulk-start-date" required></label>
+                        <label>Tanggal selesai<input type="date" id="bulk-end-date" required></label>
+                    </div>
+                    <div class="bulk-days-wrap">
+                        <div class="bulk-days-header">
+                            <span>Hari yang ditugaskan:</span>
+                            <div class="bulk-day-presets">
+                                <button type="button" class="preset-pill active" data-preset="weekdays">Senin – Jumat</button>
+                                <button type="button" class="preset-pill" data-preset="all">Setiap Hari</button>
+                                <button type="button" class="preset-pill" data-preset="weekend">Sabtu – Minggu</button>
+                            </div>
+                        </div>
+                        <div class="bulk-days-checkboxes" id="bulk-days-group">
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="1" checked><span>Sen</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="2" checked><span>Sel</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="3" checked><span>Rab</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="4" checked><span>Kam</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="5" checked><span>Jum</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="6"><span>Sab</span></label>
+                            <label class="day-checkbox-label"><input type="checkbox" name="bulk_day" value="0"><span>Min</span></label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>3. Template Shift &amp; Aturan</strong>
+                    </div>
+                    <label>Template shift<select id="bulk-template-select" required></select></label>
+                    <label class="check-field bulk-check-field">
+                        <input type="checkbox" id="bulk-overwrite-checkbox">
+                        <span>Timpa jadwal draft yang sudah ada pada tanggal yang sama</span>
+                        <small class="field-hint">Jika tidak dicentang, tanggal yang sudah memiliki jadwal akan dilewati secara otomatis.</small>
+                    </label>
+                </div>
+
+                <p class="form-error" id="bulk-modal-error" role="alert" hidden></p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="submit" class="primary-button" id="bulk-submit-btn">Tugaskan Massal</button>
+            </div>
         </form>
     </dialog>
     <dialog class="app-dialog schedule-swap-dialog" id="schedule-swap-modal" aria-labelledby="schedule-swap-title">

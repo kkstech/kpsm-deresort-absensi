@@ -81,7 +81,12 @@ class EmployeeController extends Controller
                         throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun dengan email tersebut sudah terhubung ke karyawan lain.', 422);
                     }
                     if (! empty($account['account_password'])) {
-                        $existingUser->update(['password' => $account['account_password']]);
+                        $existingUser->update([
+                            'password' => $account['account_password'],
+                            'username' => Str::lower($data['code']),
+                        ]);
+                    } else {
+                        $existingUser->update(['username' => Str::lower($data['code'])]);
                     }
                     $data['user_id'] = $existingUser->id;
                     $data['email'] = $existingUser->email;
@@ -92,6 +97,7 @@ class EmployeeController extends Controller
                     $data['user_id'] = User::query()->create([
                         'name' => $data['name'],
                         'email' => $accountEmail,
+                        'username' => Str::lower($data['code']),
                         'phone' => $data['phone'] ?? null,
                         'password' => $account['account_password'],
                         'role' => 'employee',
@@ -125,6 +131,9 @@ class EmployeeController extends Controller
             }
             if ($user = $employee->user) {
                 $userUpdates = ['name' => $employee->name];
+                if (! empty($employee->code)) {
+                    $userUpdates['username'] = Str::lower($employee->code);
+                }
                 if (! in_array($user->role, User::WEB_ROLES, true)) {
                     $userUpdates['is_active'] = $employee->status === 'active';
                 }
@@ -190,6 +199,7 @@ class EmployeeController extends Controller
                 $updates['phone'] = $user->phone;
             }
             $employee->update($updates);
+            $user->update(['username' => Str::lower($employee->code)]);
 
             Audit::log('employees.user_linked', $employee, $before, ['user_id' => $user->id, 'email' => $user->email]);
         });
@@ -235,10 +245,14 @@ class EmployeeController extends Controller
                     $user->update(['email' => $targetEmail]);
                     $employee->update(['email' => $targetEmail]);
                 }
-                $user->update(array_filter([
-                    'phone' => $employee->phone,
+                $userUpdates = [
                     'password' => $data['password'],
-                ]));
+                    'username' => Str::lower($employee->code),
+                ];
+                if (! empty($employee->phone)) {
+                    $userUpdates['phone'] = $employee->phone;
+                }
+                $user->update($userUpdates);
                 $user->tokens()->delete();
             } else {
                 $loginEmail = isset($data['email']) ? Str::lower($data['email']) : ($employee->email ? Str::lower($employee->email) : null);
@@ -247,10 +261,14 @@ class EmployeeController extends Controller
                     if ($existingUser->employee()->where('id', '!=', $employee->id)->exists()) {
                         throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun user dengan email ini sudah terhubung ke karyawan lain.', 422);
                     }
-                    $existingUser->update(array_filter([
-                        'phone' => $employee->phone ?? $existingUser->phone,
+                    $existingUserUpdates = [
                         'password' => $data['password'],
-                    ]));
+                        'username' => Str::lower($employee->code),
+                    ];
+                    if (! empty($employee->phone) || ! empty($existingUser->phone)) {
+                        $existingUserUpdates['phone'] = $employee->phone ?? $existingUser->phone;
+                    }
+                    $existingUser->update($existingUserUpdates);
                     $employee->update([
                         'user_id' => $existingUser->id,
                         'email' => $existingUser->email,
@@ -260,6 +278,7 @@ class EmployeeController extends Controller
                     $user = User::query()->create([
                         'name' => $employee->name,
                         'email' => $loginEmail,
+                        'username' => Str::lower($employee->code),
                         'phone' => $employee->phone,
                         'password' => $data['password'],
                         'role' => 'employee',

@@ -25,16 +25,46 @@ class WebAuthController extends Controller
     public function login(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'email' => ['required', 'email', 'max:255'],
+            'username' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'string', 'max:255'],
             'password' => ['required', 'string', 'max:255'],
             'remember' => ['sometimes', 'boolean'],
         ]);
 
-        $user = User::query()->where('email', Str::lower($data['email']))->first();
+        $rawIdentifier = trim($data['username'] ?? $data['email'] ?? '');
+        if (empty($rawIdentifier)) {
+            throw ValidationException::withMessages([
+                'username' => 'Username wajib diisi.',
+                'email' => 'Username wajib diisi.',
+            ]);
+        }
+
+        $lower = Str::lower($rawIdentifier);
+        $user = User::query()
+            ->where('username', $lower)
+            ->orWhere('email', $lower)
+            ->first();
+
+        if (! $user) {
+            $employee = \App\Models\Employee::query()
+                ->where(function ($q) use ($rawIdentifier, $lower) {
+                    $q->where('code', $rawIdentifier)
+                        ->orWhere('code', Str::upper($rawIdentifier))
+                        ->orWhere('code', $lower);
+                })
+                ->first();
+            if ($employee && $employee->user) {
+                $user = $employee->user;
+            }
+        }
+
         $allowed = $user && $user->is_active && in_array($user->role, User::WEB_ROLES, true);
 
         if (! $allowed || ! Hash::check($data['password'], $user->password)) {
-            throw ValidationException::withMessages(['email' => 'Email atau password salah.']);
+            throw ValidationException::withMessages([
+                'username' => 'Username atau password salah.',
+                'email' => 'Username atau password salah.',
+            ]);
         }
 
         $remember = (bool) ($data['remember'] ?? false);

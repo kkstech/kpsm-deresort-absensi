@@ -151,7 +151,7 @@ function Pill({ children, tone = 'success' }: { children: React.ReactNode; tone?
 
 function TextField({ label, value, onChangeText, placeholder, multiline = false, keyboardType, secureTextEntry = false, autoCapitalize = 'sentences' }: {
   label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 }) {
   const [hidePassword, setHidePassword] = useState(secureTextEntry);
 
@@ -176,13 +176,13 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
             accessibilityRole="button"
             accessibilityLabel={hidePassword ? 'Tampilkan password' : 'Sembunyikan password'}
             onPress={() => setHidePassword(!hidePassword)}
-            style={styles.inputEyeIcon}
-            hitSlop={10}
+            style={({ pressed }) => [styles.inputEyeIcon, pressed && { opacity: 0.7 }]}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Ionicons
               name={hidePassword ? 'eye-outline' : 'eye-off-outline'}
-              size={20}
-              color={colors.muted}
+              size={22}
+              color={colors.ink}
             />
           </Pressable>
         )}
@@ -227,8 +227,7 @@ function Main() {
       }),
     ]).start();
   }, [tab]);
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [intent, setIntent] = useState<ActionIntent | null>(null);
@@ -457,10 +456,9 @@ function Main() {
       setError('Port 5173 adalah server frontend Vite, bukan backend Laravel. Gunakan port 8000.');
       return;
     }
-    const cleanEmail = email.trim();
-    const cleanPhone = phone.trim();
-    if (!cleanEmail && !cleanPhone) {
-      setError('Masukkan email pribadi atau nomor telepon.');
+    const cleanUsername = username.trim();
+    if (!cleanUsername) {
+      setError('Masukkan username atau kode karyawan.');
       return;
     }
     if (!password) {
@@ -475,8 +473,7 @@ function Main() {
       const result = await request<{ token?: string; user?: Profile }>(url, 'auth/login', null, {
         method: 'POST',
         body: {
-          email: cleanEmail || undefined,
-          phone: cleanPhone || undefined,
+          username: cleanUsername,
           password,
           device_uuid: id,
           device_name: Platform.OS === 'ios' ? 'iPhone' : Platform.OS === 'android' ? 'Android' : 'Perangkat mobile',
@@ -1889,21 +1886,22 @@ function Main() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
+            automaticallyAdjustKeyboardInsets={true}
+            bounces={true}
           >
             <View style={styles.loginMark}><Text style={styles.loginMarkText}>D</Text></View>
             <Text style={styles.overline}>DERESORT · ABSENSI & SHIFT</Text>
             <Text style={styles.loginHeading}>Masuk ke akun</Text>
-            <Text style={styles.intro}>Gunakan email pribadi atau nomor telepon yang terdaftar untuk mengakses jadwal dan absensi.</Text>
+            <Text style={styles.intro}>Gunakan username (kode karyawan) dan password akun untuk mengakses jadwal dan absensi.</Text>
             <View style={styles.formCard}>
               <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
-              <TextField label="Email Pribadi" value={email} onChangeText={setEmail} placeholder="contoh: nama.karyawan@gmail.com" keyboardType="email-address" autoCapitalize="none" />
-              <TextField label="Nomor Telepon (Opsional)" value={phone} onChangeText={setPhone} placeholder="contoh: 081234567890" keyboardType="phone-pad" autoCapitalize="none" />
+              <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="characters" />
               <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
               {!!error && <Text style={styles.errorText}>{error}</Text>}
               <Pressable disabled={loginBusy} onPress={login} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, loginBusy && styles.disabled]}>
                 <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
               </Pressable>
-              <Text style={styles.cardCopy}>Masuk dengan email pribadi atau nomor HP (opsional) beserta password akun.</Text>
+              <Text style={styles.cardCopy}>Masuk dengan kode karyawan / username beserta password akun.</Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -2227,7 +2225,7 @@ const styles = StyleSheet.create({
   app: { flex: 1 },
   flex: { flex: 1, minWidth: 0 },
   scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 118 },
-  loginContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 100 },
+  loginContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 140 },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   overline: { color: colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },
   heading: { color: colors.ink, fontSize: 32, fontWeight: '700', letterSpacing: -0.8 },
@@ -2305,8 +2303,8 @@ const styles = StyleSheet.create({
   fieldHint: { color: colors.muted, fontSize: 11, fontStyle: 'italic', marginTop: 4 },
   inputWrapper: { position: 'relative', justifyContent: 'center' },
   input: { minHeight: 48, paddingHorizontal: 12, borderWidth: 1, borderColor: '#C8D1CA', borderRadius: 9, color: colors.ink, fontSize: 13, backgroundColor: '#fff' },
-  inputWithIcon: { paddingRight: 44 },
-  inputEyeIcon: { position: 'absolute', right: 12, height: 48, justifyContent: 'center', alignItems: 'center' },
+  inputWithIcon: { paddingRight: 48 },
+  inputEyeIcon: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 48, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   multiline: { minHeight: 84, paddingTop: 10, textAlignVertical: 'top' },
   segmentRow: { flexDirection: 'row', gap: 7, marginTop: 12 },
   segment: { minHeight: 42, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 9, backgroundColor: '#fff' },

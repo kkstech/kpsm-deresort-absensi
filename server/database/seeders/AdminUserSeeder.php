@@ -19,7 +19,7 @@ class AdminUserSeeder extends Seeder
 
         User::query()->firstOrCreate(
             ['email' => Str::lower($config['email'])],
-            ['name' => $config['name'], 'password' => $config['password'], 'role' => 'super_admin', 'is_active' => true],
+            ['name' => $config['name'], 'username' => Str::lower($config['email']), 'password' => $config['password'], 'role' => 'super_admin', 'is_active' => true],
         );
     }
 }

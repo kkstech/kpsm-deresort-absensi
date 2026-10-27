@@ -201,6 +201,74 @@ class PublishSchedule
         return ['created' => $created, 'skipped' => $skipped];
     }
 
+    /**
+     * Penugasan jadwal massal ke banyak karyawan dan rentang tanggal dengan filter hari kerja.
+     * Tanggal yang sudah terisi dilewati kecuali $overwriteDrafts = true.
+     */
+    public function bulkAssign(
+        array $employeeIds,
+        string $from,
+        string $to,
+        array $daysOfWeek,
+        ShiftTemplate $template,
+        bool $overwriteDrafts,
+        User $actor
+    ): array {
+        $startDate = CarbonImmutable::parse($from);
+        $endDate = CarbonImmutable::parse($to);
+        $employees = Employee::query()->whereIn('id', $employeeIds)->get()->keyBy('id');
+
+        $created = 0;
+        $skipped = [];
+
+        for ($cur = $startDate; $cur->lte($endDate); $cur = $cur->addDay()) {
+            $dateStr = $cur->toDateString();
+            $dayOfWeek = $cur->dayOfWeek; // 0 = Minggu, 1 = Senin, dst.
+
+            if (! in_array($dayOfWeek, $daysOfWeek, true)) {
+                continue;
+            }
+
+            foreach ($employeeIds as $empId) {
+                $employee = $employees->get($empId);
+                if (! $employee) {
+                    continue;
+                }
+
+                $existing = ShiftAssignment::query()
+                    ->where('employee_id', $empId)
+                    ->where('work_date', $dateStr)
+                    ->where('status', '!=', 'CANCELLED')
+                    ->first();
+
+                if ($existing) {
+                    if (! $overwriteDrafts || $existing->status !== 'DRAFT') {
+                        $skipped[] = [
+                            'employee' => $employee->name,
+                            'work_date' => $dateStr,
+                            'reason' => $existing->status === 'DRAFT' ? 'Sudah ada jadwal draft.' : 'Jadwal sudah terbit / berjalan.',
+                        ];
+
+                        continue;
+                    }
+                }
+
+                try {
+                    $this->upsert($employee, $dateStr, $template, $actor);
+                    $created++;
+                } catch (BusinessRuleException $e) {
+                    $skipped[] = [
+                        'employee' => $employee->name,
+                        'work_date' => $dateStr,
+                        'reason' => $e->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        return ['created' => $created, 'skipped' => $skipped];
+    }
+
     /** Salin jadwal satu bulan ke bulan tujuan (berdasarkan tanggal 1..N). Tanggal yang sudah terisi atau bentrok dilewati. */
     public function copyMonth(string $fromMonthStart, string $toMonthStart, array $employeeIds, User $actor): array
     {

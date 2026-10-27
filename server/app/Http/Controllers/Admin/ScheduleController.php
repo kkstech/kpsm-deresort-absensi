@@ -204,6 +204,47 @@ class ScheduleController extends Controller
         ));
     }
 
+    public function bulk(Request $request): JsonResponse
+    {
+        Gate::authorize('admin');
+        $data = $request->validate([
+            'employee_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'employee_ids.*' => ['required', 'integer', 'exists:employees,id'],
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'days_of_week' => ['nullable', 'array'],
+            'days_of_week.*' => ['integer', 'between:0,6'],
+            'shift_template_id' => ['required', 'integer', 'exists:shift_templates,id'],
+            'overwrite' => ['sometimes', 'boolean'],
+        ]);
+
+        if (CarbonImmutable::parse($data['from'])->diffInDays(CarbonImmutable::parse($data['to'])) > 62) {
+            throw new BusinessRuleException('VALIDATION_ERROR', 'Rentang penugasan massal maksimal 62 hari.', 422);
+        }
+
+        $allowedIds = EmployeeController::visibleTo($request->user())->pluck('id')->all();
+        $targetIds = array_values(array_intersect($data['employee_ids'], $allowedIds));
+
+        if (empty($targetIds)) {
+            throw new BusinessRuleException('VALIDATION_ERROR', 'Tidak ada karyawan yang dapat diakses.', 422);
+        }
+
+        $template = ShiftTemplate::query()->with('sessions')->findOrFail($data['shift_template_id']);
+        $daysOfWeek = ! empty($data['days_of_week']) ? array_map('intval', $data['days_of_week']) : [0, 1, 2, 3, 4, 5, 6];
+
+        $result = $this->schedules->bulkAssign(
+            $targetIds,
+            $data['from'],
+            $data['to'],
+            $daysOfWeek,
+            $template,
+            (bool) ($data['overwrite'] ?? false),
+            $request->user(),
+        );
+
+        return response()->json($result);
+    }
+
     private function targetIds(Request $request, array $data): array
     {
         return EmployeeController::visibleTo($request->user())
