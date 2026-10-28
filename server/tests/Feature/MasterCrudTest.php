@@ -418,6 +418,33 @@ class MasterCrudTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_manage_employee_levels_via_both_endpoints(): void
+    {
+        $res1 = $this->asAdmin()->postJson('/admin/api/employee-levels', [
+            'code' => 'STF', 'name' => 'Staff Regular',
+        ]);
+        $res1->assertCreated();
+        $this->assertSame('STF', $res1->json('data.code'));
+        $this->assertSame('Staff Regular', $res1->json('data.name'));
+
+        $res2 = $this->asAdmin()->postJson('/admin/api/levels', [
+            'code' => 'SPV', 'name' => 'Supervisor Level',
+        ]);
+        $res2->assertCreated();
+        $this->assertSame('SPV', $res2->json('data.code'));
+
+        $this->asAdmin()->getJson('/admin/api/employee-levels')->assertOk()->assertJsonCount(2, 'data');
+        $this->asAdmin()->getJson('/admin/api/levels')->assertOk()->assertJsonCount(2, 'data');
+
+        $levelId = $res1->json('data.id');
+        $this->asAdmin()->putJson("/admin/api/employee-levels/{$levelId}", [
+            'code' => 'STF', 'name' => 'Staff Senior',
+        ])->assertOk()->assertJsonPath('data.name', 'Staff Senior');
+
+        $this->asAdmin()->deleteJson("/admin/api/levels/{$levelId}")->assertOk();
+        $this->asAdmin()->getJson('/admin/api/levels')->assertOk()->assertJsonCount(1, 'data');
+    }
+
     private function asAdmin(): static
     {
         return $this->actingAs(User::factory()->role('admin')->create());

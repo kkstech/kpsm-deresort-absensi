@@ -80,6 +80,7 @@ const tabs = {
         deletable: true,
     },
     levels: {
+        endpoint: 'employee-levels',
         title: 'Level karyawan', hint: 'Level terpisah dari jabatan dan menjadi dasar tarif tunjangan.', singular: 'level',
         columns: [{ label: 'Nama level', cell: (x) => `<b>${esc(x.name)}</b><small>${esc(x.code)}</small>` }, { label: 'Karyawan', cell: (x) => esc(x.employees_count ?? 0) }],
         fields: async () => [
@@ -327,6 +328,8 @@ async function openItem(item) {
 async function run(fn, message) {
     try {
         await fn();
+        const path = tabs[active]?.endpoint ?? active;
+        invalidate(path);
         invalidate(active);
         toast(message);
         load();
@@ -460,7 +463,8 @@ table.addEventListener('click', async (event) => {
         }, 'Tautan karyawan berhasil diputuskan.');
     }
     if (button.dataset.action === 'delete' && await confirmDialog({ title: `Hapus ${tabs[active].singular}?`, message: 'Data yang sudah dihapus tidak dapat dipulihkan.', confirmLabel: 'Hapus', danger: true })) {
-        run(() => api(`${active}/${item.id}`, { method: 'DELETE' }), 'Data dihapus.');
+        const path = tabs[active]?.endpoint ?? active;
+        run(() => api(`${path}/${item.id}`, { method: 'DELETE' }), 'Data dihapus.');
     }
 });
 

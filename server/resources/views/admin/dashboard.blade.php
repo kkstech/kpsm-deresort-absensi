@@ -308,13 +308,114 @@
                     </div>
                 </section>
                 <section class="view" data-view-panel="allowances" data-requires="admin">
-                    <div class="page-heading"><div><h1>Rekap tunjangan</h1><span>Satu tunjangan makan dan transport per siklus dengan kehadiran tervalidasi.</span></div></div>
-                    <form id="allowance-filters" class="attendance-filters">
-                        <label>Dari<input type="date" name="from" required></label><label>Sampai<input type="date" name="to" required></label><button type="submit" class="secondary-button">Tampilkan</button>
-                    </form>
+                    <div class="page-heading">
+                        <div>
+                            <h1>Rekap Tunjangan</h1>
+                            <span>Satu tunjangan makan dan transport per siklus dengan kehadiran tervalidasi dan kebijakan tarif aktif.</span>
+                        </div>
+                        <div class="heading-actions">
+                            <a href="#settings/allowances" class="secondary-button" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-sliders"/></svg>
+                                <span>Tarif &amp; Kebijakan</span>
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="allowance-filter-card panel" style="padding: 16px 20px; margin-bottom: 20px;">
+                        <form id="allowance-filters" class="allowance-filter-form">
+                            <div class="allowance-presets-bar">
+                                <span class="allowance-preset-label">Periode Cepat:</span>
+                                <div class="allowance-preset-chips">
+                                    <button type="button" class="preset-chip" data-preset="today">Hari Ini</button>
+                                    <button type="button" class="preset-chip" data-preset="week">7 Hari Terakhir</button>
+                                    <button type="button" class="preset-chip active" data-preset="month">Bulan Ini</button>
+                                    <button type="button" class="preset-chip" data-preset="last-month">Bulan Lalu</button>
+                                </div>
+                            </div>
+                            <div class="allowance-inputs-grid">
+                                <label>
+                                    <span>Dari Tanggal</span>
+                                    <input type="date" name="from" id="allowance-from" required>
+                                </label>
+                                <label>
+                                    <span>Sampai Tanggal</span>
+                                    <input type="date" name="to" id="allowance-to" required>
+                                </label>
+                                <label>
+                                    <span>Departemen</span>
+                                    <select id="allowance-dept-filter">
+                                        <option value="">Semua Departemen</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Status Tunjangan</span>
+                                    <select id="allowance-status-filter">
+                                        <option value="">Semua Status</option>
+                                        <option value="ELIGIBLE">Memenuhi Syarat</option>
+                                        <option value="PENDING_VERIFICATION">Menunggu Verifikasi</option>
+                                        <option value="CONFIGURATION_REQUIRED">Butuh Konfigurasi</option>
+                                        <option value="NO_VERIFIED_ATTENDANCE">Tidak Ada Menit Valid</option>
+                                    </select>
+                                </label>
+                                <label style="flex: 1 1 200px;">
+                                    <span>Cari Karyawan</span>
+                                    <input type="search" id="allowance-search" placeholder="Ketik nama atau NIK…">
+                                </label>
+                                <div class="allowance-action-btn">
+                                    <button type="submit" class="primary-button" style="height: 42px; min-height: 42px; padding: 0 20px;">
+                                        Tampilkan
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
                     <p class="form-error" id="allowance-error" role="alert" hidden></p>
-                    <div class="metric-grid attendance-metrics"><article class="metric-card"><span>Siklus memenuhi syarat</span><strong id="allowance-eligible">—</strong></article><article class="metric-card"><span>Menunggu verifikasi</span><strong id="allowance-pending">—</strong></article><article class="metric-card"><span>Butuh konfigurasi level/tarif</span><strong id="allowance-unconfigured">—</strong></article><article class="metric-card"><span>Total makan + transport</span><strong id="allowance-total">—</strong></article></div>
-                    <div class="panel"><div class="panel-heading"><div><h2>Per siklus kerja</h2><p id="allowance-count"></p></div></div><div id="allowance-table" aria-live="polite"></div></div>
+
+                    <div class="metric-grid allowance-metric-grid" style="margin-bottom: 24px;">
+                        <article class="metric-card metric-eligible">
+                            <div class="metric-header">
+                                <span class="metric-title">Memenuhi Syarat</span>
+                                <span class="metric-badge success">Eligible</span>
+                            </div>
+                            <strong id="allowance-eligible">—</strong>
+                            <small class="metric-sub">Siklus berhak menerima tunjangan</small>
+                        </article>
+                        <article class="metric-card metric-pending">
+                            <div class="metric-header">
+                                <span class="metric-title">Menunggu Verifikasi</span>
+                                <span class="metric-badge warning">Pending</span>
+                            </div>
+                            <strong id="allowance-pending">—</strong>
+                            <small class="metric-sub">Perlu verifikasi kehadiran/izin</small>
+                        </article>
+                        <article class="metric-card metric-unconfigured">
+                            <div class="metric-header">
+                                <span class="metric-title">Butuh Konfigurasi</span>
+                                <span class="metric-badge danger">Perlu Aksi</span>
+                            </div>
+                            <strong id="allowance-unconfigured">—</strong>
+                            <small class="metric-sub" id="allowance-unconfigured-hint">Level atau tarif belum diset</small>
+                        </article>
+                        <article class="metric-card metric-total">
+                            <div class="metric-header">
+                                <span class="metric-title">Total Tunjangan</span>
+                                <span class="metric-badge blue">Periode Ini</span>
+                            </div>
+                            <strong id="allowance-total" class="metric-highlight">—</strong>
+                            <small class="metric-sub" id="allowance-subtotal">Makan: — | Transport: —</small>
+                        </article>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--line);">
+                            <div>
+                                <h2 style="font-size: 16px; margin: 0 0 4px;">Rincian Tunjangan Per Siklus Kerja</h2>
+                                <p id="allowance-count" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat data…</p>
+                            </div>
+                        </div>
+                        <div id="allowance-table" aria-live="polite"></div>
+                    </div>
                 </section>
                 <section class="view" data-view-panel="settings">
                     <div class="page-heading"><div><h1>Pengaturan</h1><span>Data dasar yang dipakai jadwal dan absensi.</span></div></div>

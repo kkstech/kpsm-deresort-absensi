@@ -828,6 +828,147 @@ main:focus { outline: none; }
 .table-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 20px 16px; color: var(--muted); font-size: 12px; }
 .table-pagination:empty { display: none; }
 .table-pagination .secondary-button { min-height: 40px; padding: 0 14px; }
+
+/* Rekap Tunjangan View Styling */
+.allowance-filter-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #ffffff;
+}
+.allowance-presets-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--line);
+}
+.allowance-preset-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.allowance-preset-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.preset-chip {
+    padding: 5px 14px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: #ffffff;
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.preset-chip:hover {
+    border-color: #aab8ae;
+    background: var(--surface-soft);
+}
+.preset-chip.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(12, 59, 46, 0.2);
+}
+.allowance-inputs-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+.allowance-inputs-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex: 1 1 140px;
+    color: var(--muted);
+    font-size: 11.5px;
+    font-weight: 700;
+}
+.allowance-inputs-grid input,
+.allowance-inputs-grid select {
+    width: 100%;
+    min-height: 42px;
+    height: 42px;
+    padding: 0 12px;
+    border: 1px solid #b9c4bc;
+    border-radius: 8px;
+    color: var(--ink);
+    background: #ffffff;
+    font-size: 13.5px;
+    box-sizing: border-box;
+}
+.allowance-inputs-grid input:focus,
+.allowance-inputs-grid select:focus {
+    border-color: var(--primary);
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+}
+.allowance-action-btn {
+    flex: 0 0 auto;
+}
+.allowance-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+@media (max-width: 1080px) {
+    .allowance-metric-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+    .allowance-metric-grid { grid-template-columns: 1fr; }
+}
+.metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.metric-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--muted);
+}
+.metric-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.metric-badge.success { background: #e6f4ea; color: #137333; }
+.metric-badge.warning { background: #fef7e0; color: #b06000; }
+.metric-badge.danger { background: #fce8e6; color: #c5221f; }
+.metric-badge.blue { background: #e8f0fe; color: #1a73e8; }
+.metric-card strong.metric-highlight {
+    color: var(--primary);
+    font-size: 24px;
+}
+.metric-sub {
+    display: block;
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+}
+.allowance-table-footer {
+    background: #f8faf8;
+    font-weight: 700;
+    border-top: 2px solid var(--line);
+}
+.allowance-table-footer td {
+    padding: 12px 14px;
+    font-size: 13.5px;
+}
 .table-pagination button:disabled { cursor: not-allowed; opacity: .5; }
 /* ---------- Halaman Persetujuan (Workflow) ---------- */
 .workflow-view.active { display: flex; flex-direction: column; gap: 20px; }

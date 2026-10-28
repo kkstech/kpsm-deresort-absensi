@@ -83,6 +83,11 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::put('employee-levels/{level}', [EmployeeLevelController::class, 'update']);
         Route::delete('employee-levels/{level}', [EmployeeLevelController::class, 'destroy']);
 
+        Route::get('levels', [EmployeeLevelController::class, 'index']);
+        Route::post('levels', [EmployeeLevelController::class, 'store']);
+        Route::put('levels/{level}', [EmployeeLevelController::class, 'update']);
+        Route::delete('levels/{level}', [EmployeeLevelController::class, 'destroy']);
+
         Route::get('allowance-policies', [AllowanceController::class, 'policies']);
         Route::post('allowance-policies/preview', [AllowanceController::class, 'previewPolicy']);
         Route::post('allowance-policies', [AllowanceController::class, 'storePolicy']);

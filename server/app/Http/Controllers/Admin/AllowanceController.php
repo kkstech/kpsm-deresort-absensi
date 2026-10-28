@@ -116,7 +116,7 @@ class AllowanceController extends Controller
         if (CarbonImmutable::parse($range['from'])->diffInDays(CarbonImmutable::parse($range['to'])) > 62) {
             throw ValidationException::withMessages(['to' => 'Rentang paling panjang 62 hari.']);
         }
-        $rows = AllowanceResult::query()->with('employee:id,code,name,department_id', 'employee.department:id,name', 'assignment:id,work_date,template_name,status')
+        $rows = AllowanceResult::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,work_date,template_name,status')
             ->whereBetween('work_date', [$range['from'], $range['to']])->orderBy('work_date')->orderBy('employee_id')->get();
 
         return response()->json(['data' => $rows, 'summary' => [
