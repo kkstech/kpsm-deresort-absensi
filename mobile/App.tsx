@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import * as Network from 'expo-network';
 import * as SplashScreen from 'expo-splash-screen';
@@ -76,11 +77,18 @@ type Proof = { uri: string; name: string; mimeType?: string };
 type ActionIntent = { assignment: Assignment; session: Session; eventType: 'CHECK_IN' | 'CHECK_OUT' };
 type RequestKind = 'leave' | 'late' | 'correction' | 'swap' | 'overtime';
 
-const colors = { ink: '#142019', muted: '#657168', line: '#DDE4DE', canvas: '#F2F5F1', surface: '#FFFFFF', primary: '#173D2B', accent: '#D9F25F', successSoft: '#E6F1E9', warning: '#A65718', warningSoft: '#FFF1DC', blueSoft: '#E8F1FB', dangerSoft: '#FEECEC', danger: '#A51F18' };
+const colors = { ink: '#142019', muted: '#374151', line: '#DDE4DE', canvas: '#F2F5F1', surface: '#FFFFFF', primary: '#173D2B', accent: '#D9F25F', successSoft: '#E6F1E9', warning: '#A65718', warningSoft: '#FFF1DC', blueSoft: '#E8F1FB', dangerSoft: '#FEECEC', danger: '#A51F18' };
 const Text = ({ style, ...props }: TextProps) => {
-  const weight = String(StyleSheet.flatten(style)?.fontWeight ?? '400');
-  const androidWeight = weight === 'bold' ? '700' : weight === '900' ? '800' : ['500', '600', '700', '800'].includes(weight) ? weight : '400';
-  return <NativeText {...props} style={[{ fontFamily: Platform.OS === 'android' ? `plus-jakarta-${androidWeight}` : 'Plus Jakarta Sans' }, style]} />;
+  const flat = StyleSheet.flatten(style);
+  const weight = String(flat?.fontWeight ?? '500');
+  const family = (weight === '800' || weight === '900')
+    ? 'PlusJakartaSans-ExtraBold'
+    : (weight === '700' || weight === 'bold')
+    ? 'PlusJakartaSans-Bold'
+    : weight === '600'
+    ? 'PlusJakartaSans-SemiBold'
+    : 'PlusJakartaSans-Medium';
+  return <NativeText {...props} style={[{ fontFamily: family }, style]} />;
 };
 const localDate = (value?: string | Date | null) => {
   if (!value) return '—';
@@ -109,7 +117,7 @@ const dateRange = () => {
 function humanizeReason(code?: string | null): string {
   switch (code) {
     case 'OUTSIDE_WINDOW':
-      return 'Waktu absensi di luar jendela sesi (belum dibuka atau sesi telah berakhir). Periksa jadwal shift Anda atau ajukan koreksi ke HR.';
+      return 'Waktu absensi di luar jendela sesi (belum dibuka atau sesi telah berakhir). Periksa jadwal shift Anda atau hubungi HRD.';
     case 'ALREADY_CHECKED_IN':
       return 'Anda sudah melakukan check-in pada sesi ini.';
     case 'ALREADY_CHECKED_OUT':
@@ -191,6 +199,364 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
         )}
       </View>
     </View>
+  );
+}
+
+function PickerTrigger({ label, value, placeholder, icon, onPress }: { label: string; value?: string; placeholder: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable onPress={onPress} style={styles.pickerTrigger}>
+        <Text style={[styles.pickerTriggerValue, !value && styles.pickerTriggerPlaceholder]}>
+          {value || placeholder}
+        </Text>
+        <Ionicons name={icon} size={20} color={colors.primary} />
+      </Pressable>
+    </View>
+  );
+}
+
+type CalendarModalProps = {
+  visible: boolean;
+  title: string;
+  selectedDate: string;
+  onSelect: (dateStr: string) => void;
+  onClose: () => void;
+  minDate?: string;
+};
+
+function CalendarModal({ visible, title, selectedDate, onSelect, onClose, minDate }: CalendarModalProps) {
+  const initial = selectedDate ? new Date(`${selectedDate.slice(0, 10)}T12:00:00+07:00`) : new Date();
+  const [viewYear, setViewYear] = useState(initial.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+  const [tempSelected, setTempSelected] = useState(selectedDate || todayKey());
+
+  useEffect(() => {
+    if (visible) {
+      const d = selectedDate ? new Date(`${selectedDate.slice(0, 10)}T12:00:00+07:00`) : new Date();
+      setViewYear(d.getFullYear());
+      setViewMonth(d.getMonth());
+      setTempSelected(selectedDate || todayKey());
+    }
+  }, [visible, selectedDate]);
+
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const weekDays = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+
+  const prevMonth = () => {
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear((y) => y - 1);
+    } else {
+      setViewMonth((m) => m - 1);
+    }
+  };
+
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear((y) => y + 1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const today = todayKey();
+
+  const cells: Array<{ day: number | null; dateStr: string }> = [];
+  for (let i = 0; i < firstDay; i++) {
+    cells.push({ day: null, dateStr: '' });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const mm = String(viewMonth + 1).padStart(2, '0');
+    const dd = String(d).padStart(2, '0');
+    cells.push({ day: d, dateStr: `${viewYear}-${mm}-${dd}` });
+  }
+
+  const handleDayPress = (dateStr: string) => {
+    if (minDate && dateStr < minDate) return;
+    setTempSelected(dateStr);
+  };
+
+  const handleConfirm = () => {
+    onSelect(tempSelected);
+    onClose();
+  };
+
+  const setQuick = (dateStr: string) => {
+    setTempSelected(dateStr);
+    const d = new Date(`${dateStr}T12:00:00+07:00`);
+    setViewYear(d.getFullYear());
+    setViewMonth(d.getMonth());
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, { paddingVertical: 18, paddingHorizontal: 16 }]}>
+          <View style={styles.modalHeaderRow}>
+            <View>
+              <Text style={styles.modalEyebrow}>PILIH TANGGAL</Text>
+              <Text style={styles.modalTitle}>{title}</Text>
+            </View>
+            <Pressable onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          <View style={styles.calendarNavRow}>
+            <Pressable onPress={prevMonth} style={styles.calendarNavBtn}>
+              <Ionicons name="chevron-back" size={20} color={colors.ink} />
+            </Pressable>
+            <Text style={styles.calendarNavMonthText}>
+              {monthNames[viewMonth]} {viewYear}
+            </Text>
+            <Pressable onPress={nextMonth} style={styles.calendarNavBtn}>
+              <Ionicons name="chevron-forward" size={20} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          <View style={styles.calendarWeekRow}>
+            {weekDays.map((wd) => (
+              <Text key={wd} style={styles.calendarWeekText}>{wd}</Text>
+            ))}
+          </View>
+
+          <View style={styles.calendarDaysGrid}>
+            {cells.map((cell, idx) => {
+              if (cell.day === null) {
+                return <View key={`empty-${idx}`} style={styles.calendarDayCell} />;
+              }
+              const isSelected = cell.dateStr === tempSelected;
+              const isToday = cell.dateStr === today;
+              const isDisabled = Boolean(minDate && cell.dateStr < minDate);
+
+              return (
+                <Pressable
+                  key={cell.dateStr}
+                  disabled={isDisabled}
+                  onPress={() => handleDayPress(cell.dateStr)}
+                  style={[
+                    styles.calendarDayCell,
+                    isSelected && styles.calendarDayCellSelected,
+                    isToday && !isSelected && styles.calendarDayCellToday,
+                    isDisabled && styles.calendarDayCellDisabled,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.calendarDayText,
+                      isSelected && styles.calendarDayTextSelected,
+                      isToday && !isSelected && styles.calendarDayTextToday,
+                      isDisabled && styles.calendarDayTextDisabled,
+                    ]}
+                  >
+                    {cell.day}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.calendarPresetsRow}>
+            <Pressable onPress={() => setQuick(today)} style={styles.calendarPresetChip}>
+              <Text style={styles.calendarPresetText}>Hari Ini</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const tm = new Date();
+                tm.setDate(tm.getDate() + 1);
+                setQuick(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(tm));
+              }}
+              style={styles.calendarPresetChip}
+            >
+              <Text style={styles.calendarPresetText}>Besok</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const nx = new Date();
+                nx.setDate(nx.getDate() + 7);
+                setQuick(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(nx));
+              }}
+              style={styles.calendarPresetChip}
+            >
+              <Text style={styles.calendarPresetText}>+7 Hari</Text>
+            </Pressable>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line }}>
+            <View>
+              <Text style={{ fontSize: 11, color: colors.muted, fontWeight: '700' }}>Terpilih:</Text>
+              <Text style={{ fontSize: 14, color: colors.primary, fontWeight: '800' }}>{localDate(tempSelected)}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable onPress={onClose} style={styles.calendarCancelBtn}>
+                <Text style={styles.calendarCancelText}>Batal</Text>
+              </Pressable>
+              <Pressable onPress={handleConfirm} style={styles.calendarConfirmBtn}>
+                <Text style={styles.calendarConfirmText}>Pilih</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+type TimePickerModalProps = {
+  visible: boolean;
+  title: string;
+  selectedTime: string;
+  onSelect: (timeStr: string) => void;
+  onClose: () => void;
+};
+
+function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: TimePickerModalProps) {
+  const [hour, setHour] = useState('17');
+  const [minute, setMinute] = useState('00');
+  const [activeTab, setActiveTab] = useState<'hour' | 'minute'>('hour');
+
+  useEffect(() => {
+    if (visible) {
+      const parts = (selectedTime || '12:00').split(':');
+      setHour(parts[0] ? parts[0].padStart(2, '0') : '12');
+      setMinute(parts[1] ? parts[1].padStart(2, '0') : '00');
+      setActiveTab('hour');
+    }
+  }, [visible, selectedTime]);
+
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+  const commonPresets = ['07:00', '08:00', '10:30', '15:00', '17:00', '18:30', '20:00', '22:00'];
+
+  const handleHourPick = (h: string) => {
+    setHour(h);
+    setActiveTab('minute');
+  };
+
+  const handleMinutePick = (m: string) => {
+    setMinute(m);
+  };
+
+  const handleConfirm = () => {
+    onSelect(`${hour}:${minute}`);
+    onClose();
+  };
+
+  const applyPreset = (preset: string) => {
+    const parts = preset.split(':');
+    setHour(parts[0] ?? '12');
+    setMinute(parts[1] ?? '00');
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={[styles.modalCard, { paddingVertical: 18, paddingHorizontal: 16 }]}>
+          <View style={styles.modalHeaderRow}>
+            <View>
+              <Text style={styles.modalEyebrow}>PILIH WAKTU</Text>
+              <Text style={styles.modalTitle}>{title}</Text>
+            </View>
+            <Pressable onPress={onClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color={colors.ink} />
+            </Pressable>
+          </View>
+
+          <View style={styles.clockDisplayRow}>
+            <Pressable
+              onPress={() => setActiveTab('hour')}
+              style={[styles.clockDisplayBox, activeTab === 'hour' && styles.clockDisplayBoxActive]}
+            >
+              <Text style={[styles.clockDisplayText, activeTab === 'hour' && styles.clockDisplayTextActive]}>
+                {hour}
+              </Text>
+              <Text style={[styles.clockDisplaySub, activeTab === 'hour' && styles.clockDisplaySubActive]}>
+                JAM
+              </Text>
+            </Pressable>
+            <Text style={styles.clockDisplayDivider}>:</Text>
+            <Pressable
+              onPress={() => setActiveTab('minute')}
+              style={[styles.clockDisplayBox, activeTab === 'minute' && styles.clockDisplayBoxActive]}
+            >
+              <Text style={[styles.clockDisplayText, activeTab === 'minute' && styles.clockDisplayTextActive]}>
+                {minute}
+              </Text>
+              <Text style={[styles.clockDisplaySub, activeTab === 'minute' && styles.clockDisplaySubActive]}>
+                MENIT
+              </Text>
+            </Pressable>
+          </View>
+
+          <View style={{ marginTop: 12 }}>
+            <Text style={styles.fieldLabel}>
+              {activeTab === 'hour' ? 'Pilih Jam (00 - 23):' : 'Pilih Menit (kelipatan 5):'}
+            </Text>
+
+            {activeTab === 'hour' ? (
+              <View style={styles.clockGrid}>
+                {hours.map((h) => {
+                  const isSelected = h === hour;
+                  return (
+                    <Pressable
+                      key={h}
+                      onPress={() => handleHourPick(h)}
+                      style={[styles.clockCell, isSelected && styles.clockCellActive]}
+                    >
+                      <Text style={[styles.clockCellText, isSelected && styles.clockCellTextActive]}>
+                        {h}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.clockGridMinute}>
+                {minutes.map((m) => {
+                  const isSelected = m === minute;
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => handleMinutePick(m)}
+                      style={[styles.clockCellMinute, isSelected && styles.clockCellActive]}
+                    >
+                      <Text style={[styles.clockCellText, isSelected && styles.clockCellTextActive]}>
+                        {m}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pilihan Cepat:</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginTop: 4 }}>
+            {commonPresets.map((p) => (
+              <Pressable key={p} onPress={() => applyPreset(p)} style={styles.calendarPresetChip}>
+                <Text style={styles.calendarPresetText}>{p}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line }}>
+            <Pressable onPress={onClose} style={styles.cancelButton}>
+              <Text style={styles.cancelButtonText}>Batal</Text>
+            </Pressable>
+            <Pressable onPress={handleConfirm} style={styles.confirmButton}>
+              <Text style={styles.confirmButtonText}>Terapkan ({hour}:{minute})</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -315,6 +681,19 @@ function Main() {
   const [editProfileError, setEditProfileError] = useState('');
   const [avatarUploading, setAvatarUploading] = useState(false);
 
+  // Interactive Calendar & Time Picker states
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [calendarTarget, setCalendarTarget] = useState<'leaveStart' | 'leaveEnd' | 'overtimeDate' | null>(null);
+  const [calendarMinDate, setCalendarMinDate] = useState<string | undefined>(undefined);
+  const [clockVisible, setClockVisible] = useState(false);
+  const [clockTarget, setClockTarget] = useState<'otStart' | 'otEnd' | 'lateTarget' | null>(null);
+
+  // Shift exchange wizard step state
+  const [swapStep, setSwapStep] = useState<1 | 2 | 3>(1);
+
+  // Permission / Izin category
+  const [permissionCategory, setPermissionCategory] = useState<string>('Terlambat Hadir');
+
   const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
 
@@ -325,12 +704,66 @@ function Main() {
   const pendingOutbox = outbox.filter((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
 
   const myUpcomingAssignments = useMemo(() => {
+    const today = todayKey();
     return assignments.filter((item) => {
       if (['CANCELLED'].includes(item.status)) return false;
-      const first = item.sessions[0];
-      return first && new Date(first.start_at) > new Date();
+      return item.work_date >= today;
     }).sort((a, b) => a.work_date.localeCompare(b.work_date));
   }, [assignments]);
+
+  function openCalendar(target: 'leaveStart' | 'leaveEnd' | 'overtimeDate', min?: string) {
+    setCalendarTarget(target);
+    setCalendarMinDate(min);
+    setCalendarVisible(true);
+  }
+
+  function handleCalendarSelect(dateStr: string) {
+    if (calendarTarget === 'leaveStart') {
+      setWorkDate(dateStr);
+      if (endDate && endDate < dateStr) setEndDate('');
+    } else if (calendarTarget === 'leaveEnd') {
+      setEndDate(dateStr);
+    } else if (calendarTarget === 'overtimeDate') {
+      setOtWorkDate(dateStr);
+    }
+  }
+
+  function openClock(target: 'otStart' | 'otEnd' | 'lateTarget') {
+    setClockTarget(target);
+    setClockVisible(true);
+  }
+
+  function handleClockSelect(timeStr: string) {
+    if (clockTarget === 'otStart') {
+      setOtStartTime(timeStr);
+    } else if (clockTarget === 'otEnd') {
+      setOtEndTime(timeStr);
+    } else if (clockTarget === 'lateTarget') {
+      const chosenSession = (requestKind === 'late' ? unfinishedSessions : openSessions).find((i) => i.session.id === sessionId);
+      const sessionDate = chosenSession?.assignment.work_date ?? todayKey();
+      const isoStr = `${sessionDate}T${timeStr}:00+07:00`;
+      setAllowedUntil(isoStr);
+      if (chosenSession?.session.start_at) {
+        const startMillis = new Date(chosenSession.session.start_at).getTime();
+        const targetMillis = new Date(isoStr).getTime();
+        if (targetMillis > startMillis) {
+          const diffMins = Math.round((targetMillis - startMillis) / 60000);
+          setMinutes(String(diffMins));
+        }
+      }
+    }
+  }
+
+  function applyDurationChip(mins: number) {
+    setMinutes(String(mins));
+    const chosenSession = (requestKind === 'late' ? unfinishedSessions : openSessions).find((i) => i.session.id === sessionId);
+    if (chosenSession?.session.start_at) {
+      const targetDate = new Date(new Date(chosenSession.session.start_at).getTime() + mins * 60000);
+      const isoDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(targetDate);
+      const isoTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }).format(targetDate);
+      setAllowedUntil(`${isoDate}T${isoTime}:00+07:00`);
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -406,7 +839,8 @@ function Main() {
         } else {
           const cached = await readCache<unknown>(task.key);
           if (cached) applyCached(task.key, cached);
-          if (!error && result.reason instanceof Error && !(result.reason instanceof ApiError && result.reason.status === 403)) {
+          const isPermittedError = result.reason instanceof ApiError && (result.reason.status === 403 || result.reason.status === 404);
+          if (!error && result.reason instanceof Error && !isPermittedError) {
             setError(result.reason.message);
           }
         }
@@ -534,7 +968,7 @@ function Main() {
             if (!(failure instanceof ApiError) || failure.status !== 404) throw failure;
             const sent = row.first_sent_at ? new Date(row.first_sent_at).getTime() : Date.now();
             if (Date.now() - sent >= 120_000) {
-              await updateOutbox(row.event_uuid, 'needs_correction', 'Server belum menerima event setelah 120 detik. Ajukan koreksi; event tidak dikirim ulang.');
+              await updateOutbox(row.event_uuid, 'needs_correction', 'Server belum menerima event setelah 120 detik. Hubungi HRD/Admin untuk penyesuaian absensi.');
             }
             break;
           }
@@ -654,6 +1088,7 @@ function Main() {
       setSwapTargetAssId(null);
       setTargetEmpSchedules([]);
       setReason('');
+      setSwapStep(1);
       Alert.alert('Pengajuan terkirim', 'Pengajuan tukar shift berhasil dikirim dan menunggu persetujuan HRD.');
       await loadData();
     } catch (failure) {
@@ -696,7 +1131,8 @@ function Main() {
         if (requestKind === 'late') {
           if (!allowedUntil && !minutes) throw new Error('Isi jam target hadir atau durasi izin.');
           await request(baseUrl, 'late-permissions', token, { method: 'POST', body: formData({ shift_session_id: String(sessionId), allowed_until: allowedUntil, allowed_minutes: minutes, reason: reason.trim() }, proof) });
-        } else {
+        } else if (requestKind === 'correction') {
+          if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
           if (!requestedIn && !requestedOut) throw new Error('Isi minimal waktu check-in atau check-out yang diminta.');
           await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
         }
@@ -992,6 +1428,10 @@ function Main() {
 
   async function submitOutboxCorrection(row: OutboxRow) {
     if (!token) return;
+    if (!isAdminOrSupervisor) {
+      Alert.alert('Akses Dibatasi', 'Penyesuaian absensi hanya dapat dilakukan oleh Admin / HRD.');
+      return;
+    }
     const payload = JSON.parse(row.payload) as { shift_session_id: number; event_type: 'CHECK_IN' | 'CHECK_OUT'; device_at?: string };
     const eventTime = payload.device_at ?? row.created_at;
     try {
@@ -1202,9 +1642,9 @@ function Main() {
           ) : (
             <View style={styles.sessionDisabledWrap}>
               <Text style={styles.sessionDisabledText}>{timingNotice}</Text>
-              {now >= closesAt && !hasCheckedIn && (
+              {now >= closesAt && !hasCheckedIn && isAdminOrSupervisor && (
                 <Pressable onPress={() => { setRequestKind('correction'); setSessionId(session.id); setTab('Pengajuan'); }} style={styles.smallButton}>
-                  <Text style={styles.smallButtonText}>Ajukan koreksi</Text>
+                  <Text style={styles.smallButtonText}>Koreksi (Admin)</Text>
                 </Pressable>
               )}
             </View>
@@ -1213,10 +1653,10 @@ function Main() {
         {session.overtime && (
           <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>
+              <Text style={{ fontSize: 13.5, fontWeight: '700', color: '#166534' }}>
                 + Perintah Lembur: {session.overtime.local_start}–{session.overtime.local_end} ({session.overtime.planned_minutes} mnt)
               </Text>
-              <Text style={{ fontSize: 11, color: '#15803d' }}>
+              <Text style={{ fontSize: 12.5, color: '#15803d', marginTop: 2 }}>
                 {session.overtime.title}
               </Text>
             </View>
@@ -1236,16 +1676,16 @@ function Main() {
   };
 
   function outboxCard(row: OutboxRow) {
-    const title = row.status === 'pending' ? 'Menunggu sinkronisasi' : row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'needs_correction' ? 'Perlu koreksi HR' : row.status === 'rejected' ? 'Ditolak server' : 'Koreksi diajukan';
+    const title = row.status === 'pending' ? 'Menunggu sinkronisasi' : row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'needs_correction' ? (isAdminOrSupervisor ? 'Perlu koreksi HR' : 'Perlu pengecekan HR') : row.status === 'rejected' ? 'Ditolak server' : 'Koreksi diajukan';
     return (
       <View style={styles.listCard} key={row.event_uuid}>
         <View style={styles.flex}>
           <Text style={styles.cardTitle}>{title}</Text>
           <Text style={styles.cardCopy}>{row.message ?? localDate(row.created_at)}</Text>
         </View>
-        {row.status === 'needs_correction' && (
+        {row.status === 'needs_correction' && isAdminOrSupervisor && (
           <Pressable style={styles.smallButton} onPress={() => submitOutboxCorrection(row)}>
-            <Text style={styles.smallButtonText}>Ajukan koreksi</Text>
+            <Text style={styles.smallButtonText}>Koreksi (Admin)</Text>
           </Pressable>
         )}
       </View>
@@ -1510,98 +1950,231 @@ function Main() {
   }
 
   function renderSwapForm() {
+    const selectedSource = myUpcomingAssignments.find((a) => a.id === swapSourceAssId);
+    const selectedColleague = colleagues.find((c) => c.id === swapTargetEmpId);
+    const selectedTargetSchedule = targetEmpSchedules.find((s) => s.id === swapTargetAssId);
+
     return (
       <View style={styles.formCard}>
-        <Text style={styles.cardTitle}>Pengajuan Tukar Shift</Text>
-        <Text style={styles.cardCopy}>Pilih jadwal Anda dan rekan pengganti untuk ditukar.</Text>
-
-        {/* Source Assignment Selector */}
-        <Text style={styles.fieldLabel}>1. Pilih Jadwal Anda yang Ingin Ditukar</Text>
-        {myUpcomingAssignments.length === 0 ? (
-          <Text style={styles.fieldHint}>Anda belum memiliki jadwal aktif mendatang untuk ditukar.</Text>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-            {myUpcomingAssignments.map((ass) => {
-              const selected = swapSourceAssId === ass.id;
-              return (
-                <Pressable key={ass.id} onPress={() => setSwapSourceAssId(ass.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                  <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{localDate(ass.work_date)}</Text>
-                  <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{ass.template_name}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-
-        {/* Target Colleague Selector */}
-        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>2. Pilih Rekan Kerja Pengganti</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-          {colleagues.map((col) => {
-            const selected = swapTargetEmpId === col.id;
-            return (
-              <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{col.name}</Text>
-                <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(col.department, col.code)}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {/* Swap Mode Toggle */}
-        <Text style={[styles.fieldLabel, { marginTop: 14 }]}>3. Pilihan Jenis Pertukaran</Text>
-        <View style={styles.segmentRow}>
-          <Pressable onPress={() => setSwapMode('direct')} style={[styles.segment, swapMode === 'direct' && styles.segmentActive]}>
-            <Text style={[styles.segmentText, swapMode === 'direct' && styles.segmentTextActive]}>Tukar Langsung</Text>
-          </Pressable>
-          <Pressable onPress={() => setSwapMode('delegation')} style={[styles.segment, swapMode === 'delegation' && styles.segmentActive]}>
-            <Text style={[styles.segmentText, swapMode === 'delegation' && styles.segmentTextActive]}>Pelimpahan Shift</Text>
-          </Pressable>
+        {/* Wizard Stepper Header */}
+        <View style={styles.wizardHeader}>
+          <View style={styles.wizardStepsRow}>
+            <Pressable onPress={() => setSwapStep(1)} style={[styles.wizardStepDot, swapStep >= 1 && styles.wizardStepDotActive]}>
+              <Text style={[styles.wizardStepNum, swapStep >= 1 && styles.wizardStepNumActive]}>1</Text>
+            </Pressable>
+            <View style={[styles.wizardStepLine, swapStep >= 2 && styles.wizardStepLineActive]} />
+            <Pressable onPress={() => { if (swapSourceAssId) setSwapStep(2); }} style={[styles.wizardStepDot, swapStep >= 2 && styles.wizardStepDotActive]}>
+              <Text style={[styles.wizardStepNum, swapStep >= 2 && styles.wizardStepNumActive]}>2</Text>
+            </Pressable>
+            <View style={[styles.wizardStepLine, swapStep >= 3 && styles.wizardStepLineActive]} />
+            <Pressable onPress={() => { if (swapSourceAssId && swapTargetEmpId && (swapMode === 'delegation' || swapTargetAssId)) setSwapStep(3); }} style={[styles.wizardStepDot, swapStep >= 3 && styles.wizardStepDotActive]}>
+              <Text style={[styles.wizardStepNum, swapStep >= 3 && styles.wizardStepNumActive]}>3</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.wizardStepTitle}>
+            {swapStep === 1 ? 'Langkah 1: Jadwal Saya & Mode' : swapStep === 2 ? 'Langkah 2: Rekan & Jadwal Pengganti' : 'Langkah 3: Alasan & Konfirmasi'}
+          </Text>
         </View>
 
-        {/* If direct: pick target colleague's schedule */}
-        {swapMode === 'direct' ? (
-          <>
-            <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Pilih Jadwal Rekan untuk Ditukar Balik</Text>
-            {loadingTargetSchedules ? (
-              <Text style={styles.fieldHint}>Memuat jadwal rekan…</Text>
-            ) : !swapTargetEmpId ? (
-              <Text style={styles.fieldHint}>Pilih rekan kerja terlebih dahulu.</Text>
-            ) : targetEmpSchedules.length === 0 ? (
-              <Text style={styles.fieldHint}>Rekan ini belum memiliki jadwal aktif lain di periode mendatang. Anda dapat memilih Pelimpahan Shift.</Text>
+        {/* STEP 1 */}
+        {swapStep === 1 && (
+          <View>
+            <Text style={styles.fieldLabel}>Pilih Jadwal Anda yang Ingin Ditukar:</Text>
+            {myUpcomingAssignments.length === 0 ? (
+              <View style={styles.emptyNoticeBox}>
+                <Ionicons name="calendar-outline" size={24} color={colors.muted} />
+                <Text style={styles.emptyNoticeText}>Anda belum memiliki jadwal aktif mendatang untuk ditukar.</Text>
+              </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-                {targetEmpSchedules.map((item) => {
-                  const selected = swapTargetAssId === item.id;
+                {myUpcomingAssignments.map((ass) => {
+                  const selected = swapSourceAssId === ass.id;
                   return (
-                    <Pressable key={item.id} onPress={() => setSwapTargetAssId(item.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                      <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{localDate(item.work_date)}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{item.template_name}</Text>
+                    <Pressable key={ass.id} onPress={() => setSwapSourceAssId(ass.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                        <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{localDate(ass.work_date)}</Text>
+                        {selected && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
+                      </View>
+                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{ass.template_name}</Text>
+                      {ass.sessions[0] && (
+                        <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive, { fontSize: 11, marginTop: 2 }]}>
+                          {shortClock(ass.sessions[0].local_start)}–{shortClock(ass.sessions[0].local_end)}
+                        </Text>
+                      )}
                     </Pressable>
                   );
                 })}
               </ScrollView>
             )}
-          </>
-        ) : (
-          <>
-            <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Status Anda Saat Melepas Shift (Tanpa Tukar Balik)</Text>
+
+            <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Pilihan Jenis Pertukaran:</Text>
             <View style={styles.segmentRow}>
-              {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
-                <Pressable key={opt} onPress={() => setSwapVacancyAction(opt)} style={[styles.segment, swapVacancyAction === opt && styles.segmentActive]}>
-                  <Text style={[styles.segmentText, swapVacancyAction === opt && styles.segmentTextActive]}>
-                    {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Day Off'}
-                  </Text>
-                </Pressable>
-              ))}
+              <Pressable onPress={() => setSwapMode('direct')} style={[styles.segment, swapMode === 'direct' && styles.segmentActive]}>
+                <Text style={[styles.segmentText, swapMode === 'direct' && styles.segmentTextActive]}>Tukar Langsung</Text>
+              </Pressable>
+              <Pressable onPress={() => setSwapMode('delegation')} style={[styles.segment, swapMode === 'delegation' && styles.segmentActive]}>
+                <Text style={[styles.segmentText, swapMode === 'delegation' && styles.segmentTextActive]}>Pelimpahan Shift</Text>
+              </Pressable>
             </View>
-          </>
+            <Text style={styles.fieldHint}>
+              {swapMode === 'direct' ? 'Tukar langsung: Saling bertukar jadwal shift dengan rekan.' : 'Pelimpahan: Menyerahkan shift kepada rekan tanpa mengambil shift pengganti.'}
+            </Text>
+
+            <View style={styles.wizardNavRow}>
+              <Pressable
+                disabled={!swapSourceAssId}
+                onPress={() => setSwapStep(2)}
+                style={[styles.wizardNextBtn, !swapSourceAssId && styles.disabled]}
+              >
+                <Text style={styles.wizardNextText}>Lanjut: Pilih Rekan Kerja →</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
 
-        <TextField label="Alasan Pertukaran Shift" value={reason} onChangeText={setReason} placeholder="Jelaskan keperluan pertukaran shift" multiline />
+        {/* STEP 2 */}
+        {swapStep === 2 && (
+          <View>
+            <Text style={styles.fieldLabel}>Pilih Rekan Pengganti:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
+              {colleagues.map((col) => {
+                const selected = swapTargetEmpId === col.id;
+                return (
+                  <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{col.name}</Text>
+                      {selected && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
+                    </View>
+                    <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(col.department, col.code)}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
-        <Pressable disabled={busy} onPress={submitRequest} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}>
-          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan Tukar Shift'}</Text>
-        </Pressable>
+            {swapMode === 'direct' ? (
+              <View style={{ marginTop: 14 }}>
+                <Text style={styles.fieldLabel}>Pilih Jadwal Rekan untuk Ditukar Balik:</Text>
+                {loadingTargetSchedules ? (
+                  <Text style={styles.fieldHint}>Memuat jadwal rekan…</Text>
+                ) : !swapTargetEmpId ? (
+                  <Text style={styles.fieldHint}>Pilih rekan kerja di atas terlebih dahulu.</Text>
+                ) : targetEmpSchedules.length === 0 ? (
+                  <View style={styles.emptyNoticeBox}>
+                    <Text style={styles.emptyNoticeText}>Rekan ini belum memiliki jadwal aktif lain di periode mendatang. Anda dapat memilih mode Pelimpahan Shift di Langkah 1.</Text>
+                  </View>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
+                    {targetEmpSchedules.map((item) => {
+                      const selected = swapTargetAssId === item.id;
+                      return (
+                        <Pressable key={item.id} onPress={() => setSwapTargetAssId(item.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                            <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{localDate(item.work_date)}</Text>
+                            {selected && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
+                          </View>
+                          <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{item.template_name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </View>
+            ) : (
+              <View style={{ marginTop: 14 }}>
+                <Text style={styles.fieldLabel}>Status Anda Saat Melepas Shift:</Text>
+                <View style={styles.segmentRow}>
+                  {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
+                    <Pressable key={opt} onPress={() => setSwapVacancyAction(opt)} style={[styles.segment, swapVacancyAction === opt && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, swapVacancyAction === opt && styles.segmentTextActive]}>
+                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Day Off'}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <View style={styles.wizardNavRow}>
+              <Pressable onPress={() => setSwapStep(1)} style={styles.wizardPrevBtn}>
+                <Text style={styles.wizardPrevText}>← Kembali</Text>
+              </Pressable>
+              <Pressable
+                disabled={!swapTargetEmpId || (swapMode === 'direct' && !swapTargetAssId)}
+                onPress={() => setSwapStep(3)}
+                style={[styles.wizardNextBtn, (!swapTargetEmpId || (swapMode === 'direct' && !swapTargetAssId)) && styles.disabled]}
+              >
+                <Text style={styles.wizardNextText}>Lanjut: Konfirmasi →</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* STEP 3 */}
+        {swapStep === 3 && (
+          <View>
+            <View style={styles.wizardSummaryCard}>
+              <Text style={{ fontSize: 13.5, fontWeight: '800', color: colors.primary, marginBottom: 4 }}>
+                Ringkasan Pertukaran Shift
+              </Text>
+              <View style={styles.wizardSummaryRow}>
+                <Text style={styles.wizardSummaryLabel}>Jadwal Anda:</Text>
+                <Text style={styles.wizardSummaryVal}>
+                  {selectedSource ? `${localDate(selectedSource.work_date)} (${selectedSource.template_name})` : '—'}
+                </Text>
+              </View>
+              <View style={styles.wizardSummaryRow}>
+                <Text style={styles.wizardSummaryLabel}>Tipe:</Text>
+                <Text style={styles.wizardSummaryVal}>
+                  {swapMode === 'direct' ? 'Tukar Langsung' : 'Pelimpahan Shift'}
+                </Text>
+              </View>
+              <View style={styles.wizardSummaryRow}>
+                <Text style={styles.wizardSummaryLabel}>Rekan Pengganti:</Text>
+                <Text style={styles.wizardSummaryVal}>
+                  {selectedColleague?.name ?? '—'}
+                </Text>
+              </View>
+              <View style={styles.wizardSummaryRow}>
+                <Text style={styles.wizardSummaryLabel}>Jadwal Pengganti:</Text>
+                <Text style={styles.wizardSummaryVal}>
+                  {swapMode === 'direct'
+                    ? (selectedTargetSchedule ? `${localDate(selectedTargetSchedule.work_date)} (${selectedTargetSchedule.template_name})` : '—')
+                    : `Pelepasan (${swapVacancyAction === 'roster_off' ? 'Roster Off' : swapVacancyAction === 'regular' ? 'Cuti' : 'Day Off'})`}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.fieldLabel}>Pilihan Alasan Cepat:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+              {['Keperluan Keluarga Mendadak', 'Kesepakatan Saling Tukar Shift', 'Kondisi Kesehatan', 'Urusan Administrasi / Pribadi'].map((r) => (
+                <Pressable key={r} onPress={() => setReason(r)} style={[styles.quickChip, reason === r && styles.quickChipActive]}>
+                  <Text style={[styles.quickChipText, reason === r && styles.quickChipTextActive]}>{r}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <TextField
+              label="Alasan Lengkap Pertukaran"
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Jelaskan alasan keperluan pertukaran shift"
+              multiline
+            />
+
+            <View style={styles.wizardNavRow}>
+              <Pressable onPress={() => setSwapStep(2)} style={styles.wizardPrevBtn}>
+                <Text style={styles.wizardPrevText}>← Kembali</Text>
+              </Pressable>
+              <Pressable
+                disabled={busy}
+                onPress={submitRequest}
+                style={[styles.wizardNextBtn, busy && styles.disabled]}
+              >
+                <Text style={styles.wizardNextText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
       </View>
     );
   }
@@ -1630,28 +2203,31 @@ function Main() {
         <Text style={styles.cardTitle}>Pengajuan Lembur Mandiri</Text>
         <Text style={styles.cardCopy}>Ajukan permohonan lembur untuk pekerjaan tambahan di luar jadwal reguler.</Text>
 
-        <TextField
+        <PickerTrigger
           label="Tanggal Kerja Lembur"
-          value={otWorkDate || todayKey()}
-          onChangeText={setOtWorkDate}
-          placeholder="YYYY-MM-DD"
+          value={otWorkDate ? localDate(otWorkDate) : localDate(todayKey())}
+          placeholder="Pilih tanggal lembur"
+          icon="calendar"
+          onPress={() => openCalendar('overtimeDate')}
         />
 
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
-            <TextField
+            <PickerTrigger
               label="Jam Mulai"
               value={otStartTime}
-              onChangeText={setOtStartTime}
-              placeholder="17:00"
+              placeholder="00:00"
+              icon="time"
+              onPress={() => openClock('otStart')}
             />
           </View>
           <View style={{ flex: 1 }}>
-            <TextField
+            <PickerTrigger
               label="Jam Selesai"
               value={otEndTime}
-              onChangeText={setOtEndTime}
-              placeholder="20:00"
+              placeholder="00:00"
+              icon="time"
+              onPress={() => openClock('otEnd')}
             />
           </View>
         </View>
@@ -1670,6 +2246,19 @@ function Main() {
             Estimasi durasi: {calcMinutes} menit ({Math.floor(calcMinutes / 60)} jam {calcMinutes % 60} menit)
           </Text>
         )}
+
+        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pilihan Tugas Lembur Cepat:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+          {['Event / Banquet', 'Pembersihan Area', 'Backup Shift', 'Overstay Tamu', 'Maintenance Mendesak'].map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setOtTitle(t)}
+              style={[styles.quickChip, otTitle === t && styles.quickChipActive]}
+            >
+              <Text style={[styles.quickChipText, otTitle === t && styles.quickChipTextActive]}>{t}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
 
         <TextField
           label="Judul / Uraian Tugas Lembur"
@@ -1704,8 +2293,16 @@ function Main() {
     if (requestKind === 'overtime') {
       return renderOvertimeForm();
     }
+    if (requestKind === 'correction' && !isAdminOrSupervisor) {
+      return (
+        <View style={styles.formCard}>
+          <Text style={styles.cardTitle}>Koreksi Absensi</Text>
+          <Text style={styles.cardCopy}>Akses pengajuan koreksi absensi hanya dimiliki oleh Admin / HRD. Silakan hubungi bagian HRD untuk melakukan penyesuaian absensi Anda.</Text>
+        </View>
+      );
+    }
 
-    const sessions = requestKind === 'late' ? unfinishedSessions : openSessions;
+    const sessions = unfinishedSessions.length > 0 ? unfinishedSessions : openSessions;
     const chosen = sessions.find((item) => item.session.id === sessionId)?.session;
     const evidenceRequired = requestKind === 'late' ? chosen?.attendance_policy?.late_permission_proof_required : chosen?.attendance_policy?.correction_proof_required;
 
@@ -1713,19 +2310,36 @@ function Main() {
       <View style={styles.formCard}>
         {requestKind === 'leave' ? (
           <>
-            <Text style={styles.cardTitle}>Pengajuan cuti</Text>
-            <TextField label="Tanggal mulai cuti" value={workDate} onChangeText={setWorkDate} placeholder="YYYY-MM-DD" />
-            <TextField
-              label="Tanggal akhir cuti (opsional, jika > 1 hari)"
-              value={endDate}
-              onChangeText={setEndDate}
-              placeholder="YYYY-MM-DD (kosongkan jika hanya 1 hari)"
-            />
+            <Text style={styles.cardTitle}>Pengajuan Cuti</Text>
+            <Text style={styles.cardCopy}>Pilih tanggal cuti menggunakan kalender interaktif di bawah ini.</Text>
+
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <View style={{ flex: 1 }}>
+                <PickerTrigger
+                  label="Tanggal Mulai"
+                  value={workDate ? localDate(workDate) : ''}
+                  placeholder="Pilih tanggal"
+                  icon="calendar"
+                  onPress={() => openCalendar('leaveStart', todayKey())}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <PickerTrigger
+                  label="Tanggal Akhir (Opsional)"
+                  value={endDate ? localDate(endDate) : ''}
+                  placeholder="Pilih tanggal"
+                  icon="calendar"
+                  onPress={() => openCalendar('leaveEnd', workDate || todayKey())}
+                />
+              </View>
+            </View>
+
             {!!workDate && !!endDate && endDate >= workDate && (
               <Text style={styles.leaveDurationText}>
-                Durasi cuti: {Math.max(1, Math.round((new Date(`${endDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${workDate.slice(0, 10)}T00:00:00`).getTime()) / 86400000) + 1)} hari kerja
+                🗓️ Durasi cuti: {Math.max(1, Math.round((new Date(`${endDate.slice(0, 10)}T00:00:00`).getTime() - new Date(`${workDate.slice(0, 10)}T00:00:00`).getTime()) / 86400000) + 1)} hari kerja
               </Text>
             )}
+
             <View style={styles.segmentRow}>
               <Pressable onPress={() => setLeaveType('regular')} style={[styles.segment, leaveType === 'regular' && styles.segmentActive]}>
                 <Text style={[styles.segmentText, leaveType === 'regular' && styles.segmentTextActive]}>Cuti reguler</Text>
@@ -1734,37 +2348,108 @@ function Main() {
                 <Text style={[styles.segmentText, leaveType === 'day_off' && styles.segmentTextActive]}>Day off</Text>
               </Pressable>
             </View>
+
+            <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pilihan Alasan Cuti Cepat:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+              {['Cuti Tahunan', 'Acara Keluarga', 'Istirahat / Liburan', 'Keperluan Pribadi'].map((opt) => (
+                <Pressable
+                  key={opt}
+                  onPress={() => setReason(opt)}
+                  style={[styles.quickChip, reason === opt && styles.quickChipActive]}
+                >
+                  <Text style={[styles.quickChipText, reason === opt && styles.quickChipTextActive]}>{opt}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
           </>
         ) : (
           <>
-            <Text style={styles.cardTitle}>{requestKind === 'late' ? 'Izin terlambat' : 'Koreksi absensi'}</Text>
-            <Text style={styles.fieldLabel}>Pilih sesi</Text>
-            {sessions.slice(0, 20).map(({ assignment, session }) => (
-              <Pressable key={session.id} onPress={() => setSessionId(session.id)} style={[styles.choiceCard, sessionId === session.id && styles.choiceCardActive]}>
-                <Text style={styles.cardTitle}>{localDate(assignment.work_date)} · {assignment.template_name} · sesi {session.seq}</Text>
-                <Text style={styles.cardCopy}>{shortClock(session.local_start)}–{shortClock(session.local_end)}{session.attendance_policy?.location_required ? ' · GPS diwajibkan' : ''}</Text>
-              </Pressable>
-            ))}
-            {requestKind === 'late' ? (
+            <Text style={styles.cardTitle}>Pengajuan Izin</Text>
+            <Text style={styles.cardCopy}>Ajukan izin keterlambatan, pulang awal, atau keperluan mendadak pada shift kerja Anda.</Text>
+
+            <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pilih Sesi Jadwal:</Text>
+            {sessions.slice(0, 20).map(({ assignment, session }) => {
+              const isSelected = sessionId === session.id;
+              return (
+                <Pressable key={session.id} onPress={() => setSessionId(session.id)} style={[styles.choiceCard, isSelected && styles.choiceCardActive]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.cardTitle}>{localDate(assignment.work_date)} · {assignment.template_name}</Text>
+                    {isSelected && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
+                  </View>
+                  <Text style={styles.cardCopy}>Sesi {session.seq} ({shortClock(session.local_start)}–{shortClock(session.local_end)}){session.attendance_policy?.location_required ? ' · GPS diwajibkan' : ''}</Text>
+                </Pressable>
+              );
+            })}
+
+            {requestKind === 'late' && (
               <>
-                <TextField label="Target hadir (ISO, opsional)" value={allowedUntil} onChangeText={setAllowedUntil} placeholder="2026-10-25T08:30:00+07:00" autoCapitalize="none" />
-                <TextField label="Atau durasi izin (menit)" value={minutes} onChangeText={setMinutes} placeholder="30" keyboardType="numeric" />
-              </>
-            ) : (
-              <>
-                <TextField label="Waktu check-in yang diminta (ISO)" value={requestedIn} onChangeText={setRequestedIn} placeholder="2026-10-25T08:05:00+07:00" autoCapitalize="none" />
-                <TextField label="Waktu check-out yang diminta (ISO)" value={requestedOut} onChangeText={setRequestedOut} placeholder="2026-10-25T17:00:00+07:00" autoCapitalize="none" />
+                <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Kategori / Keperluan Izin:</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+                  {[
+                    { label: '🚗 Terlambat Hadir', prefix: '[Terlambat Hadir] ' },
+                    { label: '🏃 Pulang Awal', prefix: '[Pulang Awal] ' },
+                    { label: '👨‍👩‍👧 Keperluan Keluarga', prefix: '[Urusan Keluarga] ' },
+                    { label: '🏥 Sakit / Medis', prefix: '[Kondisi Sakit] ' },
+                    { label: '💼 Tugas Dinas Luar', prefix: '[Tugas Dinas] ' },
+                  ].map((cat) => {
+                    const isSelected = permissionCategory === cat.label;
+                    return (
+                      <Pressable
+                        key={cat.label}
+                        onPress={() => {
+                          setPermissionCategory(cat.label);
+                          if (!reason.includes(cat.prefix)) {
+                            setReason(cat.prefix + (reason ? reason.replace(/^\[.*?\]\s*/, '') : ''));
+                          }
+                        }}
+                        style={[styles.quickChip, isSelected && styles.quickChipActive]}
+                      >
+                        <Text style={[styles.quickChipText, isSelected && styles.quickChipTextActive]}>
+                          {cat.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                <PickerTrigger
+                  label="Target Jam Hadir (Pilih Jam)"
+                  value={allowedUntil ? clock(allowedUntil) : ''}
+                  placeholder="Pilih jam target hadir"
+                  icon="time"
+                  onPress={() => openClock('lateTarget')}
+                />
+
+                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Atau Pilih Durasi Izin Cepat (Menit):</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+                  {[15, 30, 45, 60, 90, 120].map((mins) => {
+                    const active = minutes === String(mins);
+                    return (
+                      <Pressable
+                        key={mins}
+                        onPress={() => applyDurationChip(mins)}
+                        style={[styles.quickChip, active && styles.quickChipActive]}
+                      >
+                        <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>
+                          {mins} Menit
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               </>
             )}
+
             <Pressable onPress={chooseProof} style={styles.attachButton}>
               <Text style={styles.attachText}>{proof ? `Bukti: ${proof.name}` : 'Lampirkan JPG, PNG, atau PDF'}</Text>
             </Pressable>
             {evidenceRequired && <Text style={styles.requiredHint}>Bukti wajib sesuai aturan absensi sesi ini.</Text>}
           </>
         )}
-        <TextField label="Alasan" value={reason} onChangeText={setReason} placeholder="Jelaskan keperluan atau perubahan" multiline />
+
+        <TextField label="Alasan / Penjelasan" value={reason} onChangeText={setReason} placeholder="Jelaskan keperluan pengajuan" multiline />
         <Pressable disabled={busy} onPress={submitRequest} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}>
-          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim pengajuan'}</Text>
+          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
         </Pressable>
       </View>
     );
@@ -1944,15 +2629,26 @@ function Main() {
               </View>
             )}
 
-            <View style={styles.segmentRow}>
-              {(['leave', 'late', 'correction', 'swap', 'overtime'] as const).map((item) => (
-                <Pressable key={item} onPress={() => { setRequestKind(item); setSessionId(null); setProof(null); }} style={[styles.segment, requestKind === item && styles.segmentActive]}>
-                  <Text style={[styles.segmentText, requestKind === item && styles.segmentTextActive]}>
-                    {item === 'leave' ? 'Cuti' : item === 'late' ? 'Izin' : item === 'correction' ? 'Koreksi' : item === 'swap' ? 'Tukar Shift' : 'Lembur'}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            {(() => {
+              const availableRequestKinds: Array<{ key: RequestKind; label: string }> = [
+                { key: 'leave', label: 'Cuti' },
+                { key: 'late', label: 'Izin' },
+                ...(isAdminOrSupervisor ? [{ key: 'correction' as RequestKind, label: 'Koreksi' }] : []),
+                { key: 'swap', label: 'Tukar Shift' },
+                { key: 'overtime', label: 'Lembur' },
+              ];
+              return (
+                <View style={styles.segmentRow}>
+                  {availableRequestKinds.map((item) => (
+                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, requestKind === item.key && styles.segmentTextActive]}>
+                        {item.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              );
+            })()}
 
             {renderRequestForm()}
 
@@ -1960,7 +2656,7 @@ function Main() {
             {[
               ...leaveRequests.map((item) => ({ ...item, group: 'Cuti', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...lateRequests.map((item) => ({ ...item, group: 'Izin terlambat', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
-              ...corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...(isAdminOrSupervisor ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
               ...shiftExchanges.map((item) => ({
                 id: item.id,
                 work_date: item.assignment?.work_date ?? item.created_at.slice(0, 10),
@@ -2047,7 +2743,7 @@ function Main() {
               </View>
             ))}
 
-            {!leaveRequests.length && !lateRequests.length && !corrections.length && !shiftExchanges.length && !overtimes.length && (
+            {!leaveRequests.length && !lateRequests.length && (!isAdminOrSupervisor || !corrections.length) && !shiftExchanges.length && !overtimes.length && (
               <Text style={styles.cardCopy}>Belum ada pengajuan tersimpan.</Text>
             )}
           </>
@@ -2161,7 +2857,7 @@ function Main() {
   if (!token) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
+        <StatusBar barStyle="dark-content" />
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -2196,7 +2892,7 @@ function Main() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.canvas} />
+      <StatusBar barStyle="dark-content" />
       <View style={styles.app}>
         <Animated.View style={[styles.flex, { opacity: tabFade, transform: [{ translateY: tabSlide }] }]}>
           {tab === 'Hari ini' ? renderToday() : tab === 'Jadwal' ? renderSchedule() : tab === 'Pengajuan' ? renderRequests() : renderProfile()}
@@ -2471,7 +3167,7 @@ function Main() {
               <TextField label="Email Pribadi" value={editEmail} onChangeText={setEditEmail} placeholder="contoh: nama@gmail.com" keyboardType="email-address" autoCapitalize="none" />
 
               <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line }}>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.ink, marginBottom: 4 }}>Ganti Kata Sandi (Opsional)</Text>
+                <Text style={{ fontSize: 15, fontWeight: '800', color: colors.ink, marginBottom: 4 }}>Ganti Kata Sandi (Opsional)</Text>
                 <Text style={styles.fieldHint}>Kosongkan jika tidak ingin mengubah kata sandi login.</Text>
 
                 <TextField label="Kata Sandi Saat Ini" value={editCurrentPassword} onChangeText={setEditCurrentPassword} placeholder="Masukkan kata sandi lama" secureTextEntry autoCapitalize="none" />
@@ -2493,11 +3189,76 @@ function Main() {
           </View>
         </View>
       </Modal>
+
+      <CalendarModal
+        visible={calendarVisible}
+        title={
+          calendarTarget === 'leaveStart'
+            ? 'Tanggal Mulai Cuti'
+            : calendarTarget === 'leaveEnd'
+            ? 'Tanggal Akhir Cuti'
+            : 'Tanggal Kerja Lembur'
+        }
+        selectedDate={
+          calendarTarget === 'leaveStart'
+            ? workDate
+            : calendarTarget === 'leaveEnd'
+            ? endDate
+            : otWorkDate
+        }
+        minDate={calendarMinDate}
+        onSelect={handleCalendarSelect}
+        onClose={() => setCalendarVisible(false)}
+      />
+
+      <TimePickerModal
+        visible={clockVisible}
+        title={
+          clockTarget === 'otStart'
+            ? 'Jam Mulai Lembur'
+            : clockTarget === 'otEnd'
+            ? 'Jam Selesai Lembur'
+            : 'Target Jam Hadir'
+        }
+        selectedTime={
+          clockTarget === 'otStart'
+            ? otStartTime
+            : clockTarget === 'otEnd'
+            ? otEndTime
+            : (allowedUntil ? allowedUntil.slice(11, 16) : '10:30')
+        }
+        onSelect={handleClockSelect}
+        onClose={() => setClockVisible(false)}
+      />
     </SafeAreaView>
   );
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    'PlusJakartaSans-Regular': require('./assets/fonts/plus-jakarta-400.ttf'),
+    'PlusJakartaSans-Medium': require('./assets/fonts/plus-jakarta-500.ttf'),
+    'PlusJakartaSans-SemiBold': require('./assets/fonts/plus-jakarta-600.ttf'),
+    'PlusJakartaSans-Bold': require('./assets/fonts/plus-jakarta-700.ttf'),
+    'PlusJakartaSans-ExtraBold': require('./assets/fonts/plus-jakarta-800.ttf'),
+    'plus-jakarta-400': require('./assets/fonts/plus-jakarta-400.ttf'),
+    'plus-jakarta-500': require('./assets/fonts/plus-jakarta-500.ttf'),
+    'plus-jakarta-600': require('./assets/fonts/plus-jakarta-600.ttf'),
+    'plus-jakarta-700': require('./assets/fonts/plus-jakarta-700.ttf'),
+    'plus-jakarta-800': require('./assets/fonts/plus-jakarta-800.ttf'),
+    'Plus Jakarta Sans': require('./assets/fonts/plus-jakarta-500.ttf'),
+  });
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
     <SafeAreaProvider>
       <Main />
@@ -2512,203 +3273,279 @@ const styles = StyleSheet.create({
   scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 118 },
   loginContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 140 },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  overline: { color: colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },
-  heading: { color: colors.ink, fontSize: 32, fontWeight: '700', letterSpacing: -0.8 },
-  loginHeading: { color: colors.ink, fontSize: 34, fontWeight: '700', letterSpacing: -1, marginBottom: 6 },
-  intro: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 20 },
-  avatar: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D2EEE8' },
-  avatarText: { color: '#175449', fontSize: 15, fontWeight: '800' },
+  overline: { color: colors.muted, fontSize: 13, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },
+  heading: { color: colors.ink, fontSize: 32, fontWeight: '800', letterSpacing: -0.8 },
+  loginHeading: { color: colors.ink, fontSize: 34, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
+  intro: { color: colors.muted, fontSize: 14.5, lineHeight: 22, marginBottom: 20 },
+  avatar: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D2EEE8' },
+  avatarText: { color: '#175449', fontSize: 16, fontWeight: '800' },
   iconButton: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  loginMark: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 22, backgroundColor: colors.primary },
-  loginMarkText: { color: '#fff', fontSize: 23, fontWeight: '800' },
-  networkBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13, marginBottom: 14, borderRadius: 12, backgroundColor: colors.successSoft },
+  loginMark: { width: 52, height: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 22, backgroundColor: colors.primary },
+  loginMarkText: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  networkBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginBottom: 14, borderRadius: 12, backgroundColor: colors.successSoft },
   networkBannerOffline: { backgroundColor: colors.warningSoft },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#3D955D' },
   dotOffline: { backgroundColor: '#B46931' },
-  networkTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-  networkCopy: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  queueCount: { color: colors.warning, fontSize: 11, fontWeight: '800' },
-  heroCard: { padding: 19, borderRadius: 18, backgroundColor: colors.primary },
+  networkTitle: { color: colors.ink, fontSize: 14.5, fontWeight: '700' },
+  networkCopy: { color: colors.muted, fontSize: 13, marginTop: 2 },
+  queueCount: { color: colors.warning, fontSize: 13, fontWeight: '800' },
+  heroCard: { padding: 20, borderRadius: 18, backgroundColor: colors.primary },
   heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  heroLabel: { color: '#B7CBBE', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  heroTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginTop: 20 },
-  heroTime: { color: colors.accent, fontSize: 24, fontWeight: '700', marginTop: 5 },
-  heroMeta: { color: '#B7CBBE', fontSize: 12, marginTop: 8 },
-  attendanceButton: { minHeight: 58, justifyContent: 'center', alignItems: 'center', marginTop: 20, borderRadius: 12, backgroundColor: colors.accent },
-  attendanceButtonText: { color: colors.primary, fontSize: 15, fontWeight: '800' },
-  attendanceHint: { color: '#40531C', fontSize: 11, marginTop: 3 },
+  heroLabel: { color: '#D2E2D6', fontSize: 12.5, fontWeight: '800', letterSpacing: 1 },
+  heroTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '800', marginTop: 18 },
+  heroTime: { color: colors.accent, fontSize: 28, fontWeight: '800', marginTop: 6 },
+  heroMeta: { color: '#E2EBE5', fontSize: 13.5, marginTop: 8 },
+  attendanceButton: { minHeight: 60, justifyContent: 'center', alignItems: 'center', marginTop: 20, borderRadius: 14, backgroundColor: colors.accent },
+  attendanceButtonText: { color: colors.primary, fontSize: 16, fontWeight: '800' },
+  attendanceHint: { color: '#3A4D1A', fontSize: 12.5, marginTop: 4, fontWeight: '600' },
   pressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
   disabled: { opacity: .55 },
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 23, marginBottom: 10 },
-  sectionTitle: { color: colors.ink, fontSize: 17, fontWeight: '800', marginTop: 12, marginBottom: 6 },
-  sectionMeta: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  sessionCard: { padding: 14, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface },
-  sessionDisabledWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 11, marginTop: 10, borderRadius: 9, backgroundColor: '#F0F3F1' },
-  sessionDisabledText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  sectionTitle: { color: colors.ink, fontSize: 19, fontWeight: '800', marginTop: 14, marginBottom: 6 },
+  sectionMeta: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  sessionCard: { padding: 16, marginTop: 10, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface },
+  sessionDisabledWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginTop: 10, borderRadius: 10, backgroundColor: '#F0F3F1' },
+  sessionDisabledText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   sessionTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sessionTitle: { color: colors.ink, fontSize: 13, fontWeight: '800' },
-  mutedCopy: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
-  verified: { color: '#27643C', fontSize: 11, fontWeight: '700', marginTop: 10 },
-  pill: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6, backgroundColor: colors.successSoft },
+  sessionTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  mutedCopy: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  verified: { color: '#1B5E20', fontSize: 13, fontWeight: '700', marginTop: 10 },
+  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.successSoft },
   pillWarning: { backgroundColor: colors.warningSoft },
   pillNeutral: { backgroundColor: '#EDF0ED' },
   pillBlue: { backgroundColor: colors.blueSoft },
   pillDanger: { backgroundColor: colors.dangerSoft },
-  pillText: { color: '#22653C', fontSize: 10, fontWeight: '800' },
+  pillText: { color: '#1B5E20', fontSize: 12, fontWeight: '800' },
   pillWarningText: { color: colors.warning },
   pillNeutralText: { color: colors.muted },
   pillBlueText: { color: '#2F5D8C' },
   pillDangerText: { color: colors.danger },
-  actionButton: { minHeight: 46, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderRadius: 10, backgroundColor: colors.accent },
-  actionButtonText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
-  actionHint: { color: '#40531C', fontSize: 10, marginTop: 2 },
-  balanceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, marginTop: 14, borderRadius: 14, backgroundColor: '#E9F0E8' },
-  balanceStrip: { padding: 14, marginTop: 14, borderRadius: 12, backgroundColor: colors.successSoft },
+  actionButton: { minHeight: 50, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderRadius: 12, backgroundColor: colors.accent },
+  actionButtonText: { color: colors.primary, fontSize: 14.5, fontWeight: '800' },
+  actionHint: { color: '#3A4D1A', fontSize: 12, marginTop: 2, fontWeight: '600' },
+  balanceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, marginTop: 14, borderRadius: 14, backgroundColor: '#E9F0E8' },
+  balanceStrip: { padding: 16, marginTop: 14, borderRadius: 12, backgroundColor: colors.successSoft },
   balanceDivider: { width: 1, alignSelf: 'stretch', backgroundColor: '#CBD8CC' },
-  cardEyebrow: { color: colors.muted, fontSize: 10, fontWeight: '800', letterSpacing: .8, marginTop: 8 },
-  balanceValue: { color: colors.primary, fontSize: 23, fontWeight: '800', marginTop: 4 },
-  balanceUnit: { fontSize: 12 },
-  cardTitle: { color: colors.ink, fontSize: 13, fontWeight: '800' },
-  cardCopy: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  cardEyebrow: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: .8, marginTop: 8 },
+  balanceValue: { color: colors.primary, fontSize: 26, fontWeight: '800', marginTop: 4 },
+  balanceUnit: { fontSize: 14, fontWeight: '700' },
+  cardTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  cardCopy: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
   notice: { padding: 16, marginTop: 14, borderRadius: 14, backgroundColor: colors.blueSoft },
-  noticeTitle: { color: '#2F5D8C', fontSize: 11, fontWeight: '800' },
-  noticeValue: { color: colors.ink, fontSize: 25, fontWeight: '800', marginTop: 4 },
-  emptyCard: { padding: 16, marginTop: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  assignmentCard: { padding: 13, marginTop: 13, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
+  noticeTitle: { color: '#1E4976', fontSize: 13, fontWeight: '800' },
+  noticeValue: { color: colors.ink, fontSize: 26, fontWeight: '800', marginTop: 4 },
+  emptyCard: { padding: 18, marginTop: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  assignmentCard: { padding: 15, marginTop: 13, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
   assignmentHeading: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 2, paddingBottom: 4 },
-  dateText: { color: colors.muted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
-  employeeTag: { color: colors.primary, fontSize: 11, fontWeight: '800', marginTop: 2 },
+  dateText: { color: colors.muted, fontSize: 13, fontWeight: '700', marginBottom: 4 },
+  employeeTag: { color: colors.primary, fontSize: 13, fontWeight: '800', marginTop: 2 },
   scheduleActionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, marginBottom: 8 },
-  swapQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.successSoft },
-  swapQuickText: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  listCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 13, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
-  formCard: { padding: 16, marginTop: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
-  field: { gap: 6, marginTop: 12 },
-  fieldLabel: { color: colors.muted, fontSize: 11, fontWeight: '800' },
-  fieldHint: { color: colors.muted, fontSize: 11, fontStyle: 'italic', marginTop: 4 },
+  swapQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.successSoft },
+  swapQuickText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
+  listCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
+  formCard: { padding: 18, marginTop: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
+  field: { gap: 6, marginTop: 14 },
+  fieldLabel: { color: colors.ink, fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  fieldHint: { color: colors.muted, fontSize: 12.5, fontStyle: 'italic', marginTop: 4 },
   inputWrapper: { position: 'relative', justifyContent: 'center' },
-  input: { minHeight: 48, paddingHorizontal: 12, borderWidth: 1, borderColor: '#C8D1CA', borderRadius: 9, color: colors.ink, fontSize: 13, backgroundColor: '#fff' },
+  input: { minHeight: 52, paddingHorizontal: 14, borderWidth: 1.5, borderColor: '#C4CDC6', borderRadius: 10, color: colors.ink, fontSize: 15, fontWeight: '500', backgroundColor: '#fff' },
   inputWithIcon: { paddingRight: 48 },
   inputEyeIcon: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 48, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
-  multiline: { minHeight: 84, paddingTop: 10, textAlignVertical: 'top' },
+  multiline: { minHeight: 90, paddingTop: 12, textAlignVertical: 'top' },
   segmentRow: { flexDirection: 'row', gap: 7, marginTop: 12 },
-  segment: { minHeight: 42, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 9, backgroundColor: '#fff' },
+  segment: { minHeight: 46, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
   segmentActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  segmentText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  segmentText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   segmentTextActive: { color: '#fff' },
-  choiceCard: { padding: 11, marginTop: 7, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
+  choiceCard: { padding: 13, marginTop: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
   choiceCardActive: { borderColor: colors.primary, backgroundColor: colors.successSoft },
   horizontalSelector: { flexDirection: 'row', marginTop: 8 },
   choiceChip: { paddingHorizontal: 14, paddingVertical: 10, marginRight: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: '#fff' },
   choiceChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  choiceChipTitle: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  choiceChipTitle: { color: colors.ink, fontSize: 14, fontWeight: '800' },
   choiceChipTitleActive: { color: '#fff' },
-  choiceChipSub: { color: colors.muted, fontSize: 10, marginTop: 2 },
+  choiceChipSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
   choiceChipSubActive: { color: '#DCE7E1' },
-  attachButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, marginTop: 12, borderWidth: 1, borderStyle: 'dashed', borderColor: '#AAB8AD', borderRadius: 9 },
-  attachText: { color: colors.primary, fontSize: 11, fontWeight: '700' },
-  requiredHint: { color: colors.warning, fontSize: 11, marginTop: 6 },
-  leaveDurationText: { color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 8 },
-  linkText: { color: colors.primary, fontSize: 11, fontWeight: '800' },
-  smallButton: { minHeight: 40, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10, borderRadius: 8, backgroundColor: colors.successSoft },
-  smallButtonText: { color: colors.primary, fontSize: 10, fontWeight: '800' },
-  profileCard: { alignItems: 'center', padding: 22, marginTop: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 16, backgroundColor: colors.surface },
-  avatarWrapper: { position: 'relative', width: 76, height: 76, alignItems: 'center', justifyContent: 'center' },
-  avatarLargeImage: { width: 76, height: 76, borderRadius: 26, borderWidth: 2, borderColor: colors.primary, backgroundColor: '#D2EEE8' },
-  avatarBadgeBtn: { position: 'absolute', bottom: -2, right: -2, width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
-  avatarActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  avatarActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#EDF2EE' },
-  avatarActionBtnText: { color: colors.ink, fontSize: 11, fontWeight: '700' },
-  avatarDeleteBtn: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.dangerSoft },
-  avatarDeleteBtnText: { color: colors.danger, fontSize: 11, fontWeight: '700' },
-  avatarLarge: { width: 76, height: 76, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D2EEE8' },
-  avatarLargeText: { color: '#175449', fontSize: 24, fontWeight: '800' },
-  profileName: { color: colors.ink, fontSize: 20, fontWeight: '800', marginTop: 12 },
-  profileMetaBox: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line, width: '100%', gap: 8 },
+  attachButton: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 14, marginTop: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#AAB8AD', borderRadius: 10 },
+  attachText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
+  requiredHint: { color: colors.warning, fontSize: 12.5, marginTop: 6, fontWeight: '600' },
+  leaveDurationText: { color: colors.primary, fontSize: 14, fontWeight: '700', marginTop: 8 },
+  linkText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
+  smallButton: { minHeight: 42, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.successSoft },
+  smallButtonText: { color: colors.primary, fontSize: 12.5, fontWeight: '800' },
+  profileCard: { alignItems: 'center', padding: 24, marginTop: 16, borderWidth: 1, borderColor: colors.line, borderRadius: 16, backgroundColor: colors.surface },
+  avatarWrapper: { position: 'relative', width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
+  avatarLargeImage: { width: 80, height: 80, borderRadius: 28, borderWidth: 2, borderColor: colors.primary, backgroundColor: '#D2EEE8' },
+  avatarBadgeBtn: { position: 'absolute', bottom: -2, right: -2, width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
+  avatarActionsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  avatarActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: '#EDF2EE' },
+  avatarActionBtnText: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+  avatarDeleteBtn: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: colors.dangerSoft },
+  avatarDeleteBtnText: { color: colors.danger, fontSize: 13, fontWeight: '700' },
+  avatarLarge: { width: 80, height: 80, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D2EEE8' },
+  avatarLargeText: { color: '#175449', fontSize: 26, fontWeight: '800' },
+  profileName: { color: colors.ink, fontSize: 22, fontWeight: '800', marginTop: 12 },
+  profileMetaBox: { marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line, width: '100%', gap: 10 },
   profileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  profileMetaLabel: { fontSize: 12, color: colors.muted, fontWeight: '600', width: 92 },
-  profileMetaValue: { fontSize: 13, color: colors.ink, fontWeight: '600', flex: 1 },
-  settingsCard: { padding: 16, marginTop: 13, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
-  primaryActionButton: { minHeight: 46, flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderRadius: 10, backgroundColor: colors.primary },
-  primaryActionButtonText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  secondaryButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 9 },
-  secondaryButtonText: { color: colors.ink, fontSize: 12, fontWeight: '800' },
-  logoutButton: { minHeight: 44, justifyContent: 'center', alignItems: 'center', marginTop: 8, borderRadius: 9, backgroundColor: colors.warningSoft },
-  logoutText: { color: colors.warning, fontSize: 12, fontWeight: '800' },
-  errorText: { color: '#A51F18', fontSize: 12, lineHeight: 17, marginTop: 10 },
+  profileMetaLabel: { fontSize: 13.5, color: colors.muted, fontWeight: '600', width: 100 },
+  profileMetaValue: { fontSize: 14.5, color: colors.ink, fontWeight: '700', flex: 1 },
+  settingsCard: { padding: 18, marginTop: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
+  primaryActionButton: { minHeight: 50, flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', marginTop: 14, borderRadius: 12, backgroundColor: colors.primary },
+  primaryActionButtonText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  secondaryButton: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 10 },
+  secondaryButtonText: { color: colors.ink, fontSize: 14, fontWeight: '800' },
+  logoutButton: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 10, borderRadius: 10, backgroundColor: colors.warningSoft },
+  logoutText: { color: colors.warning, fontSize: 14, fontWeight: '800' },
+  errorText: { color: '#A51F18', fontSize: 13.5, lineHeight: 20, marginTop: 10, fontWeight: '600' },
   statRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
   statCard: { flex: 1, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
-  statLabel: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  statLabel: { color: colors.muted, fontSize: 13, fontWeight: '800' },
   statValue: { color: colors.ink, fontSize: 28, fontWeight: '800', marginTop: 6 },
-  statSub: { color: colors.muted, fontSize: 10, marginTop: 2 },
-  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
-  adminAlertCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#F2D7B3', borderRadius: 14, backgroundColor: colors.warningSoft },
-  adminAlertTitle: { color: colors.warning, fontSize: 13, fontWeight: '800' },
+  statSub: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, marginTop: 10, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
+  adminAlertCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#F2D7B3', borderRadius: 14, backgroundColor: colors.warningSoft },
+  adminAlertTitle: { color: colors.warning, fontSize: 14.5, fontWeight: '800' },
   adminBar: { marginTop: 4, marginBottom: 12 },
   empFilterScroll: { flexDirection: 'row', marginTop: 8 },
-  filterChip: { paddingHorizontal: 12, paddingVertical: 8, marginRight: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
   filterChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  filterChipText: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  filterChipText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   filterChipTextActive: { color: '#fff' },
   viewSwitcher: { flexDirection: 'row', gap: 8, marginTop: 6, marginBottom: 14 },
-  switcherBtn: { flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
+  switcherBtn: { flex: 1, minHeight: 46, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
   switcherBtnActive: { borderColor: colors.primary, backgroundColor: colors.primary },
-  switcherBtnText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  switcherBtnText: { color: colors.muted, fontSize: 13.5, fontWeight: '800' },
   switcherBtnTextActive: { color: '#fff' },
   adminApprovalSection: { marginTop: 4 },
   adminBarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  directSwapActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: colors.primary },
-  directSwapActionText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  exchangeCard: { padding: 14, marginTop: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface },
-  exchangeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.line, paddingBottom: 8 },
-  exchangeDate: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  exchangeShift: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
+  directSwapActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: colors.primary },
+  directSwapActionText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  exchangeCard: { padding: 16, marginTop: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface },
+  exchangeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.line, paddingBottom: 10 },
+  exchangeDate: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  exchangeShift: { color: colors.ink, fontSize: 15.5, fontWeight: '800', marginTop: 2 },
   exchangeRoute: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
-  empName: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
-  exchangeMetaBox: { padding: 10, borderRadius: 9, backgroundColor: colors.canvas, gap: 4, marginTop: 4 },
-  metaLabel: { color: colors.muted, fontSize: 11, fontWeight: '700' },
-  metaValue: { color: colors.ink, fontWeight: '800' },
-  metaDecision: { color: colors.primary, fontSize: 11, fontWeight: '800', marginTop: 2 },
-  exchangeBtnRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  approveBtn: { flex: 1.5, minHeight: 42, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: colors.primary },
-  approveBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  rejectBtn: { flex: 1, minHeight: 42, justifyContent: 'center', alignItems: 'center', borderRadius: 9, backgroundColor: colors.dangerSoft },
-  rejectBtnText: { color: colors.danger, fontSize: 12, fontWeight: '800' },
+  empName: { color: colors.ink, fontSize: 15.5, fontWeight: '800', marginTop: 2 },
+  exchangeMetaBox: { padding: 12, borderRadius: 10, backgroundColor: colors.canvas, gap: 4, marginTop: 6 },
+  metaLabel: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  metaValue: { color: colors.ink, fontWeight: '800', fontSize: 13.5 },
+  metaDecision: { color: colors.primary, fontSize: 13, fontWeight: '800', marginTop: 2 },
+  exchangeBtnRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  approveBtn: { flex: 1.5, minHeight: 46, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: colors.primary },
+  approveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  rejectBtn: { flex: 1, minHeight: 46, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: colors.dangerSoft },
+  rejectBtnText: { color: colors.danger, fontSize: 14, fontWeight: '800' },
   tabBar: {
-    position: 'absolute', left: 12, right: 12, bottom: 8, minHeight: 68,
+    position: 'absolute', left: 12, right: 12, bottom: 8, minHeight: 70,
     flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 6,
     borderWidth: 1, borderColor: colors.line, borderRadius: 18,
     backgroundColor: '#FFFFFF', shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 4,
   },
-  tab: { flex: 1, minHeight: 54, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12 },
-  tabIndicator: { width: 16, height: 2.5, borderRadius: 2, backgroundColor: 'transparent', marginTop: 1 },
+  tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12 },
+  tabIndicator: { width: 18, height: 3, borderRadius: 2, backgroundColor: 'transparent', marginTop: 1 },
   tabIndicatorActive: { backgroundColor: colors.primary },
-  tabText: { color: colors.muted, fontSize: 10, fontWeight: '700' },
-  tabTextActive: { color: colors.primary, fontWeight: '800' },
+  tabText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  tabTextActive: { color: colors.primary, fontWeight: '800', fontSize: 12 },
   modalBackdrop: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(10,25,17,.55)' },
-  modalCard: { padding: 21, borderRadius: 18, backgroundColor: '#fff', maxHeight: '90%' },
+  modalCard: { padding: 22, borderRadius: 18, backgroundColor: '#fff', maxHeight: '90%' },
   modalCardLarge: { maxHeight: '92%', paddingVertical: 20 },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
   modalScroll: { flexGrow: 0 },
   closeBtn: { padding: 4 },
-  modalEyebrow: { color: colors.muted, fontSize: 10, fontWeight: '800', letterSpacing: .8 },
-  modalTitle: { color: colors.ink, fontSize: 20, fontWeight: '800', marginTop: 4 },
-  modalCopy: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 6 },
-  offlineWarning: { padding: 11, marginTop: 12, borderRadius: 9, backgroundColor: colors.warningSoft },
-  offlineWarningText: { color: '#70441F', fontSize: 11, lineHeight: 16 },
+  modalEyebrow: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: .8 },
+  modalTitle: { color: colors.ink, fontSize: 22, fontWeight: '800', marginTop: 4 },
+  modalCopy: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 6 },
+  offlineWarning: { padding: 12, marginTop: 12, borderRadius: 10, backgroundColor: colors.warningSoft },
+  offlineWarningText: { color: '#70441F', fontSize: 13, lineHeight: 18 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14, paddingVertical: 4 },
-  switchLabel: { flex: 1, color: colors.ink, fontSize: 11, fontWeight: '700' },
-  previewBox: { padding: 12, marginTop: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: '#F8FAF8' },
-  previewTitle: { color: colors.ink, fontSize: 12, fontWeight: '800', marginBottom: 6 },
-  previewMove: { color: '#1B5E20', fontSize: 11, fontWeight: '700', marginVertical: 2 },
-  previewVacancy: { color: colors.warning, fontSize: 11, marginVertical: 2 },
-  previewBlocker: { color: colors.danger, fontSize: 11, fontWeight: '700', marginVertical: 2 },
+  switchLabel: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '700' },
+  previewBox: { padding: 14, marginTop: 14, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: '#F8FAF8' },
+  previewTitle: { color: colors.ink, fontSize: 14.5, fontWeight: '800', marginBottom: 6 },
+  previewMove: { color: '#1B5E20', fontSize: 13, fontWeight: '700', marginVertical: 2 },
+  previewVacancy: { color: colors.warning, fontSize: 13, marginVertical: 2 },
+  previewBlocker: { color: colors.danger, fontSize: 13, fontWeight: '700', marginVertical: 2 },
   modalActions: { flexDirection: 'row', gap: 9, marginTop: 18 },
-  cancelButton: { minHeight: 48, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10 },
-  cancelButtonText: { color: colors.ink, fontWeight: '800', fontSize: 12 },
-  confirmButton: { minHeight: 48, flex: 1.3, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: colors.primary },
-  confirmButtonText: { color: '#fff', fontWeight: '800', fontSize: 12 },
-  previewButton: { minHeight: 48, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
-  previewButtonText: { color: colors.ink, fontWeight: '800', fontSize: 12 },
+  cancelButton: { minHeight: 50, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10 },
+  cancelButtonText: { color: colors.ink, fontWeight: '800', fontSize: 14 },
+  confirmButton: { minHeight: 50, flex: 1.3, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: colors.primary },
+  confirmButtonText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  previewButton: { minHeight: 50, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
+  previewButtonText: { color: colors.ink, fontWeight: '800', fontSize: 14 },
+  pickerTrigger: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1.5,
+    borderColor: '#C4CDC6',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    marginTop: 4,
+  },
+  pickerTriggerValue: { fontSize: 14.5, color: colors.ink, fontWeight: '700' },
+  pickerTriggerPlaceholder: { color: '#9CA3AF', fontWeight: '500' },
+  calendarNavRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
+  calendarNavBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvas },
+  calendarNavMonthText: { fontSize: 16, fontWeight: '800', color: colors.ink },
+  calendarWeekRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.line },
+  calendarWeekText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '700', color: colors.muted },
+  calendarDaysGrid: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
+  calendarDayCell: { width: '14.28%', height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, marginVertical: 2 },
+  calendarDayCellSelected: { backgroundColor: colors.primary },
+  calendarDayCellToday: { borderWidth: 1.5, borderColor: colors.primary },
+  calendarDayCellDisabled: { opacity: 0.25 },
+  calendarDayText: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  calendarDayTextSelected: { color: '#FFFFFF', fontWeight: '800' },
+  calendarDayTextToday: { color: colors.primary, fontWeight: '800' },
+  calendarDayTextDisabled: { color: colors.muted },
+  calendarPresetsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  calendarPresetChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas, marginRight: 6 },
+  calendarPresetText: { fontSize: 12.5, fontWeight: '700', color: colors.primary },
+  calendarCancelBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.line },
+  calendarCancelText: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  calendarConfirmBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: colors.primary },
+  calendarConfirmText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
+  clockDisplayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 10 },
+  clockDisplayBox: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 2, borderColor: colors.line, alignItems: 'center', backgroundColor: colors.canvas, minWidth: 80 },
+  clockDisplayBoxActive: { borderColor: colors.primary, backgroundColor: '#EBF4EE' },
+  clockDisplayText: { fontSize: 32, fontWeight: '800', color: colors.ink },
+  clockDisplayTextActive: { color: colors.primary },
+  clockDisplaySub: { fontSize: 11, fontWeight: '800', color: colors.muted, marginTop: 2 },
+  clockDisplaySubActive: { color: colors.primary },
+  clockDisplayDivider: { fontSize: 32, fontWeight: '800', color: colors.ink },
+  clockGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  clockCell: { width: '14.5%', minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: '#fff' },
+  clockGridMinute: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  clockCellMinute: { width: '22.5%', minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: '#fff' },
+  clockCellActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  clockCellText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
+  clockCellTextActive: { color: '#fff', fontWeight: '800' },
+  wizardHeader: { marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.line },
+  wizardStepsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  wizardStepDot: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.line, backgroundColor: '#fff' },
+  wizardStepDotActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  wizardStepNum: { fontSize: 14, fontWeight: '800', color: colors.muted },
+  wizardStepNumActive: { color: '#fff' },
+  wizardStepLine: { flex: 1, height: 2.5, backgroundColor: colors.line, marginHorizontal: 8 },
+  wizardStepLineActive: { backgroundColor: colors.primary },
+  wizardStepTitle: { textAlign: 'center', fontSize: 14, fontWeight: '800', color: colors.ink },
+  wizardNavRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  wizardPrevBtn: { flex: 1, minHeight: 48, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
+  wizardPrevText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
+  wizardNextBtn: { flex: 1.5, minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 10, backgroundColor: colors.primary },
+  wizardNextText: { fontSize: 14, fontWeight: '800', color: '#fff' },
+  wizardSummaryCard: { padding: 14, borderRadius: 12, backgroundColor: '#F8FAF8', borderWidth: 1, borderColor: colors.line, marginBottom: 14, gap: 10 },
+  wizardSummaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  wizardSummaryLabel: { fontSize: 12.5, color: colors.muted, fontWeight: '600' },
+  wizardSummaryVal: { fontSize: 13.5, color: colors.ink, fontWeight: '800' },
+  quickChipsScroll: { flexDirection: 'row', marginVertical: 8 },
+  quickChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, marginRight: 8 },
+  quickChipActive: { borderColor: colors.primary, backgroundColor: colors.successSoft },
+  quickChipText: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
+  quickChipTextActive: { color: colors.primary, fontWeight: '800' },
+  emptyNoticeBox: { padding: 16, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: colors.canvas, marginVertical: 8, gap: 6 },
+  emptyNoticeText: { color: colors.muted, fontSize: 13, textAlign: 'center' },
 });

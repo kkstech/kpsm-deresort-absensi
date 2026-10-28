@@ -38,8 +38,13 @@ Route::prefix('v1')->group(function () {
 
         // Overtime (Lembur)
         Route::get('me/overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
+        Route::get('overtime', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
+        Route::get('overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
+        Route::post('overtime', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
         Route::post('overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
+        Route::post('overtime/{order}/consent', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'consent'])->whereNumber('order');
         Route::post('overtimes/{order}/consent', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'consent'])->whereNumber('order');
+        Route::post('overtime/{order}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel'])->whereNumber('order');
         Route::post('overtimes/{order}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel'])->whereNumber('order');
 
         // Shift Exchange (Pengajuan & Pengaturan Tukar Shift)
