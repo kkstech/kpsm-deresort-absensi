@@ -12,6 +12,14 @@ const ICONS = {
     'user-plus': '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>',
     'device-logout': '<rect x="3" y="4" width="10" height="16" rx="2"/><path d="M15 8h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4"/><polyline points="16 10 18 12 16 14"/><line x1="12" y1="12" x2="18" y2="12"/>',
     'user-x': '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="17" y1="8" x2="22" y2="13"/><line x1="22" y1="8" x2="17" y2="13"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+    coins: '<ellipse cx="12" cy="7" rx="9" ry="3"/><path d="M3 7v6c0 1.66 4.03 3 9 3s9-1.34 9-3V7M3 13v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/>',
+    umbrella: '<path d="M23 12a11.05 11.05 0 0 0-22 0zm-5 7a3 3 0 0 1-6 0v-7"/>',
+    smartphone: '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+    'arrow-right': '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
     check: '<polyline points="20 6 9 17 4 12"/>',
     x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
     undo: '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>',
@@ -198,8 +206,8 @@ function fieldHtml(f, value) {
             <div class="avatar-field-card" data-field="${esc(f.name)}"${spanAttr}>
                 <div class="avatar-card-preview-wrap">
                     <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" style="width:64px;height:64px;border-radius:14px;object-fit:cover;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);background:#fff;" ${value ? '' : 'hidden'}>
-                    <div class="avatar-no-preview" style="width:64px;height:64px;border-radius:14px;background:#e2ece4;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);display:${value ? 'none' : 'grid'};place-items:center;color:var(--primary);font-size:26px;flex-shrink:0;">
-                        👤
+                    <div class="avatar-no-preview" style="width:64px;height:64px;border-radius:14px;background:#e2ece4;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);display:${value ? 'none' : 'grid'};place-items:center;color:var(--primary);flex-shrink:0;">
+                        ${icon('user', 28)}
                     </div>
                 </div>
                 <div class="avatar-card-content">

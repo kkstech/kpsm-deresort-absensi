@@ -169,7 +169,7 @@ function renderRequestsTable() {
             : 'Belum ada pengajuan cuti pada status ini.';
         table.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
-                <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                <div style="display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted);">${icon('file-text', 36)}</div>
                 <p style="margin: 0; font-size: 14px; font-weight: 600; color: var(--ink);">${esc(emptyMsg)}</p>
                 <small style="display: block; margin-top: 4px;">Ubah filter status atau kata kunci pencarian.</small>
             </div>
@@ -295,7 +295,7 @@ function renderBalancesTable() {
             : 'Belum ada data saldo karyawan aktif.';
         balanceTable.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
-                <div style="font-size: 32px; margin-bottom: 8px;">👥</div>
+                <div style="display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted);">${icon('users', 36)}</div>
                 <p style="margin: 0; font-size: 14px; font-weight: 600; color: var(--ink);">${esc(emptyMsg)}</p>
                 <small style="display: block; margin-top: 4px;">Ubah filter departemen atau kata kunci pencarian.</small>
             </div>

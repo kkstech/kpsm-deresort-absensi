@@ -458,7 +458,7 @@ async function runAction(action, employee) {
                         <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--canvas, #f2f5f1); border: 1px solid var(--line, #dfe5df); border-radius: 8px;">
                             <div>
                                 <div style="font-weight: 700; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 6px;">
-                                    <span>📱</span> <span>${esc(d.name || 'Perangkat Seluler')}</span>
+                                    ${icon('smartphone', 15)} <span>${esc(d.name || 'Perangkat Seluler')}</span>
                                     <small style="color: var(--muted); font-weight: normal; font-size: 11px;">#${idx + 1}</small>
                                 </div>
                                 <div style="font-size: 11.5px; color: var(--muted); margin-top: 3px;">
@@ -472,8 +472,8 @@ async function runAction(action, employee) {
                         </div>
                     `).join('')}
                 </div>
-                <p style="margin: 0; font-size: 12.5px; color: var(--danger); font-weight: 600;">
-                    ⚠️ Semua sesi login pada ${devices.length} perangkat di atas akan dibatalkan dan karyawan harus login ulang.
+                <p style="margin: 0; font-size: 12.5px; color: var(--danger); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                    ${icon('alert-circle', 15)} Semua sesi login pada ${devices.length} perangkat di atas akan dibatalkan dan karyawan harus login ulang.
                 </p>
             ` : `
                 <p style="margin-bottom: 12px; font-size: 13.5px; color: var(--ink);">
@@ -481,7 +481,7 @@ async function runAction(action, employee) {
                 </p>
                 <div style="margin: 12px 0 16px; padding: 10px 14px; background: var(--canvas, #f2f5f1); border: 1px solid var(--line, #dfe5df); border-radius: 8px;">
                     <div style="font-weight: 700; font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 6px;">
-                        <span>📱</span> <span>${esc(devices[0].name || 'Perangkat Seluler')}</span>
+                        ${icon('smartphone', 15)} <span>${esc(devices[0].name || 'Perangkat Seluler')}</span>
                     </div>
                     <div style="font-size: 11.5px; color: var(--muted); margin-top: 3px;">
                         Terakhir aktif: <strong>${esc(formatDateTime(devices[0].last_seen_at))}</strong>

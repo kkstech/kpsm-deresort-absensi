@@ -18,6 +18,7 @@
         <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/></symbol>
         <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M4 6h16v14H4zM4 10h16M8 3v6M16 3v6"/></symbol>
         <symbol id="i-check" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 7"/></symbol>
+        <symbol id="i-check-circle" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></symbol>
         <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13l3-8h10l3 8v6H4zM4 13h5l1 2h4l1-2h5"/></symbol>
         <symbol id="i-people" viewBox="0 0 24 24"><path d="M9 11a4 4 0 100-8 4 4 0 000 8zM2 21v-2a5 5 0 015-5h4a5 5 0 015 5v2M17 4a4 4 0 010 7M22 21v-2a5 5 0 00-3-4.6"/></symbol>
         <symbol id="i-chart" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></symbol>
@@ -30,6 +31,15 @@
         <symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1116 0zM12 10a2 2 0 100-4 2 2 0 000 4z"/></symbol>
         <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 00-16 0M12 13a5 5 0 100-10 5 5 0 000 10z"/></symbol>
         <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+        <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="7" rx="9" ry="3"/><path d="M3 7v6c0 1.66 4.03 3 9 3s9-1.34 9-3V7M3 13v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/></symbol>
+        <symbol id="i-umbrella" viewBox="0 0 24 24"><path d="M23 12a11.05 11.05 0 00-22 0zm-5 7a3 3 0 01-6 0v-7"/></symbol>
+        <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+        <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+        <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Lewati ke konten</a>
@@ -71,7 +81,7 @@
 
         <div class="content-shell">
             <header class="topbar">
-                <button type="button" class="icon-button menu-button" id="menu-button" aria-label="Buka navigasi" aria-expanded="false" aria-controls="sidebar">☰</button>
+                <button type="button" class="icon-button menu-button" id="menu-button" aria-label="Buka navigasi" aria-expanded="false" aria-controls="sidebar"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
                 <div class="search-wrap">
                     <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
                     <label class="sr-only" for="global-search">Cari karyawan</label>
@@ -105,8 +115,9 @@
                                 <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
                                 <span>Jadwal Shift</span>
                             </button>
-                            <button type="button" class="primary-button hero-btn" data-view-link="attendance">
-                                <span>Monitoring Absensi &rarr;</span>
+                            <button type="button" class="primary-button hero-btn" data-view-link="attendance" style="display:inline-flex;align-items:center;gap:6px;">
+                                <span>Monitoring Absensi</span>
+                                <svg class="icon" aria-hidden="true" style="width:16px;height:16px;"><use href="#i-arrow-right"/></svg>
                             </button>
                         </div>
                     </div>
@@ -138,7 +149,7 @@
                         <div class="dashboard-metric-card theme-emerald">
                             <div class="metric-header">
                                 <span class="metric-title">Tingkat Kehadiran</span>
-                                <span class="metric-icon-badge">✓</span>
+                                <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
                             </div>
                             <div class="metric-main-value">
                                 <strong id="metric-attendance-rate">0%</strong>
@@ -154,7 +165,7 @@
                         <div class="dashboard-metric-card theme-ocean">
                             <div class="metric-header">
                                 <span class="metric-title">Karyawan Bertugas</span>
-                                <span class="metric-icon-badge">👥</span>
+                                <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg></span>
                             </div>
                             <div class="metric-main-value">
                                 <strong id="metric-employees">0</strong>
@@ -170,7 +181,7 @@
                         <div class="dashboard-metric-card theme-rose" id="metric-card-review">
                             <div class="metric-header">
                                 <span class="metric-title">Perlu Perhatian</span>
-                                <span class="metric-icon-badge alert">⚠️</span>
+                                <span class="metric-icon-badge alert"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg></span>
                             </div>
                             <div class="metric-main-value">
                                 <strong id="metric-review">0</strong>
@@ -186,13 +197,17 @@
                         <div class="dashboard-metric-card theme-indigo">
                             <div class="metric-header">
                                 <span class="metric-title">Total Jam Produktif</span>
-                                <span class="metric-icon-badge">⏱</span>
+                                <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span>
                             </div>
                             <div class="metric-main-value">
                                 <strong id="metric-minutes">0j 0m</strong>
                             </div>
                             <div class="metric-extra-info">
                                 <span>Jam kerja terverifikasi</span>
+                            </div>
+                            <small class="metric-subtext">Berdasarkan check-in valid</small>
+                        </div>
+                    </section>
                             </div>
                             <small class="metric-subtext">Berdasarkan check-in valid</small>
                         </div>
@@ -231,7 +246,7 @@
                                     <h2>Aktivitas Absensi Terkini</h2>
                                     <p>Event check-in dan check-out terbaru yang tercatat sistem.</p>
                                 </div>
-                                <button type="button" class="text-button" data-view-link="attendance">Buka monitoring &rarr;</button>
+                                <button type="button" class="text-button" data-view-link="attendance" style="display:inline-flex;align-items:center;gap:6px;"><span>Buka monitoring</span> <svg class="icon" aria-hidden="true" style="width:14px;height:14px;"><use href="#i-arrow-right"/></svg></button>
                             </div>
                             <div id="dashboard-activity" aria-live="polite"><p class="list-empty">Memuat data…</p></div>
                         </div>
@@ -256,28 +271,36 @@
                                 </div>
                                 <div class="shortcuts-grid">
                                     <button type="button" class="shortcut-tile" data-view-link="schedule">
-                                        <span class="shortcut-icon" style="background:#eaf1ff;color:#2563eb;">📅</span>
+                                        <span class="shortcut-icon" style="background:#eaf1ff;color:#2563eb;">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
+                                        </span>
                                         <div class="shortcut-text">
                                             <strong>Jadwal &amp; Shift</strong>
                                             <small>Atur jadwal mingguan &amp; sesi</small>
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="employees">
-                                        <span class="shortcut-icon" style="background:#e6f6ee;color:#059669;">👥</span>
+                                        <span class="shortcut-icon" style="background:#e6f6ee;color:#059669;">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>
+                                        </span>
                                         <div class="shortcut-text">
                                             <strong>Data Karyawan</strong>
                                             <small>Kelola NIK, foto, &amp; level</small>
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="allowances">
-                                        <span class="shortcut-icon" style="background:#fef3e2;color:#d97706;">💰</span>
+                                        <span class="shortcut-icon" style="background:#fef3e2;color:#d97706;">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg>
+                                        </span>
                                         <div class="shortcut-text">
                                             <strong>Rekap Tunjangan</strong>
                                             <small>Uang makan &amp; transport</small>
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="leaves">
-                                        <span class="shortcut-icon" style="background:#f5eefb;color:#7c3aed;">🏖️</span>
+                                        <span class="shortcut-icon" style="background:#f5eefb;color:#7c3aed;">
+                                            <svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg>
+                                        </span>
                                         <div class="shortcut-text">
                                             <strong>Manajemen Cuti</strong>
                                             <small>Saldo &amp; permohonan cuti</small>
@@ -312,8 +335,8 @@
                                     </div>
                                     <div class="calendar-controls">
                                         <button type="button" class="secondary-button today-button" id="calendar-today">Hari ini</button>
-                                        <button type="button" class="icon-button calendar-nav" id="calendar-prev" aria-label="Minggu sebelumnya">‹</button>
-                                        <button type="button" class="icon-button calendar-nav" id="calendar-next" aria-label="Minggu berikutnya">›</button>
+                                        <button type="button" class="icon-button calendar-nav" id="calendar-prev" aria-label="Minggu sebelumnya"><svg class="icon" aria-hidden="true"><use href="#i-chevron-left"/></svg></button>
+                                        <button type="button" class="icon-button calendar-nav" id="calendar-next" aria-label="Minggu berikutnya"><svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg></button>
                                     </div>
                                 </div>
                             </div>
@@ -887,7 +910,7 @@
 
     <dialog class="app-dialog schedule-editor-dialog" id="schedule-modal" aria-labelledby="schedule-modal-title">
         <form method="dialog" id="schedule-form">
-            <div class="modal-heading"><div><h2 id="schedule-modal-title">Buat jadwal</h2><p>Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
+            <div class="modal-heading"><div><h2 id="schedule-modal-title">Buat jadwal</h2><p>Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
             <div class="modal-body">
                 <div class="schedule-modal-top-grid">
                     <label>Karyawan<select id="schedule-employee" required></select></label>
@@ -919,7 +942,7 @@
                     <h2 id="schedule-bulk-modal-title">Penugasan Jadwal Massal</h2>
                     <p>Tugaskan shift ke banyak karyawan dan rentang tanggal sekaligus dalam status draft.</p>
                 </div>
-                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div class="modal-body bulk-modal-body">
                 <div class="bulk-section">
@@ -997,7 +1020,7 @@
                     <h2 id="schedule-swap-title">Tukar siklus jadwal</h2>
                     <p id="schedule-swap-subtitle">Tukar jadwal karyawan atau susun rantai pertukaran shift.</p>
                 </div>
-                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div class="modal-body">
                 <div class="schedule-swap-main-card">
@@ -1082,7 +1105,7 @@
                     <h2 id="employee-import-modal-title">Impor Data Karyawan (CSV)</h2>
                     <p id="employee-import-modal-hint">Daftarkan data karyawan secara massal menggunakan berkas spreadsheet CSV.</p>
                 </div>
-                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div class="modal-body">
                 <div class="form-fields" style="display: flex; flex-direction: column; gap: 16px;">
@@ -1203,7 +1226,7 @@
                     <h2 id="overtime-order-modal-title">Terbitkan Surat Perintah Lembur (SPL)</h2>
                     <p>Tugaskan perintah lembur resmi kepada karyawan untuk tanggal dan jam tertentu.</p>
                 </div>
-                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div class="modal-body bulk-modal-body">
                 <div class="bulk-section">
@@ -1271,15 +1294,15 @@
     </dialog>
     <dialog class="app-dialog" id="form-modal" aria-labelledby="form-modal-title">
         <form method="dialog" id="form-modal-form" novalidate>
-            <div class="modal-heading"><div><h2 id="form-modal-title"></h2><p id="form-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
+            <div class="modal-heading"><div><h2 id="form-modal-title"></h2><p id="form-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
             <div class="modal-body"><div id="form-modal-fields" class="form-fields"></div><p class="form-error" id="form-modal-error" role="alert" hidden></p></div>
             <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button" id="form-modal-submit">Simpan</button></div>
         </form>
     </dialog>
-    <dialog class="app-dialog" id="workflow-modal" aria-labelledby="workflow-modal-title"><form id="workflow-modal-form"><div class="modal-heading"><div><h2 id="workflow-modal-title"></h2><p id="workflow-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div><div class="modal-body"><div id="workflow-modal-fields" class="form-fields"></div><p class="form-error" id="workflow-modal-error" role="alert" hidden></p></div><div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button" id="workflow-modal-submit">Simpan</button></div></form></dialog>
+    <dialog class="app-dialog" id="workflow-modal" aria-labelledby="workflow-modal-title"><form id="workflow-modal-form"><div class="modal-heading"><div><h2 id="workflow-modal-title"></h2><p id="workflow-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div><div class="modal-body"><div id="workflow-modal-fields" class="form-fields"></div><p class="form-error" id="workflow-modal-error" role="alert" hidden></p></div><div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button" id="workflow-modal-submit">Simpan</button></div></form></dialog>
     <dialog class="app-dialog confirm-dialog" id="confirm-modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
         <form method="dialog">
-            <div class="modal-heading"><div><h2 id="confirm-modal-title">Konfirmasi</h2></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button></div>
+            <div class="modal-heading"><div><h2 id="confirm-modal-title">Konfirmasi</h2></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
             <div class="modal-body"><p id="confirm-modal-message"></p></div>
             <div class="modal-actions"><button type="submit" class="secondary-button" value="cancel" autofocus>Batal</button><button type="submit" class="primary-button" id="confirm-modal-submit" value="confirm">Lanjutkan</button></div>
         </form>

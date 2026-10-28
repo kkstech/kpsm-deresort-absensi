@@ -1,5 +1,5 @@
 import { api, lookup } from './api';
-import { $, $$, esc } from './ui';
+import { $, $$, esc, icon } from './ui';
 
 const form = $('#allowance-filters');
 const table = $('#allowance-table');
@@ -138,7 +138,7 @@ function renderTable() {
             : 'Belum ada data siklus absensi dalam periode tanggal ini.';
         table.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
-                <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
+                <div style="display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted);">${icon('chart', 36)}</div>
                 <p style="margin: 0; font-size: 14px; font-weight: 600; color: var(--ink);">${esc(emptyMsg)}</p>
                 <small style="display: block; margin-top: 4px;">Ubah filter atau rentang tanggal untuk melihat data lainnya.</small>
             </div>

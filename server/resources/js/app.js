@@ -94,6 +94,12 @@ menuButton.addEventListener('click', () => {
     menuButton.setAttribute('aria-expanded', String(open));
 });
 
+document.addEventListener('click', (event) => {
+    if (sidebar.classList.contains('open') && !sidebar.contains(event.target) && !menuButton.contains(event.target)) {
+        closeSidebar();
+    }
+});
+
 window.addEventListener('hashchange', () => {
     const current = resolveCurrentView();
     showView(current, false);

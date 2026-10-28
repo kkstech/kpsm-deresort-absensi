@@ -73,7 +73,7 @@ function renderReviewBox(reviewItems) {
     if (!reviewItems || !reviewItems.length) {
         box.innerHTML = `
             <div class="review-empty-state">
-                <span class="review-empty-icon">✓</span>
+                <span class="review-empty-icon">${icon('check', 20)}</span>
                 <strong>Semua Sesi Beres!</strong>
                 <small>Tidak ada sesi yang memerlukan review saat ini.</small>
             </div>
@@ -85,7 +85,7 @@ function renderReviewBox(reviewItems) {
         return `
             <div class="review-alert-item">
                 <div class="review-item-main">
-                    <span class="review-badge-pill">⚠️ Perlu Tindakan</span>
+                    <span class="review-badge-pill" style="display:inline-flex;align-items:center;gap:4px;">${icon('alert-circle', 12)}<span>Perlu Tindakan</span></span>
                     <strong class="review-emp-name">${esc(item.employee.name)}</strong>
                     <span class="review-shift-info">${esc(item.shift.name)} · ${formatDate(item.work_date)}</span>
                     <small class="review-reason-text">${esc(reason)}</small>
@@ -253,7 +253,7 @@ function renderMonitoring({ data, meta }) {
     if (!data.length) {
         container.innerHTML = `
             <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
-                <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                <div style="display: flex; justify-content: center; margin-bottom: 10px; color: var(--muted);">${icon('file-text', 36)}</div>
                 <p style="margin: 0; font-size: 14px; font-weight: 600; color: var(--ink);">Tidak ada catatan absensi untuk filter yang dipilih.</p>
                 <small style="display: block; margin-top: 4px;">Ubah filter atau rentang tanggal untuk melihat data lainnya.</small>
             </div>
