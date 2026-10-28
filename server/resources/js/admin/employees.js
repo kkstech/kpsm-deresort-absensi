@@ -55,12 +55,20 @@ function render() {
                 return `<div style="display:flex;align-items:center;">${avatar}<div><b>${esc(e.name)}</b><small style="display:block;">${esc(e.code)}</small></div></div>`;
             } },
             { label: 'Departemen', cell: (e) => `${esc(e.department?.name)}<small>${esc(e.position?.name)}</small>` },
-            { label: 'Level', cell: (e) => e.level ? `${esc(e.level.name)}<small>${esc(e.level.code)}</small>` : '<span class="status warning">Belum diatur</span>' },
-            { label: 'Status kerja', cell: (e) => {
+            { label: 'Level & Status Kerja', cell: (e) => {
+                const levelHtml = e.level
+                    ? `<b>${esc(e.level.name)}</b> <span style="color:var(--muted);font-size:11px;font-weight:400;">(${esc(e.level.code)})</span>`
+                    : '<span style="color:var(--muted);font-size:12px;font-style:italic;">Belum diatur</span>';
                 const type = e.employment?.type;
-                const label = type === 'contract' ? `Kontrak${e.employment.ends_on ? ` sampai ${e.employment.ends_on}` : ''}` : type === 'permanent' ? 'Tetap' : 'Perlu dilengkapi';
-                const tone = ['overdue', 'urgent'].includes(e.employment?.alert) ? 'warning' : 'neutral';
-                return `<span class="status ${tone}">${esc(label)}</span>`;
+                const label = type === 'contract'
+                    ? `Kontrak${e.employment.ends_on ? ` s/d ${e.employment.ends_on}` : ''}`
+                    : type === 'permanent'
+                        ? 'Tetap'
+                        : 'Perlu dilengkapi';
+                const tone = ['overdue', 'urgent'].includes(e.employment?.alert)
+                    ? 'warning'
+                    : (type === 'contract' ? 'blue' : 'neutral');
+                return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div></div>`;
             } },
             { label: 'Akun app', cell: (e) => {
                 if (!e.user) return '<span class="status neutral">Belum ada</span>';
@@ -346,11 +354,36 @@ const importModal = $('#employee-import-modal');
 const importBtn = $('#employee-import-btn');
 const importForm = $('#employee-import-form');
 const importFile = $('#employee-import-file');
+const importDropzone = $('#employee-import-dropzone');
+const importDropzoneIdle = $('#employee-import-dropzone-idle');
+const importDropzoneSelected = $('#employee-import-dropzone-selected');
+const importFileName = $('#employee-import-file-name');
+const importFileSize = $('#employee-import-file-size');
+const importFileClear = $('#employee-import-file-clear');
+
 const importContainer = $('#employee-import-preview-container');
-const importStats = $('#employee-import-stats');
+const importStatsSummary = $('#employee-import-stats-summary');
+const importPillTotal = $('#import-pill-total');
+const importPillValid = $('#import-pill-valid');
+const importPillError = $('#import-pill-error');
+
+const progressWrap = $('#employee-import-progress-wrap');
+const progressStatus = $('#employee-import-progress-status');
+const progressPct = $('#employee-import-progress-pct');
+const progressFill = $('#employee-import-progress-fill');
+const progressDetail = $('#employee-import-progress-detail');
+
+const filterAllBtn = $('#import-filter-all');
+const filterValidBtn = $('#import-filter-valid');
+const filterErrorBtn = $('#import-filter-error');
+const countFilterAll = $('#count-filter-all');
+const countFilterValid = $('#count-filter-valid');
+const countFilterError = $('#count-filter-error');
+
 const importTbody = $('#employee-import-table-body');
 const importError = $('#employee-import-error');
 const importSubmit = $('#employee-import-submit');
+const importNotice = $('#employee-import-notice');
 const templateBtn = $('#employee-template-btn');
 const templateModalBtn = $('#employee-template-modal-btn');
 
@@ -397,10 +430,91 @@ if (templateBtn) templateBtn.addEventListener('click', () => handleDownloadTempl
 if (templateModalBtn) templateModalBtn.addEventListener('click', () => handleDownloadTemplate(templateModalBtn));
 
 let currentValidatedRows = [];
+let currentFilter = 'all';
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+function renderFilteredRows() {
+    if (!importTbody) return;
+    const rows = currentValidatedRows.filter((r) => {
+        if (currentFilter === 'valid') return r._valid !== false;
+        if (currentFilter === 'error') return r._valid === false;
+        return true;
+    });
+
+    if (!rows.length) {
+        const msg = currentFilter === 'error'
+            ? 'Tidak ada baris dengan kesalahan format.'
+            : currentFilter === 'valid'
+                ? 'Tidak ada baris valid.'
+                : 'Berkas tidak memiliki baris data.';
+        importTbody.innerHTML = `<tr><td colspan="8" style="padding: 24px 12px; text-align: center; color: var(--muted); font-size: 13px;">${msg}</td></tr>`;
+        return;
+    }
+
+    importTbody.innerHTML = rows.map((r) => {
+        const isValid = r._valid !== false;
+        const statusBadge = isValid
+            ? '<span class="status success" style="font-size: 11px; padding: 2px 8px;">Valid</span>'
+            : '<span class="status danger" style="font-size: 11px; padding: 2px 8px; color: #991b1b; background: #fee2e2;">Error</span>';
+        const empType = r.employment_type === 'contract'
+            ? `Kontrak${r.ends_on ? ` (${esc(r.ends_on)})` : ''}`
+            : 'Tetap';
+        const detail = isValid
+            ? `<div style="display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11.5px;">${r.make_account ? `<span>Akun: <b>${esc(r.email)}</b></span>` : '<span>Tanpa pembuatan akun</span>'}</div>`
+            : `<div style="display: flex; flex-direction: column; gap: 3px;">${(r._errors || []).map((err) => `<span class="import-error-tag">${icon('alert-circle', 12)} ${esc(err)}</span>`).join('')}</div>`;
+
+        return `
+            <tr class="${isValid ? '' : 'row-invalid'}">
+                <td style="text-align: center; font-weight: 700; color: var(--muted);">${r._line}</td>
+                <td>${statusBadge}</td>
+                <td><span class="import-code-badge">${esc(r.code)}</span></td>
+                <td><b>${esc(r.name)}</b></td>
+                <td>${esc(r.department)}</td>
+                <td>${esc(r.position)}</td>
+                <td>${esc(empType)}</td>
+                <td>${detail}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function setFilter(filter) {
+    currentFilter = filter;
+    [filterAllBtn, filterValidBtn, filterErrorBtn].forEach((btn) => {
+        if (btn) btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    renderFilteredRows();
+}
+
+[filterAllBtn, filterValidBtn, filterErrorBtn].forEach((btn) => {
+    if (btn) btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+});
+
+function setImportProgress(current, total, statusText, detailText) {
+    if (!progressWrap) return;
+    progressWrap.hidden = false;
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    if (progressPct) progressPct.textContent = `${pct}%`;
+    if (progressFill) progressFill.style.width = `${pct}%`;
+    if (progressStatus) progressStatus.textContent = statusText;
+    if (progressDetail) progressDetail.textContent = detailText ?? `${current} dari ${total} data karyawan diproses (${pct}%)`;
+}
 
 function resetImportDialog() {
     if (importFile) importFile.value = '';
+    if (importDropzoneIdle) importDropzoneIdle.hidden = false;
+    if (importDropzoneSelected) importDropzoneSelected.hidden = true;
     if (importContainer) importContainer.hidden = true;
+    if (progressWrap) {
+        progressWrap.hidden = true;
+        if (progressFill) progressFill.style.width = '0%';
+        if (progressPct) progressPct.textContent = '0%';
+    }
     if (importError) {
         importError.hidden = true;
         importError.textContent = '';
@@ -409,7 +523,12 @@ function resetImportDialog() {
         importSubmit.disabled = true;
         importSubmit.textContent = 'Simpan & Impor Karyawan';
     }
+    if (importNotice) {
+        importNotice.textContent = 'Baris dengan kesalahan format akan dilewati secara otomatis.';
+    }
     currentValidatedRows = [];
+    currentFilter = 'all';
+    setFilter('all');
 }
 
 if (importBtn && importModal) {
@@ -419,82 +538,110 @@ if (importBtn && importModal) {
     });
 }
 
-if (importFile) {
-    importFile.addEventListener('change', async () => {
-        const file = importFile.files?.[0];
-        if (!file) {
-            resetImportDialog();
-            return;
+if (importFileClear) {
+    importFileClear.addEventListener('click', (e) => {
+        e.stopPropagation();
+        resetImportDialog();
+    });
+}
+
+if (importDropzone) {
+    ['dragenter', 'dragover'].forEach((eventName) => {
+        importDropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            importDropzone.classList.add('dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach((eventName) => {
+        importDropzone.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            importDropzone.classList.remove('dragover');
+        });
+    });
+    importDropzone.addEventListener('drop', (e) => {
+        const droppedFiles = e.dataTransfer?.files;
+        if (droppedFiles && droppedFiles.length) {
+            importFile.files = droppedFiles;
+            handleFileSelection(droppedFiles[0]);
+        }
+    });
+}
+
+async function handleFileSelection(file) {
+    if (!file) {
+        resetImportDialog();
+        return;
+    }
+
+    if (importDropzoneIdle) importDropzoneIdle.hidden = true;
+    if (importDropzoneSelected) importDropzoneSelected.hidden = false;
+    if (importFileName) importFileName.textContent = file.name;
+    if (importFileSize) importFileSize.textContent = formatFileSize(file.size);
+
+    importError.hidden = true;
+    importContainer.hidden = false;
+    importSubmit.disabled = true;
+    importSubmit.textContent = 'Memvalidasi...';
+    if (importStatsSummary) importStatsSummary.innerHTML = '<span>Memverifikasi baris data berkas CSV…</span>';
+    if (importTbody) importTbody.innerHTML = '<tr><td colspan="8" style="padding: 24px 12px; text-align: center; color: var(--muted);">Sedang membaca dan memvalidasi berkas CSV…</td></tr>';
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const result = await api('employees/import-preview', {
+            method: 'POST',
+            body: formData,
+        });
+
+        currentValidatedRows = result.rows || [];
+        const validRows = currentValidatedRows.filter((r) => r._valid !== false);
+        const errorRows = currentValidatedRows.filter((r) => r._valid === false);
+
+        if (countFilterAll) countFilterAll.textContent = currentValidatedRows.length;
+        if (countFilterValid) countFilterValid.textContent = validRows.length;
+        if (countFilterError) countFilterError.textContent = errorRows.length;
+
+        if (importPillTotal) importPillTotal.textContent = `Total: ${currentValidatedRows.length}`;
+        if (importPillValid) importPillValid.textContent = `Valid: ${validRows.length}`;
+        if (importPillError) {
+            importPillError.textContent = `Error: ${errorRows.length}`;
+            importPillError.hidden = errorRows.length === 0;
         }
 
-        importError.hidden = true;
-        importStats.textContent = 'Memvalidasi baris data file CSV…';
-        importContainer.hidden = false;
-        importSubmit.disabled = true;
-        importSubmit.textContent = 'Memvalidasi...';
-        importTbody.innerHTML = '<tr><td colspan="8" style="padding: 12px; text-align: center; color: var(--muted);">Memvalidasi data…</td></tr>';
-
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const result = await api('employees/import-preview', {
-                method: 'POST',
-                body: formData,
-            });
-
-            currentValidatedRows = result.rows || [];
-            const validRows = currentValidatedRows.filter((r) => r._valid !== false);
-
-            if (result.error_count === 0 && validRows.length > 0) {
-                importStats.innerHTML = `<span style="color: var(--success, #16a34a);">✓ Siap diimpor: <b>${result.valid_count}</b> dari <b>${result.total_rows}</b> karyawan valid.</span>`;
-                importSubmit.disabled = false;
-                importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan`;
-            } else if (validRows.length > 0) {
-                importStats.innerHTML = `<span style="color: var(--danger, #dc2626);">⚠️ Ditemukan kesalahan: <b>${result.error_count}</b> baris bermasalah, <b>${result.valid_count}</b> valid dari total <b>${result.total_rows}</b> baris.</span>`;
-                importSubmit.disabled = false;
-                importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan Valid`;
-            } else {
-                importStats.innerHTML = `<span style="color: var(--danger, #dc2626);">❌ Semua baris (${result.total_rows}) memiliki kesalahan. Perbaiki file CSV terlebih dahulu.</span>`;
-                importSubmit.disabled = true;
-                importSubmit.textContent = 'Perbaiki File CSV';
-            }
-
-            if (!currentValidatedRows.length) {
-                importTbody.innerHTML = '<tr><td colspan="8" style="padding: 12px; text-align: center; color: var(--muted);">File tidak memiliki baris data.</td></tr>';
-            } else {
-                importTbody.innerHTML = currentValidatedRows.map((r) => {
-                    const statusBadge = r._valid
-                        ? '<span class="status success" style="font-size: 11px;">Valid</span>'
-                        : '<span class="status danger" style="font-size: 11px; color: #dc2626; background: #fee2e2;">Error</span>';
-                    const empType = r.employment_type === 'contract'
-                        ? `Kontrak${r.ends_on ? ` (${esc(r.ends_on)})` : ''}`
-                        : 'Tetap';
-                    const detail = r._valid
-                        ? `<span style="color: var(--muted); font-size: 11px;">${r.make_account ? `Akun: ${esc(r.email)}` : 'Tanpa akun'}</span>`
-                        : `<div style="color: var(--danger, #dc2626); font-size: 11px; line-height: 1.3;">${(r._errors || []).map(esc).join('<br>')}</div>`;
-
-                    return `
-                        <tr style="border-bottom: 1px solid var(--line, #f1f5f9); ${r._valid ? '' : 'background: #fff5f5;'}">
-                            <td style="padding: 6px 8px; font-weight: 600;">${r._line}</td>
-                            <td style="padding: 6px 8px;">${statusBadge}</td>
-                            <td style="padding: 6px 8px; font-family: monospace;">${esc(r.code)}</td>
-                            <td style="padding: 6px 8px;"><b>${esc(r.name)}</b></td>
-                            <td style="padding: 6px 8px;">${esc(r.department)}</td>
-                            <td style="padding: 6px 8px;">${esc(r.position)}</td>
-                            <td style="padding: 6px 8px;">${esc(empType)}</td>
-                            <td style="padding: 6px 8px;">${detail}</td>
-                        </tr>
-                    `;
-                }).join('');
-            }
-        } catch (err) {
-            importError.textContent = err.message || 'Gagal memproses file CSV.';
-            importError.hidden = false;
-            importContainer.hidden = true;
+        if (result.error_count === 0 && validRows.length > 0) {
+            importStatsSummary.innerHTML = `<span style="color: var(--primary, #15803d); display: flex; align-items: center; gap: 6px;">${icon('check-circle', 18)} <b>Semua baris valid!</b> Siap diimpor ke sistem.</span>`;
+            importSubmit.disabled = false;
+            importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan`;
+            if (importNotice) importNotice.textContent = `Semua ${validRows.length} data karyawan siap didaftarkan.`;
+        } else if (validRows.length > 0) {
+            importStatsSummary.innerHTML = `<span style="color: var(--warning, #b45309); display: flex; align-items: center; gap: 6px;">${icon('alert-circle', 18)} <b>Perhatian:</b> Ditemukan ${result.error_count} baris bermasalah.</span>`;
+            importSubmit.disabled = false;
+            importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan Valid`;
+            if (importNotice) importNotice.textContent = `${validRows.length} baris valid akan diimpor. ${result.error_count} baris bermasalah akan dilewati.`;
+        } else {
+            importStatsSummary.innerHTML = `<span style="color: var(--danger, #dc2626); display: flex; align-items: center; gap: 6px;">${icon('alert-circle', 18)} <b>Tidak dapat diimpor:</b> Seluruh baris data memiliki kesalahan.</span>`;
             importSubmit.disabled = true;
-            importSubmit.textContent = 'Simpan & Impor Karyawan';
+            importSubmit.textContent = 'Perbaiki Berkas CSV';
+            if (importNotice) importNotice.textContent = 'Silakan perbaiki kesalahan kolom pada berkas CSV Anda lalu unggah ulang.';
         }
+
+        setFilter('all');
+    } catch (err) {
+        importError.textContent = err.message || 'Gagal memproses file CSV.';
+        importError.hidden = false;
+        importContainer.hidden = true;
+        importSubmit.disabled = true;
+        importSubmit.textContent = 'Simpan & Impor Karyawan';
+    }
+}
+
+if (importFile) {
+    importFile.addEventListener('change', () => {
+        const file = importFile.files?.[0];
+        handleFileSelection(file);
     });
 }
 
@@ -511,13 +658,47 @@ if (importForm) {
         importSubmit.disabled = true;
         importSubmit.textContent = 'Mengimpor…';
         importError.hidden = true;
+        if (importDropzone) importDropzone.style.pointerEvents = 'none';
+
+        const CHUNK_SIZE = 25;
+        const totalRows = validRows.length;
+        let totalImported = 0;
+
+        setImportProgress(0, totalRows, 'Menyiapkan database dan memproses baris data…', `0 dari ${totalRows} data karyawan diproses`);
 
         try {
-            const res = await api('employees/import', {
-                method: 'POST',
-                body: { rows: validRows },
-            });
-            toast(`Berhasil mengimpor ${res.imported_count} karyawan.`);
+            for (let i = 0; i < totalRows; i += CHUNK_SIZE) {
+                const chunk = validRows.slice(i, i + CHUNK_SIZE);
+                const chunkStart = i + 1;
+                const chunkEnd = Math.min(i + CHUNK_SIZE, totalRows);
+
+                setImportProgress(
+                    i,
+                    totalRows,
+                    `Mengimpor data karyawan baris ${chunkStart}–${chunkEnd}…`,
+                    `${i} dari ${totalRows} data karyawan diproses (${Math.round((i / totalRows) * 100)}%)`
+                );
+
+                const res = await api('employees/import', {
+                    method: 'POST',
+                    body: { rows: chunk },
+                });
+
+                totalImported += (res.imported_count || chunk.length);
+
+                setImportProgress(
+                    chunkEnd,
+                    totalRows,
+                    chunkEnd === totalRows ? 'Menyelesaikan penyimpanan…' : 'Mengimpor data karyawan…',
+                    `${chunkEnd} dari ${totalRows} data karyawan diproses (${Math.round((chunkEnd / totalRows) * 100)}%)`
+                );
+            }
+
+            setImportProgress(totalRows, totalRows, 'Impor data selesai!', `Berhasil mendaftarkan ${totalImported} karyawan baru.`);
+
+            await new Promise((resolve) => setTimeout(resolve, 600));
+
+            toast(`Berhasil mengimpor ${totalImported} karyawan.`);
             importModal.close();
             resetImportDialog();
             refreshEmployeeLookups();
@@ -526,7 +707,10 @@ if (importForm) {
             importError.textContent = err.message || 'Gagal menyimpan data import.';
             importError.hidden = false;
             importSubmit.disabled = false;
-            importSubmit.textContent = `Simpan & Impor (${validRows.length}) Karyawan Valid`;
+            importSubmit.textContent = `Coba Lagi (${validRows.length} Karyawan)`;
+            if (progressWrap) progressWrap.hidden = true;
+        } finally {
+            if (importDropzone) importDropzone.style.pointerEvents = '';
         }
     });
 }

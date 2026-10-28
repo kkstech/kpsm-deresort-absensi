@@ -571,35 +571,85 @@
         <form id="employee-import-form">
             <div class="modal-heading">
                 <div>
-                    <h2 id="employee-import-modal-title">Import Karyawan Massal (CSV)</h2>
-                    <p id="employee-import-modal-hint">Unggah file CSV untuk mendaftarkan banyak data karyawan sekaligus.</p>
+                    <h2 id="employee-import-modal-title">Impor Data Karyawan (CSV)</h2>
+                    <p id="employee-import-modal-hint">Daftarkan data karyawan secara massal menggunakan berkas spreadsheet CSV.</p>
                 </div>
                 <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
             </div>
             <div class="modal-body">
-                <div class="form-fields">
-                    <div style="background: var(--surface-soft, #f8fafc); border: 1px dashed var(--line, #cbd5e1); border-radius: 10px; padding: 16px; text-align: center;">
-                        <input type="file" id="employee-import-file" accept=".csv,text/csv,text/plain" style="margin-bottom: 8px; width: auto; max-width: 100%;">
-                        <div style="font-size: 12px; color: var(--muted, #64748b); line-height: 1.5;">
-                            Mendukung pemisah koma (<code>,</code>) atau titik koma (<code>;</code>). Format UTF-8 / Excel CSV (maks. 5MB).<br>
-                            Gunakan format kolom resmi: <button type="button" id="employee-template-modal-btn" class="text-button" style="display: inline; padding: 0; min-height: auto; font-size: 12px; color: var(--primary, #1e40af); text-decoration: underline; font-weight: 600; cursor: pointer;">Unduh Template CSV</button>
+                <div class="form-fields" style="display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Langkah 1: Template CSV -->
+                    <div class="import-template-banner">
+                        <div class="import-template-info">
+                            <div class="import-template-icon">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+                            </div>
+                            <div class="import-template-text">
+                                <strong>Format Kolom Spreadsheet</strong>
+                                <small>Gunakan template resmi sistem agar format kode, nama, departemen, dan jabatan sesuai.</small>
+                            </div>
+                        </div>
+                        <button type="button" id="employee-template-modal-btn" class="secondary-button" style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; height: 38px; min-height: 38px; padding: 0 14px; white-space: nowrap;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            <span>Unduh Template CSV</span>
+                        </button>
+                    </div>
+
+                    <!-- Langkah 2: Upload Area / Dropzone -->
+                    <div class="import-dropzone" id="employee-import-dropzone">
+                        <input type="file" id="employee-import-file" accept=".csv,text/csv,text/plain" style="position: absolute; inset: 0; opacity: 0; cursor: pointer; z-index: 10;">
+                        <div id="employee-import-dropzone-idle" style="display: flex; flex-direction: column; align-items: center;">
+                            <div class="import-dropzone-icon">
+                                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/><polyline points="16 16 12 12 8 16"/></svg>
+                            </div>
+                            <div class="import-dropzone-title">Pilih atau Tarik Berkas CSV ke Sini</div>
+                            <div class="import-dropzone-desc">Mendukung berkas <code>.csv</code> UTF-8 dengan pemisah koma (<code>,</code>) atau titik koma (<code>;</code>). Maksimal 5MB.</div>
+                            <button type="button" class="secondary-button" style="pointer-events: none; font-size: 13px; height: 36px; min-height: 36px;">Telusuri Berkas</button>
+                        </div>
+                        <div id="employee-import-dropzone-selected" class="import-selected-file" hidden>
+                            <div class="import-file-meta">
+                                <div class="import-file-badge">CSV</div>
+                                <div class="import-file-info">
+                                    <div class="import-file-name" id="employee-import-file-name">-</div>
+                                    <div class="import-file-size" id="employee-import-file-size">-</div>
+                                </div>
+                            </div>
+                            <button type="button" id="employee-import-file-clear" class="secondary-button" style="font-size: 12px; height: 34px; min-height: 34px; padding: 0 12px; z-index: 20;">Ganti File</button>
                         </div>
                     </div>
 
-                    <div id="employee-import-preview-container" hidden>
-                        <div id="employee-import-stats" style="margin: 4px 0; font-size: 13px; font-weight: 600;"></div>
-                        <div style="max-height: 280px; overflow: auto; border: 1px solid var(--line, #e2e8f0); border-radius: 8px;">
-                            <table class="data-table" style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                    <!-- Langkah 3: Pratinjau & Validasi Data -->
+                    <div id="employee-import-preview-container" hidden style="display: flex; flex-direction: column; gap: 10px;">
+                        <div class="import-stats-banner">
+                            <div class="import-stats-summary" id="employee-import-stats-summary">
+                                <span>Hasil Verifikasi Berkas</span>
+                            </div>
+                            <div class="import-stats-pills">
+                                <span class="import-pill total" id="import-pill-total">Total: 0</span>
+                                <span class="import-pill valid" id="import-pill-valid">Valid: 0</span>
+                                <span class="import-pill error" id="import-pill-error" hidden>Error: 0</span>
+                            </div>
+                        </div>
+
+                        <!-- Filter Tabs -->
+                        <div class="import-filter-tabs">
+                            <button type="button" class="import-filter-btn active" data-filter="all" id="import-filter-all">Semua Baris (<span id="count-filter-all">0</span>)</button>
+                            <button type="button" class="import-filter-btn" data-filter="valid" id="import-filter-valid">Siap Diimpor (<span id="count-filter-valid">0</span>)</button>
+                            <button type="button" class="import-filter-btn" data-filter="error" id="import-filter-error">Bermasalah (<span id="count-filter-error">0</span>)</button>
+                        </div>
+
+                        <div class="import-table-wrap">
+                            <table class="import-table">
                                 <thead>
                                     <tr>
-                                        <th style="padding: 8px; text-align: left;">Baris</th>
-                                        <th style="padding: 8px; text-align: left;">Status</th>
-                                        <th style="padding: 8px; text-align: left;">Kode</th>
-                                        <th style="padding: 8px; text-align: left;">Nama</th>
-                                        <th style="padding: 8px; text-align: left;">Departemen</th>
-                                        <th style="padding: 8px; text-align: left;">Jabatan</th>
-                                        <th style="padding: 8px; text-align: left;">Status Kerja</th>
-                                        <th style="padding: 8px; text-align: left;">Keterangan / Error</th>
+                                        <th style="width: 48px; text-align: center;">#</th>
+                                        <th style="width: 80px;">Status</th>
+                                        <th style="width: 100px;">Kode</th>
+                                        <th>Nama Lengkap</th>
+                                        <th>Departemen</th>
+                                        <th>Jabatan</th>
+                                        <th>Status Kerja</th>
+                                        <th style="min-width: 180px;">Keterangan / Validasi</th>
                                     </tr>
                                 </thead>
                                 <tbody id="employee-import-table-body"></tbody>
@@ -607,12 +657,34 @@
                         </div>
                     </div>
 
+                    <!-- Info Progress Impor Berkas -->
+                    <div id="employee-import-progress-wrap" hidden class="import-progress-card">
+                        <div class="import-progress-header">
+                            <div class="import-progress-label">
+                                <svg class="import-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>
+                                <strong id="employee-import-progress-status">Memproses impor data…</strong>
+                            </div>
+                            <span class="import-progress-pct" id="employee-import-progress-pct">0%</span>
+                        </div>
+                        <div class="import-progress-bar-bg">
+                            <div class="import-progress-bar-fill" id="employee-import-progress-fill" style="width: 0%;"></div>
+                        </div>
+                        <div class="import-progress-detail" id="employee-import-progress-detail">
+                            0 dari 0 data karyawan diproses
+                        </div>
+                    </div>
+
                     <p class="form-error" id="employee-import-error" role="alert" hidden></p>
                 </div>
             </div>
-            <div class="modal-actions">
-                <button type="button" class="secondary-button" data-close-modal>Batal</button>
-                <button type="submit" class="primary-button" id="employee-import-submit" disabled>Simpan & Impor Karyawan</button>
+            <div class="modal-actions" style="justify-content: space-between; align-items: center;">
+                <div style="font-size: 12px; color: var(--muted);" id="employee-import-notice">
+                    Baris dengan kesalahan format akan dilewati secara otomatis.
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                    <button type="submit" class="primary-button" id="employee-import-submit" disabled>Simpan & Impor Karyawan</button>
+                </div>
             </div>
         </form>
     </dialog>
