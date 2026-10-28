@@ -29,6 +29,7 @@
         <symbol id="i-briefcase" viewBox="0 0 24 24"><path d="M3 8h18v12H3zM8 8V5h8v3M3 13h18M10 13v2h4v-2"/></symbol>
         <symbol id="i-map-pin" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1116 0zM12 10a2 2 0 100-4 2 2 0 000 4z"/></symbol>
         <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21a8 8 0 00-16 0M12 13a5 5 0 100-10 5 5 0 000 10z"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Lewati ke konten</a>
@@ -58,7 +59,13 @@
                     @endif
                     <span><strong>{{ $me->name }}</strong><small>{{ ['super_admin' => 'Super Admin', 'admin' => 'Admin', 'supervisor' => 'Supervisor'][$me->role] ?? $me->role }}</small></span>
                 </div>
-                <form method="post" action="{{ route('logout') }}">@csrf<button type="submit" class="nav-item logout-button">Keluar</button></form>
+                <form method="post" action="{{ route('logout') }}" class="logout-form">
+                    @csrf
+                    <button type="submit" class="nav-item logout-button">
+                        <svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg>
+                        <span>Keluar</span>
+                    </button>
+                </form>
             </div>
         </aside>
 
@@ -143,16 +150,94 @@
                     <p class="calendar-help">Jadwal bisa diubah sampai sesi pertama mulai. Setelah itu, ubah lewat koreksi.</p>
                 </section>
                 <section class="view attendance-view" data-view-panel="attendance">
-                    <div class="page-heading"><div><p data-site-name>{{ $siteSettings->site_name }}</p><h1>Monitoring Absensi</h1><span>Catatan per sesi, termasuk event offline dan checkout provisional.</span></div></div>
-                    <form class="attendance-filters panel" id="monitoring-filters">
-                        <label>Dari<input type="date" name="from" required></label>
-                        <label>Sampai<input type="date" name="to" required></label>
-                        <label>Departemen<select name="department_id"><option value="">Semua departemen</option></select></label>
-                        <label>Karyawan<select name="employee_id"><option value="">Semua karyawan</option></select></label>
-                        <button type="submit" class="secondary-button">Terapkan</button>
-                    </form>
+                    <div class="page-heading">
+                        <div>
+                            <p data-site-name>{{ $siteSettings->site_name }}</p>
+                            <h1>Monitoring Absensi</h1>
+                            <span>Catatan absensi per sesi kerja, log check-in/out, toleransi terlambat, dan review.</span>
+                        </div>
+                    </div>
+
+                    <div class="monitoring-filter-card panel" style="padding: 16px 20px; margin-bottom: 20px;">
+                        <form class="monitoring-filter-form" id="monitoring-filters">
+                            <div class="monitoring-presets-bar">
+                                <span class="allowance-preset-label">Periode Cepat:</span>
+                                <div class="monitoring-preset-chips">
+                                    <button type="button" class="preset-chip active" data-monitoring-preset="today">Hari Ini</button>
+                                    <button type="button" class="preset-chip" data-monitoring-preset="yesterday">Kemarin</button>
+                                    <button type="button" class="preset-chip" data-monitoring-preset="week">7 Hari Terakhir</button>
+                                    <button type="button" class="preset-chip" data-monitoring-preset="month">Bulan Ini</button>
+                                </div>
+                            </div>
+                            <div class="monitoring-inputs-grid">
+                                <label>
+                                    <span>Dari Tanggal</span>
+                                    <input type="date" name="from" id="monitoring-from" required>
+                                </label>
+                                <label>
+                                    <span>Sampai Tanggal</span>
+                                    <input type="date" name="to" id="monitoring-to" required>
+                                </label>
+                                <label>
+                                    <span>Departemen</span>
+                                    <select name="department_id" id="monitoring-dept">
+                                        <option value="">Semua departemen</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Karyawan</span>
+                                    <select name="employee_id" id="monitoring-employee">
+                                        <option value="">Semua karyawan</option>
+                                    </select>
+                                </label>
+                                <label style="flex: 1 1 200px;">
+                                    <span>Cari Nama / NIK</span>
+                                    <input type="search" name="q" id="monitoring-q" placeholder="Ketik nama atau kode…">
+                                </label>
+                                <div class="monitoring-action-btn">
+                                    <button type="submit" class="primary-button" style="height: 42px; min-height: 42px; padding: 0 20px;">Terapkan Filter</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Summary Stats Counter Strip -->
+                    <div class="monitoring-stats-strip" id="monitoring-stats" style="margin-bottom: 20px;">
+                        <div class="monitoring-stat-pill">
+                            <span class="stat-num" id="stat-total-sessions">0</span>
+                            <span class="stat-label">Total Sesi</span>
+                        </div>
+                        <div class="monitoring-stat-pill success">
+                            <span class="stat-num" id="stat-complete-sessions">0</span>
+                            <span class="stat-label">Hadir / Selesai</span>
+                        </div>
+                        <div class="monitoring-stat-pill blue">
+                            <span class="stat-num" id="stat-inprogress-sessions">0</span>
+                            <span class="stat-label">Sedang Bekerja</span>
+                        </div>
+                        <div class="monitoring-stat-pill warning">
+                            <span class="stat-num" id="stat-late-sessions">0</span>
+                            <span class="stat-label">Terlambat</span>
+                        </div>
+                        <div class="monitoring-stat-pill danger">
+                            <span class="stat-num" id="stat-review-sessions">0</span>
+                            <span class="stat-label">Perlu Review</span>
+                        </div>
+                    </div>
+
                     <p class="form-error" id="monitoring-error" role="alert" hidden></p>
-                    <section class="panel monitoring-panel" aria-label="Daftar absensi"><div class="panel-heading"><div><h2>Absensi per sesi</h2><p id="monitoring-count" aria-live="polite">Memuat data…</p></div></div><div id="monitoring-table" aria-live="polite"><p class="list-empty">Memuat data…</p></div><div id="monitoring-pagination" class="table-pagination"></div></section>
+                    <section class="panel monitoring-panel" aria-label="Daftar absensi">
+                        <div class="panel-heading">
+                            <div>
+                                <h2>Absensi per sesi</h2>
+                                <p id="monitoring-count" aria-live="polite">Memuat data…</p>
+                            </div>
+                        </div>
+                        <div id="monitoring-table" aria-live="polite">
+                            <p class="list-empty">Memuat data…</p>
+                        </div>
+                        <div id="monitoring-pagination" class="table-pagination"></div>
+                    </section>
                 </section>
                 <section class="view workflow-view" data-view-panel="requests">
                     <div class="page-heading">
@@ -277,10 +362,14 @@
                     </div>
                     <div class="panel">
                         <div class="toolbar">
-                            <label class="sr-only" for="employee-q">Cari nama atau kode</label>
-                            <input id="employee-q" type="search" placeholder="Cari nama atau kode" autocomplete="off">
+                            <label class="sr-only" for="employee-q">Cari nama karyawan</label>
+                            <input id="employee-q" type="search" placeholder="Cari nama karyawan..." autocomplete="off">
+                            <label class="sr-only" for="employee-code">Kode / NIK</label>
+                            <input id="employee-code" type="search" placeholder="Kode / NIK..." autocomplete="off" style="max-width: 150px;">
                             <label class="sr-only" for="employee-department">Departemen</label>
                             <select id="employee-department"><option value="">Semua departemen</option></select>
+                            <label class="sr-only" for="employee-level">Level</label>
+                            <select id="employee-level"><option value="">Semua level</option><option value="none">Belum diatur</option></select>
                             <label class="sr-only" for="employee-status">Status</label>
                             <select id="employee-status"><option value="active">Aktif</option><option value="inactive">Nonaktif</option><option value="">Semua status</option></select>
                         </div>
@@ -475,6 +564,13 @@
                                     <span>Departemen</span>
                                     <select id="allowance-dept-filter">
                                         <option value="">Semua Departemen</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Level Karyawan</span>
+                                    <select id="allowance-level-filter">
+                                        <option value="">Semua Level</option>
+                                        <option value="none">Belum Diatur</option>
                                     </select>
                                 </label>
                                 <label>

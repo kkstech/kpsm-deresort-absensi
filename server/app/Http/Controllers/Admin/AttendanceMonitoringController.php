@@ -79,6 +79,7 @@ class AttendanceMonitoringController extends Controller
         $data = $request->validate([
             'from' => ['sometimes', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'date_format:Y-m-d'],
+            'q' => ['nullable', 'string', 'max:100'],
             'department_id' => ['nullable', 'integer'],
             'employee_id' => ['nullable', 'integer'],
             'page' => ['sometimes', 'integer', 'min:1'],
@@ -105,7 +106,8 @@ class AttendanceMonitoringController extends Controller
             ->whereIn('status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
             ->whereIn('employee_id', $employeeIds)
             ->when($filters['department_id'] ?? null, fn (Builder $query, $id) => $query->whereHas('employee', fn (Builder $employee) => $employee->where('department_id', $id)))
-            ->when($filters['employee_id'] ?? null, fn (Builder $query, $id) => $query->where('employee_id', $id));
+            ->when($filters['employee_id'] ?? null, fn (Builder $query, $id) => $query->where('employee_id', $id))
+            ->when($filters['q'] ?? null, fn (Builder $query, $term) => $query->whereHas('employee', fn (Builder $e) => $e->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")));
     }
 
     private function sessions(User $user, array $filters): Builder
@@ -135,7 +137,13 @@ class AttendanceMonitoringController extends Controller
         return [
             'id' => $session->id,
             'work_date' => $assignment->work_date,
-            'employee' => ['id' => $employee->id, 'name' => $employee->name, 'code' => $employee->code, 'department' => $employee->department?->name],
+            'employee' => [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'code' => $employee->code,
+                'department' => $employee->department?->name,
+                'avatar_url' => $employee->avatar_url,
+            ],
             'shift' => ['name' => $assignment->template_name, 'seq' => $session->seq, 'start_at' => WorkTime::iso($session->start_at), 'end_at' => WorkTime::iso($session->end_at)],
             'attendance' => [
                 'state' => $state,

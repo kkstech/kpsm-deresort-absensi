@@ -6,6 +6,7 @@ const table = $('#allowance-table');
 const searchInput = $('#allowance-search');
 const statusSelect = $('#allowance-status-filter');
 const deptSelect = $('#allowance-dept-filter');
+const levelSelect = $('#allowance-level-filter');
 const presetButtons = $$('.preset-chip');
 
 const money = (amount) => `Rp ${Number(amount ?? 0).toLocaleString('id-ID')}`;
@@ -82,14 +83,35 @@ async function initDepartments() {
     } catch (_) {}
 }
 
+async function initLevels() {
+    if (!levelSelect || levelSelect.options.length > 2) return;
+    try {
+        const levels = await lookup('employee-levels');
+        (levels ?? []).forEach((l) => {
+            const opt = document.createElement('option');
+            opt.value = l.id;
+            opt.textContent = `${l.name} (${l.code})`;
+            levelSelect.appendChild(opt);
+        });
+    } catch (_) {}
+}
+
 function applyFilters() {
     const q = (searchInput?.value ?? '').trim().toLowerCase();
     const status = statusSelect?.value ?? '';
     const deptId = deptSelect?.value ?? '';
+    const levelId = levelSelect?.value ?? '';
 
     return allRows.filter((row) => {
         if (status && row.status !== status) return false;
         if (deptId && String(row.employee?.department_id) !== String(deptId)) return false;
+        if (levelId === 'none') {
+            const rowLevel = row.level_id ?? row.employee?.level_id;
+            if (rowLevel) return false;
+        } else if (levelId) {
+            const rowLevel = row.level_id ?? row.employee?.level_id;
+            if (String(rowLevel) !== String(levelId)) return false;
+        }
         if (q) {
             const name = (row.employee?.name ?? '').toLowerCase();
             const code = (row.employee?.code ?? '').toLowerCase();
@@ -133,6 +155,7 @@ function renderTable() {
 
         const [tone, label] = state[row.status] ?? ['neutral', row.status];
         const { date, day } = formatDateIndo(row.work_date);
+        const levelName = row.rate_snapshot?.level_name ?? row.employee?.level?.name ?? (row.level_id || row.employee?.level_id ? 'Level diatur' : 'Tanpa level');
 
         const initial = (row.employee?.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
         const avatar = row.employee?.avatar_url
@@ -152,7 +175,7 @@ function renderTable() {
                         ${avatar}
                         <div>
                             <b>${esc(row.employee?.name ?? 'Karyawan')}</b>
-                            <small style="color:var(--muted);">${esc(row.employee?.code ?? '-')} · ${esc(row.employee?.department?.name ?? 'Tanpa Departemen')}</small>
+                            <small style="color:var(--muted);">${esc(row.employee?.code ?? '-')} · ${esc(row.employee?.department?.name ?? 'Tanpa Departemen')} · <span style="display:inline-block;padding:0 5px;border-radius:4px;font-size:10px;font-weight:600;background:var(--subtle,#eef2f6);color:var(--ink,#1e293b);">${esc(levelName)}</span></small>
                         </div>
                     </div>
                 </td>
@@ -209,7 +232,7 @@ async function load() {
     table.setAttribute('aria-busy', 'true');
 
     try {
-        await initDepartments();
+        await Promise.all([initDepartments(), initLevels()]);
         const fromVal = form.elements.from.value;
         const toVal = form.elements.to.value;
 
@@ -274,6 +297,7 @@ searchInput?.addEventListener('input', () => {
 
 statusSelect?.addEventListener('change', renderTable);
 deptSelect?.addEventListener('change', renderTable);
+levelSelect?.addEventListener('change', renderTable);
 
 const defaultRange = getRange('month');
 if (form.elements.from) form.elements.from.value = defaultRange.from;

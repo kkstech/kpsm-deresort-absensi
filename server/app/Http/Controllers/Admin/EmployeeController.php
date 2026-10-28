@@ -26,7 +26,9 @@ class EmployeeController extends Controller
     {
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
+            'code' => ['nullable', 'string', 'max:50'],
             'department_id' => ['nullable', 'integer'],
+            'level_id' => ['nullable', 'string', 'max:32'],
             'status' => ['nullable', 'in:active,inactive'],
         ]);
 
@@ -34,9 +36,16 @@ class EmployeeController extends Controller
             ->with(['department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,role,is_active'])
             ->with(['level:id,code,name', 'employmentTerms'])
             ->withCount(['devices' => fn (Builder $q) => $q->whereNull('revoked_at')])
-            ->when($filters['q'] ?? null, fn (Builder $q, $term) => $q->where(fn (Builder $w) => $w
-                ->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%")))
+            ->when($filters['q'] ?? null, fn (Builder $q, $term) => $q->where('name', 'like', "%{$term}%"))
+            ->when($filters['code'] ?? null, fn (Builder $q, $code) => $q->where('code', 'like', "%{$code}%"))
             ->when($filters['department_id'] ?? null, fn (Builder $q, $id) => $q->where('department_id', $id))
+            ->when(isset($filters['level_id']) && $filters['level_id'] !== '', function (Builder $q) use ($filters) {
+                if ($filters['level_id'] === 'none') {
+                    $q->whereNull('level_id');
+                } else {
+                    $q->where('level_id', (int) $filters['level_id']);
+                }
+            })
             ->when($filters['status'] ?? null, fn (Builder $q, $status) => $q->where('status', $status))
             ->orderBy('name')
             ->get();
@@ -73,7 +82,7 @@ class EmployeeController extends Controller
             'account_password' => ['nullable', 'string', 'min:8', 'max:255'],
         ]);
 
-        $employee = DB::transaction(function () use ($data, $account) {
+        $employee = DB::transaction(function () use ($data, $account, $request) {
             $accountEmail = ! empty($account['account_email']) ? Str::lower($account['account_email']) : (! empty($data['email']) && ! empty($account['account_password']) ? Str::lower($data['email']) : null);
             if ($accountEmail) {
                 $existingUser = User::query()->where('email', $accountEmail)->first();
@@ -109,6 +118,14 @@ class EmployeeController extends Controller
             $employee = Employee::query()->create($data);
             $employee->placements()->create(['department_id' => $employee->department_id, 'effective_from' => $employee->started_on]);
             $employee->employmentTerms()->create(['type' => 'unknown', 'starts_on' => $employee->started_on]);
+            if ($employee->level_id) {
+                $employee->levelAssignments()->create([
+                    'level_id' => $employee->level_id,
+                    'effective_from' => $employee->started_on,
+                    'reason' => 'Penetapan level awal karyawan',
+                    'created_by' => $request->user()?->id,
+                ]);
+            }
             Audit::log('employees.created', $employee);
 
             return $employee;
@@ -122,7 +139,7 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $data = $this->validated($request, $employee);
 
-        DB::transaction(function () use ($employee, $data) {
+        DB::transaction(function () use ($employee, $data, $request) {
             $before = $employee->attributesToArray();
             if ($employee->user && ! empty($employee->user->email)) {
                 $data['email'] = $employee->user->email;
@@ -130,6 +147,26 @@ class EmployeeController extends Controller
             $employee->update($data);
             if ($employee->wasChanged('department_id')) {
                 $employee->placements()->updateOrCreate(['effective_from' => WorkTime::today()], ['department_id' => $employee->department_id]);
+            }
+            if ($employee->wasChanged('level_id')) {
+                $today = WorkTime::today();
+                if ($employee->level_id) {
+                    $previous = $employee->levelAssignments()
+                        ->where('effective_from', '<', $today)
+                        ->orderByDesc('effective_from')
+                        ->first();
+                    if ($previous && (! $previous->effective_to || $previous->effective_to >= $today)) {
+                        $previous->update(['effective_to' => CarbonImmutable::parse($today)->subDay()->toDateString()]);
+                    }
+                    $employee->levelAssignments()->updateOrCreate(
+                        ['effective_from' => $today],
+                        [
+                            'level_id' => $employee->level_id,
+                            'reason' => 'Pembaruan data karyawan oleh admin',
+                            'created_by' => $request->user()?->id,
+                        ]
+                    );
+                }
             }
             if ($user = $employee->user) {
                 $userUpdates = ['name' => $employee->name];
@@ -153,7 +190,7 @@ class EmployeeController extends Controller
             Audit::log('employees.updated', $employee, $before);
         });
 
-        return response()->json(['data' => $employee->fresh()]);
+        return response()->json(['data' => $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active'])]);
     }
 
     public function unlinkedUsers(): JsonResponse
@@ -227,7 +264,7 @@ class EmployeeController extends Controller
             Audit::log('employees.user_unlinked', $employee, $before, ['user_id' => $userId]);
         });
 
-        return response()->json(['data' => $employee->fresh()]);
+        return response()->json(['data' => $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active'])]);
     }
 
     /** Buat akun bila belum ada, atau ganti password akun yang ada. */
@@ -305,7 +342,7 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $data = $request->validate(['ended_on' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:'.$employee->started_on]]);
 
-        DB::transaction(function () use ($employee, $data) {
+        DB::transaction(function () use ($employee, $data, $request) {
             $before = $employee->attributesToArray();
             $employee->update(['status' => 'inactive', 'ended_on' => $data['ended_on'] ?? WorkTime::today()]);
             if ($user = $employee->user) {
@@ -317,7 +354,7 @@ class EmployeeController extends Controller
             Audit::log('employees.deactivated', $employee, $before);
         });
 
-        return response()->json(['data' => $employee->fresh()]);
+        return response()->json(['data' => $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active'])]);
     }
 
     public function setEmployment(Request $request, Employee $employee): JsonResponse
@@ -479,6 +516,7 @@ class EmployeeController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
             'position_id' => ['required', 'integer', 'exists:positions,id'],
+            'level_id' => ['nullable', 'integer', 'exists:employee_levels,id'],
             'work_location_id' => ['nullable', 'integer', 'exists:work_locations,id'],
             'status' => ['required', 'in:active,inactive'],
             'phone' => ['nullable', 'string', 'max:32'],

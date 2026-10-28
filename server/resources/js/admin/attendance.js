@@ -90,21 +90,107 @@ async function loadDashboard(filters = filterValues(dashboardForm)) {
     }
 }
 
+function getMonitoringRange(preset) {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmt = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+    if (preset === 'today') {
+        const t = fmt(d);
+        return { from: t, to: t };
+    }
+    if (preset === 'yesterday') {
+        const y = new Date(d);
+        y.setDate(d.getDate() - 1);
+        const yStr = fmt(y);
+        return { from: yStr, to: yStr };
+    }
+    if (preset === 'week') {
+        const past = new Date(d);
+        past.setDate(d.getDate() - 6);
+        return { from: fmt(past), to: fmt(d) };
+    }
+    if (preset === 'month') {
+        const first = new Date(d.getFullYear(), d.getMonth(), 1);
+        return { from: fmt(first), to: fmt(d) };
+    }
+    return { from: today, to: today };
+}
+
 function renderMonitoring({ data, meta }) {
     monitoringRows = new Map(data.map((row) => [String(row.id), row]));
     $('#monitoring-count').textContent = `${meta.total} sesi pada rentang ini`;
+
+    let completeCount = 0;
+    let inProgressCount = 0;
+    let lateCount = 0;
+    let reviewCount = 0;
+
+    data.forEach((row) => {
+        const s = row.attendance.state;
+        if (s === 'COMPLETE') completeCount++;
+        else if (s === 'IN_PROGRESS') inProgressCount++;
+        else if (s === 'PRESENT_LATE' || s === 'PRESENT_LATE_PERMITTED') lateCount++;
+        else if (s === 'NEEDS_REVIEW') reviewCount++;
+    });
+
+    const statTotal = $('#stat-total-sessions');
+    if (statTotal) statTotal.textContent = meta.total;
+    const statComplete = $('#stat-complete-sessions');
+    if (statComplete) statComplete.textContent = completeCount;
+    const statInProgress = $('#stat-inprogress-sessions');
+    if (statInProgress) statInProgress.textContent = inProgressCount;
+    const statLate = $('#stat-late-sessions');
+    if (statLate) statLate.textContent = lateCount;
+    const statReview = $('#stat-review-sessions');
+    if (statReview) statReview.textContent = reviewCount;
+
     const container = $('#monitoring-table');
     if (!data.length) {
-        container.innerHTML = '<p class="list-empty">Tidak ada sesi untuk filter yang dipilih.</p>';
+        container.innerHTML = `
+            <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
+                <div style="font-size: 32px; margin-bottom: 8px;">📋</div>
+                <p style="margin: 0; font-size: 14px; font-weight: 600; color: var(--ink);">Tidak ada catatan absensi untuk filter yang dipilih.</p>
+                <small style="display: block; margin-top: 4px;">Ubah filter atau rentang tanggal untuk melihat data lainnya.</small>
+            </div>
+        `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col">Tanggal</th><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Jadwal</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th><th scope="col">Menit valid</th><th scope="col">Lembur</th>${isAdmin ? '<th scope="col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" style="min-width:110px;">Tanggal</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:140px;">Sesi</th><th scope="col" style="min-width:120px;">Jadwal</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
             const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
-            return `<tr><td data-label="Tanggal">${formatDate(row.work_date)}</td><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · sesi ${row.shift.seq}</td><td data-label="Jadwal">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${attendance.provisional_out_at && !attendance.check_out_at ? ' · provisional' : ''}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small>${esc(attendance.review_reason)}</small>` : ''}</td><td data-label="Menit valid" class="number-cell">${attendance.verified_minutes}</td>${otCell}${actions}</tr>`;
+
+            const initial = (row.employee.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+            const avatar = row.employee.avatar_url
+                ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;">`
+                : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;">${esc(initial)}</span>`;
+
+            return `<tr>
+                <td data-label="Tanggal"><b>${formatDate(row.work_date)}</b></td>
+                <td data-label="Karyawan">
+                    <div style="display:flex;align-items:center;">
+                        ${avatar}
+                        <div>
+                            <b>${esc(row.employee.name)}</b>
+                            <small style="color:var(--muted);">${esc(row.employee.code ?? '-')} · ${esc(row.employee.department ?? 'Tanpa departemen')}</small>
+                        </div>
+                    </div>
+                </td>
+                <td data-label="Sesi">
+                    <span class="status neutral" style="font-size:11px;font-weight:600;padding:2px 8px;">${esc(row.shift.name)}</span>
+                    <small style="color:var(--muted);margin-top:2px;display:block;">Sesi ${row.shift.seq}</small>
+                </td>
+                <td data-label="Jadwal"><span style="font-family:monospace;font-weight:600;font-size:12.5px;">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</span></td>
+                <td data-label="Masuk">${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
+                <td data-label="Pulang">${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}</td>
+                <td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(attendance.review_reason)}</small>` : ''}</td>
+                <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
+                ${otCell}
+                ${actions}
+            </tr>`;
         }).join('')}</tbody></table></div>`;
     }
 
@@ -747,6 +833,37 @@ export async function initAttendance() {
     });
     monitoringForm.addEventListener('submit', (event) => {
         event.preventDefault();
+        monitoringFilters = filterValues(monitoringForm);
+        loadMonitoring(1);
+    });
+
+    const monitoringPresets = $$('[data-monitoring-preset]', monitoringForm);
+    monitoringPresets.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            monitoringPresets.forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            const { from, to } = getMonitoringRange(btn.dataset.monitoringPreset);
+            monitoringForm.elements.from.value = from;
+            monitoringForm.elements.to.value = to;
+            monitoringFilters = filterValues(monitoringForm);
+            loadMonitoring(1);
+        });
+    });
+
+    let monitoringSearchDebounce;
+    $('#monitoring-q')?.addEventListener('input', () => {
+        clearTimeout(monitoringSearchDebounce);
+        monitoringSearchDebounce = setTimeout(() => {
+            monitoringFilters = filterValues(monitoringForm);
+            loadMonitoring(1);
+        }, 300);
+    });
+
+    monitoringForm.elements.department_id?.addEventListener('change', () => {
+        monitoringFilters = filterValues(monitoringForm);
+        loadMonitoring(1);
+    });
+    monitoringForm.elements.employee_id?.addEventListener('change', () => {
         monitoringFilters = filterValues(monitoringForm);
         loadMonitoring(1);
     });

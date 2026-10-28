@@ -2,31 +2,43 @@ import { api, invalidate, isAdmin, lookup } from './api';
 import { $, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderTable, toast } from './ui';
 
 const table = $('#employee-table');
-const filters = { q: $('#employee-q'), department_id: $('#employee-department'), status: $('#employee-status') };
+const filters = {
+    q: $('#employee-q'),
+    code: $('#employee-code'),
+    department_id: $('#employee-department'),
+    level_id: $('#employee-level'),
+    status: $('#employee-status'),
+};
 let rows = [];
 let debounce;
 
 const opts = (list, label = (x) => x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 
 async function fields(withAccount, employee) {
-    const [departments, positions, locations] = await Promise.all([lookup('departments'), lookup('positions'), lookup('locations')]);
+    const [departments, positions, locations, levels] = await Promise.all([
+        lookup('departments'),
+        lookup('positions'),
+        lookup('locations'),
+        lookup('employee-levels'),
+    ]);
     const list = [
-        { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maks 5MB.' },
-        { name: 'code', label: 'Kode karyawan', required: true, maxlength: 32, hint: 'Huruf, angka, titik, strip. Contoh: FO-001' },
+        { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maks 5MB.', fullWidth: true },
+        { name: 'code', label: 'Kode karyawan', required: true, maxlength: 32, hint: 'Contoh: FO-001' },
         { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120 },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
+        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Menentukan dasar tarif tunjangan makan dan transport.' },
         { name: 'work_location_id', label: 'Lokasi kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
-        { name: 'status', label: 'Status', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
-        { name: 'phone', label: 'No. HP', type: 'tel', maxlength: 32, autocomplete: 'off' },
-        { name: 'email', label: 'Email', type: 'email', maxlength: 255, hint: employee?.user ? `Mengikuti akun login: ${employee.user.email}` : 'Email pribadi karyawan.' },
+        { name: 'status', label: 'Status karyawan', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
+        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off' },
+        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Mengikuti akun app login: ${employee.user.email}` : 'Email pribadi karyawan.', fullWidth: true },
     ];
-    if (!employee) list.splice(6, 0, { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true });
+    if (!employee) list.splice(8, 0, { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: true });
     if (withAccount) {
         list.push(
-            { name: 'make_account', label: 'Buat akun app sekarang', type: 'checkbox' },
+            { name: 'make_account', label: 'Buat akun mobile app sekarang', type: 'checkbox', fullWidth: true },
             { name: 'account_email', label: 'Email login app', type: 'email', showIf: (v) => v.make_account },
-            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter. Berikan langsung ke karyawan.', showIf: (v) => v.make_account },
+            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter.', showIf: (v) => v.make_account },
         );
     }
     return list;
@@ -35,7 +47,15 @@ async function fields(withAccount, employee) {
 async function load() {
     loadingInto(table);
     try {
-        rows = (await api('employees', { query: { q: filters.q.value.trim(), department_id: filters.department_id.value, status: filters.status.value } })).data;
+        rows = (await api('employees', {
+            query: {
+                q: filters.q.value.trim(),
+                code: filters.code?.value.trim() ?? '',
+                department_id: filters.department_id.value,
+                level_id: filters.level_id?.value ?? '',
+                status: filters.status.value,
+            },
+        })).data;
         render();
     } catch (error) {
         errorInto(table, error);
@@ -90,10 +110,16 @@ function render() {
 
 async function openEmployee(employee) {
     openForm({
-        title: employee ? `Ubah ${employee.name}` : 'Tambah karyawan',
-        hint: employee ? 'Pindah departemen tercatat di riwayat penempatan.' : 'Akun app bisa dibuat sekarang atau nanti.',
+        title: employee ? `Ubah Data · ${employee.name}` : 'Tambah Karyawan Baru',
+        hint: employee ? 'Pindah departemen atau level tunjangan otomatis tercatat di riwayat penempatan.' : 'Akun app bisa dibuat sekarang atau nanti.',
+        grid: true,
         fields: await fields(!employee, employee),
-        values: employee ? { ...employee, email: employee.user?.email || employee.email, avatar: employee.avatar_url } : {},
+        values: employee ? {
+            ...employee,
+            level_id: employee.level_id ?? employee.level?.id ?? '',
+            email: employee.user?.email || employee.email,
+            avatar: employee.avatar_url,
+        } : {},
         onSubmit: async (values) => {
             const { make_account: _, ...body } = values;
             if (body.avatar instanceof File) {
@@ -111,7 +137,8 @@ async function openEmployee(employee) {
                 delete body.avatar;
                 await api(employee ? `employees/${employee.id}` : 'employees', { method: employee ? 'PUT' : 'POST', body });
             }
-            toast(employee ? 'Data karyawan disimpan.' : 'Karyawan ditambahkan.');
+            invalidate('employees');
+            toast(employee ? 'Data karyawan berhasil disimpan.' : 'Karyawan berhasil ditambahkan.');
             load();
         },
     });
@@ -481,7 +508,9 @@ table.addEventListener('click', async (event) => {
 
 $('#employee-add').addEventListener('click', () => openEmployee(null));
 filters.q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 250); });
+filters.code?.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 250); });
 filters.department_id.addEventListener('change', load);
+filters.level_id?.addEventListener('change', load);
 filters.status.addEventListener('change', load);
 
 const importModal = $('#employee-import-modal');
@@ -854,8 +883,14 @@ export async function showEmployees() {
     if (!started) {
         started = true;
         try {
-            const departments = await lookup('departments');
+            const [departments, levels] = await Promise.all([
+                lookup('departments'),
+                lookup('employee-levels'),
+            ]);
             filters.department_id.insertAdjacentHTML('beforeend', departments.map((d) => `<option value="${d.id}">${esc(d.name)}</option>`).join(''));
+            if (filters.level_id && filters.level_id.options.length <= 2) {
+                filters.level_id.insertAdjacentHTML('beforeend', (levels ?? []).map((l) => `<option value="${l.id}">${esc(l.name)} (${esc(l.code)})</option>`).join(''));
+            }
         } catch (error) {
             toast(error.message);
         }

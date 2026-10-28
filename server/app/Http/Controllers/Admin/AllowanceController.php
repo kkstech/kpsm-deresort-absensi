@@ -112,12 +112,27 @@ class AllowanceController extends Controller
         $range = $request->validate([
             'from' => ['required', 'date_format:Y-m-d'],
             'to' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'level_id' => ['nullable', 'string', 'max:32'],
         ]);
         if (CarbonImmutable::parse($range['from'])->diffInDays(CarbonImmutable::parse($range['to'])) > 62) {
             throw ValidationException::withMessages(['to' => 'Rentang paling panjang 62 hari.']);
         }
-        $rows = AllowanceResult::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,work_date,template_name,status')
-            ->whereBetween('work_date', [$range['from'], $range['to']])->orderBy('work_date')->orderBy('employee_id')->get();
+        $rows = AllowanceResult::query()->with([
+            'employee:id,code,name,department_id,level_id,avatar_path',
+            'employee.department:id,name',
+            'employee.level:id,code,name',
+            'assignment:id,work_date,template_name,status',
+        ])
+            ->whereBetween('work_date', [$range['from'], $range['to']])
+            ->when(isset($range['level_id']) && $range['level_id'] !== '', function ($q) use ($range) {
+                if ($range['level_id'] === 'none') {
+                    $q->whereNull('level_id')->whereHas('employee', fn ($e) => $e->whereNull('level_id'));
+                } else {
+                    $lvlId = (int) $range['level_id'];
+                    $q->where(fn ($sub) => $sub->where('level_id', $lvlId)->orWhereHas('employee', fn ($e) => $e->where('level_id', $lvlId)));
+                }
+            })
+            ->orderBy('work_date')->orderBy('employee_id')->get();
 
         return response()->json(['data' => $rows, 'summary' => [
             'eligible_cycles' => $rows->where('status', 'ELIGIBLE')->count(),

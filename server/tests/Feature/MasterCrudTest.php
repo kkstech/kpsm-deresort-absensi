@@ -63,6 +63,46 @@ class MasterCrudTest extends TestCase
         $this->assertSame(0, $employee->user->tokens()->count());
     }
 
+    public function test_admin_creates_and_updates_employee_with_level_id(): void
+    {
+        $level1 = \App\Models\EmployeeLevel::create(['code' => 'STF', 'name' => 'Staff']);
+        $level2 = \App\Models\EmployeeLevel::create(['code' => 'SPV', 'name' => 'Supervisor']);
+
+        $res = $this->asAdmin()->postJson('/admin/api/employees', $this->employeePayload([
+            'code' => 'LVL-001',
+            'level_id' => $level1->id,
+        ]))->assertCreated();
+
+        $employee = Employee::query()->where('code', 'LVL-001')->firstOrFail();
+        $this->assertSame($level1->id, $employee->level_id);
+        $this->assertSame(1, $employee->levelAssignments()->count());
+
+        $this->putJson("/admin/api/employees/{$employee->id}", $this->employeePayload([
+            'code' => 'LVL-001',
+            'level_id' => $level2->id,
+        ]))->assertOk();
+
+        $this->assertSame($level2->id, $employee->fresh()->level_id);
+        $this->assertSame(2, $employee->levelAssignments()->count());
+
+        // Test filtering employees by level
+        $filteredLvl2 = $this->asAdmin()->getJson('/admin/api/employees?level_id='.$level2->id)->assertOk();
+        $this->assertTrue(collect($filteredLvl2->json('data'))->contains('id', $employee->id));
+
+        $filteredLvl1 = $this->asAdmin()->getJson('/admin/api/employees?level_id='.$level1->id)->assertOk();
+        $this->assertFalse(collect($filteredLvl1->json('data'))->contains('id', $employee->id));
+
+        $filteredNone = $this->asAdmin()->getJson('/admin/api/employees?level_id=none')->assertOk();
+        $this->assertFalse(collect($filteredNone->json('data'))->contains('id', $employee->id));
+
+        // Test filtering employees by code
+        $filteredCode = $this->asAdmin()->getJson('/admin/api/employees?code=LVL-001')->assertOk();
+        $this->assertTrue(collect($filteredCode->json('data'))->contains('id', $employee->id));
+
+        $filteredNonExistent = $this->asAdmin()->getJson('/admin/api/employees?code=NONEXISTENT')->assertOk();
+        $this->assertFalse(collect($filteredNonExistent->json('data'))->contains('id', $employee->id));
+    }
+
     public function test_admin_can_upload_and_update_employee_avatar(): void
     {
         \Illuminate\Support\Facades\Storage::fake('public');

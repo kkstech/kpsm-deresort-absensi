@@ -29,10 +29,11 @@ const tabs = {
             { label: 'Sesi', cell: (t) => esc(sessionsText(t)) },
         ],
         fields: async () => [
-            { name: 'name', label: 'Nama template', required: true, maxlength: 100 },
-            { name: 'type', label: 'Jenis', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi)' }, { value: 'special', label: 'Khusus (2 sampai 4 sesi)' }], default: 'regular' },
-            { name: 'sessions', label: 'Sesi kerja', type: 'sessions', hint: 'Tentukan hari mulai dan selesai untuk sesi yang melewati tengah malam.' },
+            { name: 'name', label: 'Nama template shift', required: true, maxlength: 100, hint: 'Contoh: Pagi Reguler, Sore, Malam, atau Split Resto' },
+            { name: 'type', label: 'Jenis shift', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi operasional)' }, { value: 'special', label: 'Khusus / Split (2 sampai 4 sesi)' }], default: 'regular', hint: 'Pilih jenis shift untuk menentukan jumlah sesi.' },
+            { name: 'sessions', label: 'Konfigurasi Sesi Kerja', type: 'sessions', fullWidth: true, hint: 'Atur jam mulai, jam selesai, dan waktu istirahat per sesi.' },
         ],
+        grid: true,
         deletable: true,
     },
     policies: {
@@ -310,6 +311,7 @@ async function openItem(item) {
         title: item ? `Ubah ${tab.singular}` : `Tambah ${tab.singular}`,
         fields: await tab.fields(item),
         values: item ?? {},
+        grid: Boolean(tab.grid),
         onSubmit: async (body) => {
             if (tab.preview && body.effective_from < todayKey()) {
                 const { data: preview } = await api(`${path}/preview`, { method: 'POST', body });

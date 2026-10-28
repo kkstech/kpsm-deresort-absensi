@@ -90,36 +90,107 @@ function fieldHtml(f, value) {
     const req = f.required ? ' required' : '';
     const hint = f.hint ? `<small class="field-hint">${esc(f.hint)}</small>` : '';
     const err = `<small class="field-error" data-error-for="${esc(f.name)}" hidden></small>`;
+    const spanAttr = f.fullWidth ? ' data-span="full"' : '';
     if (f.type === 'checkbox') {
-        return `<label class="check-field" data-field="${esc(f.name)}"><input type="checkbox" id="${id}" name="${esc(f.name)}"${value ? ' checked' : ''}><span>${esc(f.label)}</span>${hint}${err}</label>`;
+        return `<label class="check-field" data-field="${esc(f.name)}"${spanAttr}><input type="checkbox" id="${id}" name="${esc(f.name)}"${value ? ' checked' : ''}><span>${esc(f.label)}</span>${hint}${err}</label>`;
     }
     if (f.type === 'select') {
         const options = (f.blank !== undefined ? [{ value: '', label: f.blank }] : []).concat(f.options)
             .map((o) => `<option value="${esc(o.value)}"${String(o.value) === String(value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-        return `<label data-field="${esc(f.name)}">${esc(f.label)}<select id="${id}" name="${esc(f.name)}"${req}>${options}</select>${hint}${err}</label>`;
+        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<select id="${id}" name="${esc(f.name)}"${req}>${options}</select>${hint}${err}</label>`;
     }
     if (f.type === 'sessions') {
-        return `<fieldset class="sessions-field" data-field="${esc(f.name)}"><legend>${esc(f.label)}</legend><div class="session-rows"></div><button type="button" class="text-button" data-add-session>+ Tambah sesi</button>${hint}${err}</fieldset>`;
+        return `<div class="sessions-wrapper" data-field="${esc(f.name)}"${spanAttr}>
+            <div class="sessions-header">
+                <span class="sessions-title">${esc(f.label)}</span>
+                <span class="field-hint" style="margin: 0;">${esc(f.hint ?? '')}</span>
+            </div>
+            <div class="session-rows"></div>
+            <button type="button" class="secondary-button add-session-card-btn" data-add-session style="display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-weight: 600; padding: 8px 14px; border-radius: 8px;">
+                <span style="font-size: 16px; line-height: 1; font-weight: 700;">+</span> Tambah Sesi Kerja
+            </button>
+            ${err}
+        </div>`;
     }
     if (f.type === 'file') {
         const accept = f.accept ? ` accept="${esc(f.accept)}"` : '';
-        const preview = value ? `<div style="margin-top:8px;display:flex;align-items:center;gap:10px;"><img src="${esc(value)}" alt="Preview" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid var(--line);"><small style="color:var(--muted)">Foto profil saat ini</small></div>` : '';
-        return `<label data-field="${esc(f.name)}">${esc(f.label)}<input type="file" id="${id}" name="${esc(f.name)}"${req}${accept}>${preview}${hint}${err}</label>`;
+        const previewSrc = value ? esc(value) : '';
+        const preview = `
+            <div class="avatar-preview-container" style="margin-top:8px;display:flex;align-items:center;gap:14px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--line);border-radius:10px;">
+                <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" style="width:52px;height:52px;border-radius:10px;object-fit:cover;border:1px solid var(--line);background:#fff;" ${value ? '' : 'hidden'}>
+                <div class="avatar-no-preview" style="width:52px;height:52px;border-radius:10px;background:#dfe5df;display:${value ? 'none' : 'grid'};place-items:center;color:var(--muted);font-size:20px;flex-shrink:0;">
+                    👤
+                </div>
+                <div>
+                    <div class="avatar-preview-text" style="font-size:12.5px;font-weight:600;color:var(--ink);">
+                        ${value ? 'Foto profil saat ini' : 'Belum ada foto profil'}
+                    </div>
+                    <small style="color:var(--muted);font-size:11.5px;display:block;margin-top:2px;">Pilih berkas baru untuk mengubah foto profil.</small>
+                </div>
+            </div>
+        `;
+        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="file" id="${id}" name="${esc(f.name)}"${req}${accept}>${preview}${hint}${err}</label>`;
     }
     const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
-    return `<label data-field="${esc(f.name)}">${esc(f.label)}<input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}>${hint}${err}</label>`;
+    return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}>${hint}${err}</label>`;
 }
 
-function sessionRow(s = {}) {
+function sessionRow(s = {}, index = 0) {
     const startOffset = Number(s.start_day_offset ?? 0);
     const endOffset = Number(s.day_offset ?? (startOffset + (String(s.local_end ?? '') <= String(s.local_start ?? '') ? 1 : 0)));
-    return `<div class="session-row">
-        <label>Hari mulai<select data-s="start_day_offset"><option value="0"${startOffset === 0 ? ' selected' : ''}>Tanggal kerja</option><option value="1"${startOffset === 1 ? ' selected' : ''}>Hari berikutnya</option></select></label>
-        <label>Mulai<input type="time" data-s="local_start" value="${esc(String(s.local_start ?? '').slice(0, 5))}" required></label>
-        <label>Hari selesai<select data-s="day_offset"><option value="0"${endOffset === 0 ? ' selected' : ''}>Tanggal kerja</option><option value="1"${endOffset === 1 ? ' selected' : ''}>Hari berikutnya</option><option value="2"${endOffset === 2 ? ' selected' : ''}>2 hari berikutnya</option></select></label>
-        <label>Selesai<input type="time" data-s="local_end" value="${esc(String(s.local_end ?? '').slice(0, 5))}" required></label>
-        <label>Istirahat (menit)<input type="number" data-s="unpaid_break_minutes" min="0" max="240" value="${esc(s.unpaid_break_minutes ?? 0)}"></label>
-        <button type="button" class="action-btn danger" data-remove-session aria-label="Hapus sesi" title="Hapus sesi">${icon('trash', 14)}</button>
+    const sessionNum = index + 1;
+    return `<div class="session-row session-card">
+        <div class="session-card-header">
+            <div class="session-card-badge-wrap">
+                <span class="session-badge">Sesi ${sessionNum}</span>
+                <span class="session-card-subtitle">Jam Operasional Shift</span>
+            </div>
+            <button type="button" class="session-delete-btn" data-remove-session aria-label="Hapus sesi" title="Hapus sesi">
+                ${icon('trash', 14)} <span>Hapus</span>
+            </button>
+        </div>
+        <div class="session-card-grid">
+            <div class="session-input-col">
+                <span class="session-col-label">Jam Mulai / Masuk</span>
+                <div class="session-dual-inputs">
+                    <label>
+                        <span class="sub-label">Hari Mulai</span>
+                        <select data-s="start_day_offset">
+                            <option value="0"${startOffset === 0 ? ' selected' : ''}>Hari kerja (H)</option>
+                            <option value="1"${startOffset === 1 ? ' selected' : ''}>Hari berikutnya (H+1)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="sub-label">Waktu</span>
+                        <input type="time" data-s="local_start" value="${esc(String(s.local_start ?? '').slice(0, 5))}" required>
+                    </label>
+                </div>
+            </div>
+            <div class="session-input-col">
+                <span class="session-col-label">Jam Selesai / Pulang</span>
+                <div class="session-dual-inputs">
+                    <label>
+                        <span class="sub-label">Hari Selesai</span>
+                        <select data-s="day_offset">
+                            <option value="0"${endOffset === 0 ? ' selected' : ''}>Hari kerja (H)</option>
+                            <option value="1"${endOffset === 1 ? ' selected' : ''}>Hari berikutnya (H+1)</option>
+                            <option value="2"${endOffset === 2 ? ' selected' : ''}>2 hari berikutnya (H+2)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span class="sub-label">Waktu</span>
+                        <input type="time" data-s="local_end" value="${esc(String(s.local_end ?? '').slice(0, 5))}" required>
+                    </label>
+                </div>
+            </div>
+            <div class="session-break-col">
+                <span class="session-col-label">Istirahat</span>
+                <label>
+                    <span class="sub-label">Menit</span>
+                    <input type="number" data-s="unpaid_break_minutes" min="0" max="240" value="${esc(s.unpaid_break_minutes ?? 0)}" placeholder="0">
+                </label>
+            </div>
+        </div>
     </div>`;
 }
 
@@ -135,7 +206,18 @@ function syncVisibility() {
         }
     });
     const rows = $('.session-rows', fieldsBox);
-    if (rows) $('[data-add-session]', fieldsBox).hidden = rows.children.length >= 4;
+    if (rows) {
+        const typeSelect = $('[name="type"]', fieldsBox);
+        const isSpecial = typeSelect?.value === 'special';
+        const addBtn = $('[data-add-session]', fieldsBox);
+        if (addBtn) addBtn.hidden = !isSpecial || rows.children.length >= 4;
+        $$('.session-row', rows).forEach((card, idx) => {
+            const badge = card.querySelector('.session-badge');
+            if (badge) badge.textContent = `Sesi ${idx + 1}`;
+            const removeBtn = card.querySelector('[data-remove-session]');
+            if (removeBtn) removeBtn.hidden = !isSpecial || rows.children.length <= 1;
+        });
+    }
 }
 
 function collect() {
@@ -170,30 +252,54 @@ function showErrors(error) {
     ($('[data-error-for]:not([hidden])', fieldsBox)?.closest('[data-field]')?.querySelector('input, select') ?? errorBox).focus?.();
 }
 
-export function openForm({ title, hint = '', fields, values = {}, submitLabel = 'Simpan', onSubmit }) {
+export function openForm({ title, hint = '', fields, values = {}, submitLabel = 'Simpan', onSubmit, grid = false }) {
     current = { fields, onSubmit };
     $('#form-modal-title').textContent = title;
     $('#form-modal-hint').textContent = hint;
     $('#form-modal-submit').textContent = submitLabel;
+    modal.classList.toggle('modal-wide', Boolean(grid));
+    fieldsBox.className = grid ? 'form-fields form-fields-grid' : 'form-fields';
     errorBox.hidden = true;
     fieldsBox.innerHTML = fields.map((f) => fieldHtml(f, values[f.name] ?? f.default ?? '')).join('');
     const rows = $('.session-rows', fieldsBox);
-    if (rows) rows.innerHTML = (values.sessions?.length ? values.sessions : [{}]).map(sessionRow).join('');
+    if (rows) rows.innerHTML = (values.sessions?.length ? values.sessions : [{}]).map((s, idx) => sessionRow(s, idx)).join('');
     syncVisibility();
     modal.showModal();
     $('input, select', fieldsBox)?.focus();
 }
 
-fieldsBox.addEventListener('change', () => current && syncVisibility());
+fieldsBox.addEventListener('change', (event) => {
+    if (event.target.type === 'file' && event.target.files && event.target.files[0]) {
+        const file = event.target.files[0];
+        const label = event.target.closest('label');
+        const liveImg = label?.querySelector('.avatar-live-preview');
+        const noPreview = label?.querySelector('.avatar-no-preview');
+        const previewText = label?.querySelector('.avatar-preview-text');
+        if (liveImg) {
+            liveImg.src = URL.createObjectURL(file);
+            liveImg.hidden = false;
+            if (noPreview) noPreview.style.display = 'none';
+            if (previewText) previewText.textContent = `Foto baru terpilih: ${file.name}`;
+        }
+    }
+    if (current) syncVisibility();
+});
 fieldsBox.addEventListener('click', (event) => {
     if (event.target.closest('[data-add-session]')) {
-        $('.session-rows', fieldsBox).insertAdjacentHTML('beforeend', sessionRow());
-        syncVisibility();
+        const rows = $('.session-rows', fieldsBox);
+        if (rows && rows.children.length < 4) {
+            rows.insertAdjacentHTML('beforeend', sessionRow({}, rows.children.length));
+            syncVisibility();
+        }
     }
     const remove = event.target.closest('[data-remove-session]');
-    if (remove && $$('.session-row', fieldsBox).length > 1) {
-        remove.closest('.session-row').remove();
-        syncVisibility();
+    if (remove) {
+        const row = remove.closest('.session-row');
+        const rows = $('.session-rows', fieldsBox);
+        if (row && rows && rows.children.length > 1) {
+            row.remove();
+            syncVisibility();
+        }
     }
 });
 
