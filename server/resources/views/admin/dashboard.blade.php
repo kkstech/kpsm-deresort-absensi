@@ -87,26 +87,205 @@
 
             <main id="main-content" tabindex="-1">
                 <section class="view active" data-view-panel="dashboard">
-                    <div class="page-heading">
-                        <div><p data-site-name>{{ $siteSettings->site_name }}</p><h1>Dashboard</h1><span id="dashboard-finding">Ringkasan kehadiran dan sesi yang perlu ditinjau.</span></div>
+                    <div class="dashboard-hero-banner">
+                        <div class="hero-main">
+                            <div class="hero-badge">
+                                <span class="live-pulse-dot"></span>
+                                <span>Operasional Resort Aktif</span>
+                            </div>
+                            <h1 class="hero-greeting" id="dashboard-greeting">Selamat Datang, {{ $me->name }}</h1>
+                            <p class="hero-subtitle" id="dashboard-finding">Ringkasan kehadiran dan aktivitas operasional kerja resort hari ini.</p>
+                        </div>
+                        <div class="hero-actions">
+                            <span class="hero-date-badge" id="dashboard-today-date">
+                                <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
+                                <span id="dashboard-date-str">Hari Ini</span>
+                            </span>
+                            <button type="button" class="secondary-button hero-btn" data-view-link="schedule">
+                                <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
+                                <span>Jadwal Shift</span>
+                            </button>
+                            <button type="button" class="primary-button hero-btn" data-view-link="attendance">
+                                <span>Monitoring Absensi &rarr;</span>
+                            </button>
+                        </div>
                     </div>
-                    <form class="attendance-filters panel" id="dashboard-filters">
-                        <label>Dari<input type="date" name="from" required></label>
-                        <label>Sampai<input type="date" name="to" required></label>
-                        <label>Departemen<select name="department_id"><option value="">Semua departemen</option></select></label>
-                        <label>Karyawan<select name="employee_id"><option value="">Semua karyawan</option></select></label>
-                        <button type="submit" class="secondary-button">Terapkan</button>
-                    </form>
+
+                    <div class="dashboard-filter-card panel">
+                        <div class="preset-chips-wrap">
+                            <span class="preset-label">Periode Cepat:</span>
+                            <div class="preset-buttons" id="dashboard-preset-chips">
+                                <button type="button" class="preset-chip active" data-preset="today">Hari Ini</button>
+                                <button type="button" class="preset-chip" data-preset="yesterday">Kemarin</button>
+                                <button type="button" class="preset-chip" data-preset="7d">7 Hari Terakhir</button>
+                                <button type="button" class="preset-chip" data-preset="month">Bulan Ini</button>
+                            </div>
+                        </div>
+                        <form class="dashboard-filters-form" id="dashboard-filters">
+                            <div class="filter-inputs-row">
+                                <label>Dari<input type="date" name="from" required></label>
+                                <label>Sampai<input type="date" name="to" required></label>
+                                <label>Departemen<select name="department_id"><option value="">Semua departemen</option></select></label>
+                                <label>Karyawan<select name="employee_id"><option value="">Semua karyawan</option></select></label>
+                                <button type="submit" class="secondary-button filter-submit-btn">Terapkan</button>
+                            </div>
+                        </form>
+                    </div>
                     <p class="form-error" id="dashboard-error" role="alert" hidden></p>
-                    <section class="metric-grid" aria-label="Ringkasan kehadiran" aria-live="polite">
-                        <div class="metric-card"><span>Karyawan dijadwalkan</span><strong id="metric-employees">—</strong><small>unik dalam rentang</small></div>
-                        <div class="metric-card"><span>Sesi check-in</span><strong id="metric-checkins">—</strong><small id="metric-sessions">— sesi dijadwalkan</small></div>
-                        <div class="metric-card warning"><span>Perlu review</span><strong id="metric-review">—</strong><small>sesi atau event ditandai</small></div>
-                        <div class="metric-card"><span>Menit tervalidasi</span><strong id="metric-minutes">—</strong><small>jam kerja yang dihitung</small></div>
+
+                    <section class="dashboard-metrics-grid" aria-label="Ringkasan kehadiran" aria-live="polite">
+                        <!-- Card 1: Tingkat Kehadiran (Emerald) -->
+                        <div class="dashboard-metric-card theme-emerald">
+                            <div class="metric-header">
+                                <span class="metric-title">Tingkat Kehadiran</span>
+                                <span class="metric-icon-badge">✓</span>
+                            </div>
+                            <div class="metric-main-value">
+                                <strong id="metric-attendance-rate">0%</strong>
+                                <span class="metric-tag" id="metric-rate-tag">Kehadiran</span>
+                            </div>
+                            <div class="metric-progress-wrap">
+                                <div class="metric-progress-bar"><div class="metric-progress-fill" id="metric-rate-fill" style="width: 0%;"></div></div>
+                            </div>
+                            <small class="metric-subtext" id="metric-sessions-ratio">0 dari 0 sesi check-in</small>
+                        </div>
+
+                        <!-- Card 2: Karyawan Bertugas (Ocean Blue) -->
+                        <div class="dashboard-metric-card theme-ocean">
+                            <div class="metric-header">
+                                <span class="metric-title">Karyawan Bertugas</span>
+                                <span class="metric-icon-badge">👥</span>
+                            </div>
+                            <div class="metric-main-value">
+                                <strong id="metric-employees">0</strong>
+                                <span class="metric-tag">Orang</span>
+                            </div>
+                            <div class="metric-extra-info">
+                                <span id="metric-checkins">0 sesi check-in</span>
+                            </div>
+                            <small class="metric-subtext" id="metric-sessions">0 sesi terjadwal</small>
+                        </div>
+
+                        <!-- Card 3: Perlu Review & Tindakan (Rose Alert) -->
+                        <div class="dashboard-metric-card theme-rose" id="metric-card-review">
+                            <div class="metric-header">
+                                <span class="metric-title">Perlu Perhatian</span>
+                                <span class="metric-icon-badge alert">⚠️</span>
+                            </div>
+                            <div class="metric-main-value">
+                                <strong id="metric-review">0</strong>
+                                <span class="metric-tag alert" id="metric-review-tag">Tinjauan</span>
+                            </div>
+                            <div class="metric-extra-info">
+                                <span id="metric-pending-leaves">0 pengajuan cuti</span>
+                            </div>
+                            <small class="metric-subtext">Sesi absensi butuh tindakan verifikasi</small>
+                        </div>
+
+                        <!-- Card 4: Total Jam Kerja (Indigo) -->
+                        <div class="dashboard-metric-card theme-indigo">
+                            <div class="metric-header">
+                                <span class="metric-title">Total Jam Produktif</span>
+                                <span class="metric-icon-badge">⏱</span>
+                            </div>
+                            <div class="metric-main-value">
+                                <strong id="metric-minutes">0j 0m</strong>
+                            </div>
+                            <div class="metric-extra-info">
+                                <span>Jam kerja terverifikasi</span>
+                            </div>
+                            <small class="metric-subtext">Berdasarkan check-in valid</small>
+                        </div>
                     </section>
-                    <section class="panel attendance-panel" aria-labelledby="activity-title">
-                        <div class="panel-heading"><div><h2 id="activity-title">Aktivitas absensi terbaru</h2><p>Perubahan dari event absensi yang tercatat.</p></div><button type="button" class="text-button" data-view-link="attendance">Buka monitoring</button></div>
-                        <div id="dashboard-activity" aria-live="polite"><p class="list-empty">Memuat data…</p></div>
+
+                    <!-- Bilah Distribusi Status Kehadiran -->
+                    <section class="dashboard-breakdown-card panel">
+                        <div class="breakdown-header">
+                            <div>
+                                <h3>Distribusi Status Kehadiran</h3>
+                                <p>Rincian status seluruh shift operasional pada rentang yang dipilih.</p>
+                            </div>
+                            <span class="breakdown-total" id="breakdown-total-sessions">0 Total Sesi</span>
+                        </div>
+                        <div class="multi-status-bar" id="dashboard-status-bar">
+                            <div class="bar-segment bar-ontime" style="width: 0%;" title="Tepat Waktu"></div>
+                            <div class="bar-segment bar-inprogress" style="width: 0%;" title="Sedang Bekerja"></div>
+                            <div class="bar-segment bar-late" style="width: 0%;" title="Terlambat"></div>
+                            <div class="bar-segment bar-review" style="width: 0%;" title="Perlu Review"></div>
+                            <div class="bar-segment bar-absent" style="width: 0%;" title="Belum Masuk / Absen"></div>
+                        </div>
+                        <div class="distribution-legend">
+                            <div class="legend-item"><span class="legend-dot ontime"></span><span>Tepat Waktu: <b id="leg-ontime">0</b></span></div>
+                            <div class="legend-item"><span class="legend-dot inprogress"></span><span>Sedang Bekerja: <b id="leg-inprogress">0</b></span></div>
+                            <div class="legend-item"><span class="legend-dot late"></span><span>Terlambat: <b id="leg-late">0</b></span></div>
+                            <div class="legend-item"><span class="legend-dot review"></span><span>Perlu Review: <b id="leg-review">0</b></span></div>
+                            <div class="legend-item"><span class="legend-dot absent"></span><span>Belum Masuk: <b id="leg-absent">0</b></span></div>
+                        </div>
+                    </section>
+
+                    <!-- Modular Grid: Aktivitas (Kiri) + Review & Pintasan (Kanan) -->
+                    <section class="dashboard-modular-grid">
+                        <div class="panel dashboard-activity-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <h2>Aktivitas Absensi Terkini</h2>
+                                    <p>Event check-in dan check-out terbaru yang tercatat sistem.</p>
+                                </div>
+                                <button type="button" class="text-button" data-view-link="attendance">Buka monitoring &rarr;</button>
+                            </div>
+                            <div id="dashboard-activity" aria-live="polite"><p class="list-empty">Memuat data…</p></div>
+                        </div>
+
+                        <div class="dashboard-side-col">
+                            <div class="panel dashboard-review-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <h3>Perlu Tindakan Segera</h3>
+                                        <p>Sesi dengan kendala GPS, foto, atau keterlambatan.</p>
+                                    </div>
+                                    <button type="button" class="text-button" data-view-link="attendance">Tinjau semua</button>
+                                </div>
+                                <div id="dashboard-review-box" class="review-box-content">
+                                    <p class="list-empty">Memeriksa data review…</p>
+                                </div>
+                            </div>
+
+                            <div class="panel dashboard-shortcuts-panel">
+                                <div class="panel-heading">
+                                    <h3>Pintasan Operasional</h3>
+                                </div>
+                                <div class="shortcuts-grid">
+                                    <button type="button" class="shortcut-tile" data-view-link="schedule">
+                                        <span class="shortcut-icon" style="background:#eaf1ff;color:#2563eb;">📅</span>
+                                        <div class="shortcut-text">
+                                            <strong>Jadwal &amp; Shift</strong>
+                                            <small>Atur jadwal mingguan &amp; sesi</small>
+                                        </div>
+                                    </button>
+                                    <button type="button" class="shortcut-tile" data-view-link="employees">
+                                        <span class="shortcut-icon" style="background:#e6f6ee;color:#059669;">👥</span>
+                                        <div class="shortcut-text">
+                                            <strong>Data Karyawan</strong>
+                                            <small>Kelola NIK, foto, &amp; level</small>
+                                        </div>
+                                    </button>
+                                    <button type="button" class="shortcut-tile" data-view-link="allowances">
+                                        <span class="shortcut-icon" style="background:#fef3e2;color:#d97706;">💰</span>
+                                        <div class="shortcut-text">
+                                            <strong>Rekap Tunjangan</strong>
+                                            <small>Uang makan &amp; transport</small>
+                                        </div>
+                                    </button>
+                                    <button type="button" class="shortcut-tile" data-view-link="leaves">
+                                        <span class="shortcut-icon" style="background:#f5eefb;color:#7c3aed;">🏖️</span>
+                                        <div class="shortcut-text">
+                                            <strong>Manajemen Cuti</strong>
+                                            <small>Saldo &amp; permohonan cuti</small>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </section>
                 </section>
 
@@ -374,6 +553,7 @@
                             <select id="employee-status"><option value="active">Aktif</option><option value="inactive">Nonaktif</option><option value="">Semua status</option></select>
                         </div>
                         <div id="employee-table" aria-live="polite"></div>
+                        <div id="employee-pagination" class="table-pagination"></div>
                     </div>
                 </section>
                 <section class="view placeholder-view" data-view-panel="reports"><h1>Laporan</h1><p>Rekap kehadiran, lembur, tunjangan, dan periode.</p><div class="empty-state"><strong>Belum tersedia</strong><span>Laporan dan ekspor akan ditambahkan setelah perhitungan kehadiran selesai.</span></div></section>
@@ -465,6 +645,7 @@
                                 </div>
                             </div>
                             <div id="leave-table" aria-live="polite"></div>
+                            <div id="leave-pagination" class="table-pagination"></div>
                         </div>
                     </div>
 

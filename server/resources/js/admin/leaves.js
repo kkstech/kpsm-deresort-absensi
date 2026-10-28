@@ -1,7 +1,11 @@
 import { api, lookup } from './api';
-import { $, $$, confirmDialog, esc, errorInto, icon, loadingInto, openForm, toast } from './ui';
+import { $, $$, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderPagination, toast } from './ui';
 
 const table = $('#leave-table');
+const leavePagination = $('#leave-pagination');
+let leavePage = 1;
+const leavePerPage = 20;
+let leaveMeta = null;
 const balanceTable = $('#leave-balance-table');
 const settingsForm = $('#leave-settings-form');
 const requestSearch = $('#leave-request-search');
@@ -92,10 +96,19 @@ async function loadSettings() {
     }
 }
 
-async function loadRequests() {
+async function loadRequests(page = leavePage) {
+    leavePage = page;
     loadingInto(table);
     try {
-        allRequests = (await api('leaves', { query: { status: statusFilter?.value || '' } })).data ?? [];
+        const res = await api('leaves', {
+            query: {
+                status: statusFilter?.value || '',
+                page: leavePage,
+                per_page: leavePerPage,
+            },
+        });
+        allRequests = res.data ?? [];
+        leaveMeta = res.meta ?? null;
 
         // Update top metrics & pending badge
         const pendingCount = allRequests.filter((r) => r.status === 'PENDING').length;
@@ -120,6 +133,7 @@ async function loadRequests() {
         renderRequestsTable();
     } catch (error) {
         errorInto(table, error);
+        if (leavePagination) leavePagination.innerHTML = '';
     }
 }
 
@@ -229,6 +243,9 @@ function renderRequestsTable() {
             </table>
         </div>
     `;
+    renderPagination(leavePagination, leaveMeta, (newPage) => {
+        loadRequests(newPage);
+    });
 }
 
 async function loadBalances() {

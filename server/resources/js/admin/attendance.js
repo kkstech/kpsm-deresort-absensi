@@ -1,5 +1,5 @@
 import { api, isAdmin, isSuperAdmin, role } from './api';
-import { $, $$, esc, icon, toast } from './ui';
+import { $, $$, esc, icon, renderPagination, toast } from './ui';
 
 const today = document.body.dataset.today;
 const dashboardForm = $('#dashboard-filters');
@@ -67,24 +67,128 @@ function showError(selector, message) {
     box.hidden = false;
 }
 
+function renderReviewBox(reviewItems) {
+    const box = $('#dashboard-review-box');
+    if (!box) return;
+    if (!reviewItems || !reviewItems.length) {
+        box.innerHTML = `
+            <div class="review-empty-state">
+                <span class="review-empty-icon">✓</span>
+                <strong>Semua Sesi Beres!</strong>
+                <small>Tidak ada sesi yang memerlukan review saat ini.</small>
+            </div>
+        `;
+        return;
+    }
+    box.innerHTML = `<div class="review-items-list">${reviewItems.map((item) => {
+        const reason = item.attendance?.review_reason || 'Perlu verifikasi';
+        return `
+            <div class="review-alert-item">
+                <div class="review-item-main">
+                    <span class="review-badge-pill">⚠️ Perlu Tindakan</span>
+                    <strong class="review-emp-name">${esc(item.employee.name)}</strong>
+                    <span class="review-shift-info">${esc(item.shift.name)} · ${formatDate(item.work_date)}</span>
+                    <small class="review-reason-text">${esc(reason)}</small>
+                </div>
+            </div>
+        `;
+    }).join('')}</div>`;
+}
+
 async function loadDashboard(filters = filterValues(dashboardForm)) {
     const error = $('#dashboard-error');
     error.hidden = true;
     $('#dashboard-activity').setAttribute('aria-busy', 'true');
+
+    // Dynamic greeting & date
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
+    const greetingEl = $('#dashboard-greeting');
+    if (greetingEl) {
+        const parts = greetingEl.textContent.split(',');
+        const userName = parts.length > 1 ? parts.slice(1).join(',').trim() : '';
+        if (userName) greetingEl.textContent = `${timeGreeting}, ${userName}`;
+    }
+    const dateStrEl = $('#dashboard-date-str');
+    if (dateStrEl) {
+        const todayObj = new Date();
+        const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        dateStrEl.textContent = `${days[todayObj.getDay()]}, ${todayObj.getDate()} ${months[todayObj.getMonth()]} ${todayObj.getFullYear()}`;
+    }
+
     try {
-        const { summary, recent } = await api('dashboard/attendance', { query: filters });
+        const { summary, recent, review_items } = await api('dashboard/attendance', { query: filters });
+
+        // 1. Metric Cards
+        const rate = Number(summary.attendance_rate ?? 0);
+        const rateEl = $('#metric-attendance-rate');
+        if (rateEl) rateEl.textContent = `${rate}%`;
+        const rateFill = $('#metric-rate-fill');
+        if (rateFill) rateFill.style.width = `${Math.min(rate, 100)}%`;
+        const sessionsRatioEl = $('#metric-sessions-ratio');
+        if (sessionsRatioEl) sessionsRatioEl.textContent = `${summary.checked_in_sessions} dari ${summary.scheduled_sessions} sesi check-in`;
+
         $('#metric-employees').textContent = summary.scheduled_employees;
-        $('#metric-checkins').textContent = summary.checked_in_sessions;
-        $('#metric-sessions').textContent = `${summary.scheduled_sessions} sesi dijadwalkan`;
+        $('#metric-checkins').textContent = `${summary.checked_in_sessions} sesi check-in`;
+        $('#metric-sessions').textContent = `${summary.scheduled_sessions} sesi terjadwal`;
+
         $('#metric-review').textContent = summary.review_sessions;
+        const pendingLeaves = summary.pending_leaves_count ?? 0;
+        const pendingLeavesEl = $('#metric-pending-leaves');
+        if (pendingLeavesEl) pendingLeavesEl.textContent = `${pendingLeaves} pengajuan cuti`;
+
         $('#metric-minutes').textContent = formatMinutes(summary.verified_minutes);
+
         $('#dashboard-finding').textContent = summary.review_sessions
-            ? `${summary.review_sessions} sesi atau event perlu ditinjau dalam rentang yang dipilih.`
-            : 'Tidak ada sesi atau event yang ditandai untuk review dalam rentang yang dipilih.';
+            ? `${summary.review_sessions} sesi atau event absensi memerlukan tinjauan segera.`
+            : 'Seluruh sesi absensi terverifikasi rapi dan kondusif.';
+
+        // 2. Status Breakdown Bar
+        const total = Number(summary.scheduled_sessions || 0);
+        const onTime = Number(summary.on_time_count || 0);
+        const inProgress = Number(summary.in_progress_count || 0);
+        const late = Number(summary.late_count || 0);
+        const reviewCount = Number(summary.review_sessions || 0);
+        const absent = Math.max(0, total - (onTime + inProgress + late + reviewCount));
+
+        const barTotal = total > 0 ? total : 1;
+        const pct = (n) => total > 0 ? `${((n / barTotal) * 100).toFixed(1)}%` : '0%';
+
+        const barOnTime = $('.bar-ontime');
+        if (barOnTime) barOnTime.style.width = pct(onTime);
+        const barInProgress = $('.bar-inprogress');
+        if (barInProgress) barInProgress.style.width = pct(inProgress);
+        const barLate = $('.bar-late');
+        if (barLate) barLate.style.width = pct(late);
+        const barReview = $('.bar-review');
+        if (barReview) barReview.style.width = pct(reviewCount);
+        const barAbsent = $('.bar-absent');
+        if (barAbsent) barAbsent.style.width = pct(absent);
+
+        const legOnTime = $('#leg-ontime');
+        if (legOnTime) legOnTime.textContent = onTime;
+        const legInProgress = $('#leg-inprogress');
+        if (legInProgress) legInProgress.textContent = inProgress;
+        const legLate = $('#leg-late');
+        if (legLate) legLate.textContent = late;
+        const legReview = $('#leg-review');
+        if (legReview) legReview.textContent = reviewCount;
+        const legAbsent = $('#leg-absent');
+        if (legAbsent) legAbsent.textContent = absent;
+        const totalSessionsEl = $('#breakdown-total-sessions');
+        if (totalSessionsEl) totalSessionsEl.textContent = `${total} Total Sesi`;
+
+        // 3. Render Recent Table
         renderRecent(recent);
+
+        // 4. Render Review Box
+        renderReviewBox(review_items);
     } catch (failure) {
         showError('#dashboard-error', failure.message);
         $('#dashboard-activity').innerHTML = '<p class="list-empty">Data absensi gagal dimuat.</p>';
+        const reviewBox = $('#dashboard-review-box');
+        if (reviewBox) reviewBox.innerHTML = '<p class="list-empty">Gagal memuat tinjauan.</p>';
     } finally {
         $('#dashboard-activity').removeAttribute('aria-busy');
     }
@@ -195,10 +299,7 @@ function renderMonitoring({ data, meta }) {
     }
 
     const pagination = $('#monitoring-pagination');
-    pagination.innerHTML = meta.last_page > 1
-        ? `<button type="button" class="secondary-button" data-page="${meta.current_page - 1}"${meta.current_page <= 1 ? ' disabled' : ''}>Sebelumnya</button><span>Halaman ${meta.current_page} dari ${meta.last_page}</span><button type="button" class="secondary-button" data-page="${meta.current_page + 1}"${meta.current_page >= meta.last_page ? ' disabled' : ''}>Berikutnya</button>`
-        : '';
-    pagination.querySelectorAll('[data-page]').forEach((button) => button.addEventListener('click', () => loadMonitoring(Number(button.dataset.page))));
+    renderPagination(pagination, meta, (newPage) => loadMonitoring(newPage));
 }
 
 async function loadMonitoring(page = 1) {
@@ -830,6 +931,18 @@ export async function initAttendance() {
     dashboardForm.addEventListener('submit', (event) => {
         event.preventDefault();
         loadDashboard();
+    });
+
+    const dashboardPresets = $$('#dashboard-preset-chips .preset-chip');
+    dashboardPresets.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            dashboardPresets.forEach((b) => b.classList.remove('active'));
+            btn.classList.add('active');
+            const { from, to } = getMonitoringRange(btn.dataset.preset);
+            dashboardForm.elements.from.value = from;
+            dashboardForm.elements.to.value = to;
+            loadDashboard();
+        });
     });
     monitoringForm.addEventListener('submit', (event) => {
         event.preventDefault();

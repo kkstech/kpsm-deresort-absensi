@@ -1,7 +1,11 @@
 import { api, invalidate, isAdmin, lookup } from './api';
-import { $, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderTable, toast } from './ui';
+import { $, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderPagination, renderTable, toast } from './ui';
 
 const table = $('#employee-table');
+const pagination = $('#employee-pagination');
+let employeePage = 1;
+const employeePerPage = 15;
+let employeeMeta = null;
 const filters = {
     q: $('#employee-q'),
     code: $('#employee-code'),
@@ -22,20 +26,25 @@ async function fields(withAccount, employee) {
         lookup('employee-levels'),
     ]);
     const list = [
-        { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maks 5MB.', fullWidth: true },
-        { name: 'code', label: 'Kode karyawan', required: true, maxlength: 32, hint: 'Contoh: FO-001' },
+        { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maksimal 5MB.', fullWidth: true },
+
+        { name: 'sec_personal', label: 'Data Pribadi & Kontak', type: 'section' },
         { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120 },
+        { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, hint: 'Contoh: FO-001' },
+        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off' },
+        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Akun login app: ${employee.user.email}` : 'Email korespondensi karyawan.' },
+
+        { name: 'sec_job', label: 'Kepegawaian & Penempatan', type: 'section' },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
-        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Menentukan dasar tarif tunjangan makan dan transport.' },
-        { name: 'work_location_id', label: 'Lokasi kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
+        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Dasar tunjangan makan & transport.' },
+        { name: 'work_location_id', label: 'Lokasi penempatan kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
         { name: 'status', label: 'Status karyawan', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
-        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off' },
-        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Mengikuti akun app login: ${employee.user.email}` : 'Email pribadi karyawan.', fullWidth: true },
+        { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: !employee },
     ];
-    if (!employee) list.splice(8, 0, { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: true });
     if (withAccount) {
         list.push(
+            { name: 'sec_account', label: 'Akun Mobile App', type: 'section' },
             { name: 'make_account', label: 'Buat akun mobile app sekarang', type: 'checkbox', fullWidth: true },
             { name: 'account_email', label: 'Email login app', type: 'email', showIf: (v) => v.make_account },
             { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter.', showIf: (v) => v.make_account },
@@ -44,21 +53,27 @@ async function fields(withAccount, employee) {
     return list;
 }
 
-async function load() {
+async function load(page = employeePage) {
+    employeePage = page;
     loadingInto(table);
     try {
-        rows = (await api('employees', {
+        const res = await api('employees', {
             query: {
                 q: filters.q.value.trim(),
                 code: filters.code?.value.trim() ?? '',
                 department_id: filters.department_id.value,
                 level_id: filters.level_id?.value ?? '',
                 status: filters.status.value,
+                page: employeePage,
+                per_page: employeePerPage,
             },
-        })).data;
+        });
+        rows = res.data;
+        employeeMeta = res.meta ?? null;
         render();
     } catch (error) {
         errorInto(table, error);
+        if (pagination) pagination.innerHTML = '';
     }
 }
 
@@ -106,6 +121,9 @@ function render() {
             <button type="button" class="action-btn" data-action="account" data-id="${e.id}" title="${e.user ? 'Ganti password / kelola akun' : 'Hubungkan / buat akun app'}" aria-label="${e.user ? 'Ganti password' : 'Buat akun'} ${esc(e.name)}">${icon(e.user ? 'key' : 'user-plus')}</button>
             <button type="button" class="action-btn" data-action="more" data-id="${e.id}" title="Aksi lainnya" aria-label="Aksi lainnya untuk ${esc(e.name)}" aria-haspopup="menu" aria-expanded="false">${icon('more-horizontal')}</button>` : null,
     });
+    renderPagination(pagination, employeeMeta, (newPage) => {
+        load(newPage);
+    });
 }
 
 async function openEmployee(employee) {
@@ -119,6 +137,7 @@ async function openEmployee(employee) {
             level_id: employee.level_id ?? employee.level?.id ?? '',
             email: employee.user?.email || employee.email,
             avatar: employee.avatar_url,
+            started_on: employee.started_on ? employee.started_on.slice(0, 10) : '',
         } : {},
         onSubmit: async (values) => {
             const { make_account: _, ...body } = values;
@@ -507,11 +526,11 @@ table.addEventListener('click', async (event) => {
 });
 
 $('#employee-add').addEventListener('click', () => openEmployee(null));
-filters.q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 250); });
-filters.code?.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(load, 250); });
-filters.department_id.addEventListener('change', load);
-filters.level_id?.addEventListener('change', load);
-filters.status.addEventListener('change', load);
+filters.q.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => load(1), 250); });
+filters.code?.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(() => load(1), 250); });
+filters.department_id.addEventListener('change', () => load(1));
+filters.level_id?.addEventListener('change', () => load(1));
+filters.status.addEventListener('change', () => load(1));
 
 const importModal = $('#employee-import-modal');
 const importBtn = $('#employee-import-btn');

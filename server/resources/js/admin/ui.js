@@ -56,6 +56,71 @@ export function renderTable(container, { columns, rows, empty, actions }) {
     container.innerHTML = `<div class="table-scroll"><table class="data-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
+export function renderPagination(container, meta, onPageChange) {
+    if (!container) return;
+    if (!meta || !meta.total || meta.total <= 0) {
+        container.innerHTML = '';
+        container.hidden = true;
+        return;
+    }
+    container.hidden = false;
+    const current = Number(meta.current_page || 1);
+    const last = Number(meta.last_page || 1);
+    const perPage = Number(meta.per_page || 15);
+    const total = Number(meta.total || 0);
+    const from = meta.from ?? ((current - 1) * perPage + 1);
+    const to = meta.to ?? Math.min(current * perPage, total);
+
+    const pages = [];
+    if (last <= 7) {
+        for (let i = 1; i <= last; i++) pages.push(i);
+    } else {
+        pages.push(1);
+        if (current > 3) pages.push('...');
+        const start = Math.max(2, current - 1);
+        const end = Math.min(last - 1, current + 1);
+        for (let i = start; i <= end; i++) pages.push(i);
+        if (current < last - 2) pages.push('...');
+        pages.push(last);
+    }
+
+    const pagesHtml = pages.map((p) => {
+        if (p === '...') return '<span class="pagination-ellipsis">…</span>';
+        const isActive = p === current;
+        return `<button type="button" class="pagination-page-btn${isActive ? ' active' : ''}" data-page="${p}"${isActive ? ' aria-current="page"' : ''}>${p}</button>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="pagination-wrapper">
+            <div class="pagination-info">
+                Menampilkan <strong>${from}–${to}</strong> dari <strong>${total}</strong> data
+            </div>
+            ${last > 1 ? `
+            <div class="pagination-controls">
+                <button type="button" class="pagination-nav-btn" data-page="${current - 1}" ${current <= 1 ? 'disabled' : ''} aria-label="Halaman sebelumnya">
+                    &larr; <span class="nav-btn-text">Sebelumnya</span>
+                </button>
+                <div class="pagination-pages">
+                    ${pagesHtml}
+                </div>
+                <button type="button" class="pagination-nav-btn" data-page="${current + 1}" ${current >= last ? 'disabled' : ''} aria-label="Halaman berikutnya">
+                    <span class="nav-btn-text">Berikutnya</span> &rarr;
+                </button>
+            </div>
+            ` : ''}
+        </div>
+    `;
+
+    container.querySelectorAll('[data-page]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const page = Number(btn.dataset.page);
+            if (page && page !== current && page >= 1 && page <= last) {
+                onPageChange(page);
+            }
+        });
+    });
+}
+
 export const loadingInto = (container) => { container.innerHTML = '<p class="list-empty">Memuat data…</p>'; };
 export const errorInto = (container, error) => { container.innerHTML = `<p class="form-error list-error" role="alert">${esc(error.message)}</p>`; };
 
@@ -91,8 +156,22 @@ function fieldHtml(f, value) {
     const hint = f.hint ? `<small class="field-hint">${esc(f.hint)}</small>` : '';
     const err = `<small class="field-error" data-error-for="${esc(f.name)}" hidden></small>`;
     const spanAttr = f.fullWidth ? ' data-span="full"' : '';
+    if (f.type === 'section') {
+        return `<div class="form-section-divider" data-field="${esc(f.name)}" data-span="full">
+            <div class="form-section-title-wrap">
+                <span class="form-section-title">${esc(f.label)}</span>
+                ${f.hint ? `<span class="form-section-hint">${esc(f.hint)}</span>` : ''}
+            </div>
+        </div>`;
+    }
     if (f.type === 'checkbox') {
         return `<label class="check-field" data-field="${esc(f.name)}"${spanAttr}><input type="checkbox" id="${id}" name="${esc(f.name)}"${value ? ' checked' : ''}><span>${esc(f.label)}</span>${hint}${err}</label>`;
+    }
+    if (f.type === 'currency') {
+        const rawVal = value !== '' && value != null ? String(value).replace(/[^0-9]/g, '') : '';
+        const displayVal = rawVal ? `Rp ${Number(rawVal).toLocaleString('id-ID')}` : '';
+        const placeholder = f.placeholder ?? 'Rp 0';
+        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="text" inputmode="numeric" id="${id}" name="${esc(f.name)}" value="${esc(displayVal)}" class="currency-input"${req} placeholder="${esc(placeholder)}">${hint}${err}</label>`;
     }
     if (f.type === 'select') {
         const options = (f.blank !== undefined ? [{ value: '', label: f.blank }] : []).concat(f.options)
@@ -115,21 +194,27 @@ function fieldHtml(f, value) {
     if (f.type === 'file') {
         const accept = f.accept ? ` accept="${esc(f.accept)}"` : '';
         const previewSrc = value ? esc(value) : '';
-        const preview = `
-            <div class="avatar-preview-container" style="margin-top:8px;display:flex;align-items:center;gap:14px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--line);border-radius:10px;">
-                <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" style="width:52px;height:52px;border-radius:10px;object-fit:cover;border:1px solid var(--line);background:#fff;" ${value ? '' : 'hidden'}>
-                <div class="avatar-no-preview" style="width:52px;height:52px;border-radius:10px;background:#dfe5df;display:${value ? 'none' : 'grid'};place-items:center;color:var(--muted);font-size:20px;flex-shrink:0;">
-                    👤
-                </div>
-                <div>
-                    <div class="avatar-preview-text" style="font-size:12.5px;font-weight:600;color:var(--ink);">
-                        ${value ? 'Foto profil saat ini' : 'Belum ada foto profil'}
+        return `
+            <div class="avatar-field-card" data-field="${esc(f.name)}"${spanAttr}>
+                <div class="avatar-card-preview-wrap">
+                    <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" style="width:64px;height:64px;border-radius:14px;object-fit:cover;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);background:#fff;" ${value ? '' : 'hidden'}>
+                    <div class="avatar-no-preview" style="width:64px;height:64px;border-radius:14px;background:#e2ece4;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);display:${value ? 'none' : 'grid'};place-items:center;color:var(--primary);font-size:26px;flex-shrink:0;">
+                        👤
                     </div>
-                    <small style="color:var(--muted);font-size:11.5px;display:block;margin-top:2px;">Pilih berkas baru untuk mengubah foto profil.</small>
                 </div>
+                <div class="avatar-card-content">
+                    <div class="avatar-card-meta">
+                        <strong class="avatar-card-label">${esc(f.label)}</strong>
+                        <span class="avatar-preview-text" style="font-size:12px;font-weight:600;color:var(--primary);margin:2px 0;">${value ? 'Foto profil aktif' : 'Belum ada foto'}</span>
+                        <small class="avatar-card-hint" style="color:var(--muted);font-size:11.5px;">${esc(f.hint ?? 'Format JPG, PNG, atau WEBP. Maks 5MB.')}</small>
+                    </div>
+                    <div class="avatar-input-wrapper">
+                        <input type="file" id="${id}" name="${esc(f.name)}"${req}${accept} class="avatar-file-input">
+                    </div>
+                </div>
+                ${err}
             </div>
         `;
-        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="file" id="${id}" name="${esc(f.name)}"${req}${accept}>${preview}${hint}${err}</label>`;
     }
     const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
     return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}>${hint}${err}</label>`;
@@ -223,6 +308,7 @@ function syncVisibility() {
 function collect() {
     const out = {};
     current.fields.forEach((f) => {
+        if (f.type === 'section') return;
         const wrap = $(`[data-field="${f.name}"]`, fieldsBox);
         if (!wrap || (wrap.hidden && f.showIf)) return;
         if (f.type === 'sessions') {
@@ -230,8 +316,13 @@ function collect() {
             return;
         }
         const input = $(`[name="${f.name}"]`, wrap);
+        if (!input) return;
         if (f.type === 'checkbox') out[f.name] = input.checked;
         else if (f.type === 'file') out[f.name] = (input.files && input.files[0]) ? input.files[0] : null;
+        else if (f.type === 'currency') {
+            const digits = input.value.replace(/[^0-9]/g, '');
+            out[f.name] = digits !== '' ? Number(digits) : null;
+        }
         else if (input.value === '') out[f.name] = null;
         else out[f.name] = f.type === 'number' || f.numeric ? Number(input.value) : input.value;
     });
@@ -268,17 +359,30 @@ export function openForm({ title, hint = '', fields, values = {}, submitLabel = 
     $('input, select', fieldsBox)?.focus();
 }
 
+fieldsBox.addEventListener('input', (event) => {
+    if (event.target.classList.contains('currency-input')) {
+        const input = event.target;
+        const raw = input.value;
+        const digits = raw.replace(/[^0-9]/g, '');
+        if (!digits) {
+            input.value = '';
+        } else {
+            input.value = `Rp ${Number(digits).toLocaleString('id-ID')}`;
+        }
+    }
+});
+
 fieldsBox.addEventListener('change', (event) => {
     if (event.target.type === 'file' && event.target.files && event.target.files[0]) {
         const file = event.target.files[0];
-        const label = event.target.closest('label');
-        const liveImg = label?.querySelector('.avatar-live-preview');
-        const noPreview = label?.querySelector('.avatar-no-preview');
-        const previewText = label?.querySelector('.avatar-preview-text');
+        const container = event.target.closest('.avatar-field-card') ?? event.target.closest('label');
+        const liveImg = container?.querySelector('.avatar-live-preview');
+        const noPreview = container?.querySelector('.avatar-no-preview');
+        const previewText = container?.querySelector('.avatar-preview-text');
         if (liveImg) {
             liveImg.src = URL.createObjectURL(file);
             liveImg.hidden = false;
-            if (noPreview) noPreview.style.display = 'none';
+            if (noPreview) noPreview.hidden = true;
             if (previewText) previewText.textContent = `Foto baru terpilih: ${file.name}`;
         }
     }

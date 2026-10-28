@@ -30,9 +30,11 @@ class EmployeeController extends Controller
             'department_id' => ['nullable', 'integer'],
             'level_id' => ['nullable', 'string', 'max:32'],
             'status' => ['nullable', 'in:active,inactive'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes'],
         ]);
 
-        $employees = self::visibleTo($request->user())
+        $query = self::visibleTo($request->user())
             ->with(['department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,role,is_active'])
             ->with(['level:id,code,name', 'employmentTerms'])
             ->withCount(['devices' => fn (Builder $q) => $q->whereNull('revoked_at')])
@@ -47,11 +49,12 @@ class EmployeeController extends Controller
                 }
             })
             ->when($filters['status'] ?? null, fn (Builder $q, $status) => $q->where('status', $status))
-            ->orderBy('name')
-            ->get();
+            ->orderBy('name');
+
+        $isAll = $request->boolean('all') || $request->input('per_page') === 'all' || (! $request->has('page') && ! $request->has('per_page'));
 
         $today = WorkTime::today();
-        $employees->each(function (Employee $employee) use ($today) {
+        $enrich = function (Employee $employee) use ($today) {
             $term = $employee->employmentTerms->filter(fn (EmploymentTerm $term) => $term->starts_on->format('Y-m-d') <= $today)->sortByDesc('starts_on')->first();
             $employee->setAttribute('employment', $term ? [
                 'type' => $term->type,
@@ -61,9 +64,30 @@ class EmployeeController extends Controller
                     ? ($term->ends_on->lt($today) ? 'overdue' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(7)) ? 'urgent' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(30)) ? 'soon' : null)))
                     : null,
             ] : ['type' => 'unknown', 'starts_on' => null, 'ends_on' => null, 'alert' => null]);
-        });
+        };
 
-        return response()->json(['data' => $employees]);
+        if ($isAll) {
+            $employees = $query->get();
+            $employees->each($enrich);
+
+            return response()->json(['data' => $employees]);
+        }
+
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+        $paginator = $query->paginate($perPage);
+        $paginator->getCollection()->each($enrich);
+
+        return response()->json([
+            'data' => $paginator->getCollection()->values(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ]);
     }
 
     public function show(Request $request, Employee $employee): JsonResponse
@@ -522,13 +546,15 @@ class EmployeeController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
             'avatar' => ['nullable', 'file', 'image', 'max:5120'],
+            'started_on' => [$employee ? 'nullable' : 'required', 'date_format:Y-m-d'],
         ];
-        if (! $employee) {
-            $rules['started_on'] = ['required', 'date_format:Y-m-d'];
-        }
 
         $validated = $request->validate($rules);
         unset($validated['avatar']);
+
+        if ($employee && empty($validated['started_on'])) {
+            unset($validated['started_on']);
+        }
 
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');

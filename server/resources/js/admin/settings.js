@@ -101,8 +101,8 @@ const tabs = {
             const levels = await lookup('employee-levels');
             return [
                 { name: 'level_id', label: 'Level', type: 'select', numeric: true, required: true, blank: 'Pilih level', options: opts(levels) },
-                { name: 'meal_amount', label: 'Uang makan per siklus (rupiah)', type: 'number', min: 0, max: 100000000, required: true },
-                { name: 'transport_amount', label: 'Uang transport per siklus (rupiah)', type: 'number', min: 0, max: 100000000, required: true },
+                { name: 'meal_amount', label: 'Uang makan per siklus', type: 'currency', required: true, hint: 'Tarif uang makan per hari/siklus (contoh: Rp 25.000).' },
+                { name: 'transport_amount', label: 'Uang transport per siklus', type: 'currency', required: true, hint: 'Tarif uang transport per hari/siklus (contoh: Rp 15.000).' },
                 { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true, default: todayKey() },
                 { name: 'effective_to', label: 'Berlaku sampai', type: 'date' },
                 { name: 'retro_reason', label: 'Alasan perubahan surut', required: true, maxlength: 1000, showIf: (value) => value.effective_from && value.effective_from < todayKey() },
@@ -121,8 +121,8 @@ const tabs = {
             const employees = (await api('employees', { query: { status: 'active' } })).data;
             return [
                 { name: 'employee_id', label: 'Karyawan', type: 'select', numeric: true, required: true, blank: 'Pilih karyawan', options: opts(employees, (x) => `${x.name} (${x.code})`) },
-                { name: 'meal_amount', label: 'Uang makan per siklus (kosong = tarif level)', type: 'number', min: 0, max: 100000000 },
-                { name: 'transport_amount', label: 'Uang transport per siklus (kosong = tarif level)', type: 'number', min: 0, max: 100000000 },
+                { name: 'meal_amount', label: 'Uang makan per siklus', type: 'currency', hint: 'Kosongkan jika ingin mengikuti tarif level karyawan.' },
+                { name: 'transport_amount', label: 'Uang transport per siklus', type: 'currency', hint: 'Kosongkan jika ingin mengikuti tarif level karyawan.' },
                 { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true, default: todayKey() },
                 { name: 'effective_to', label: 'Berlaku sampai', type: 'date' },
                 { name: 'reason', label: 'Alasan pengecualian', required: true, maxlength: 1000 },

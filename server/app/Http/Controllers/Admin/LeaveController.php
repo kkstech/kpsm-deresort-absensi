@@ -222,14 +222,38 @@ class LeaveController extends Controller
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('admin');
-        $filters = $request->validate(['status' => ['nullable', 'in:PENDING,APPROVED,REJECTED,CANCELLED'], 'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d']]);
-        $rows = LeaveRequestModel::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,status,template_name')
+        $filters = $request->validate([
+            'status' => ['nullable', 'in:PENDING,APPROVED,REJECTED,CANCELLED'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d'],
+            'page' => ['sometimes', 'integer', 'min:1'],
+            'per_page' => ['sometimes'],
+        ]);
+        $query = LeaveRequestModel::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,status,template_name')
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereRaw('COALESCE(end_date, work_date) >= ?', [$from]))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('work_date', '<=', $to))
-            ->orderByRaw("CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END")->orderBy('work_date')->get();
+            ->orderByRaw("CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END")->orderBy('work_date');
 
-        return response()->json(['data' => $rows]);
+        $isAll = $request->boolean('all') || $request->input('per_page') === 'all' || (! $request->has('page') && ! $request->has('per_page'));
+        if ($isAll) {
+            return response()->json(['data' => $query->get()]);
+        }
+
+        $perPage = min(max($request->integer('per_page', 20), 1), 100);
+        $paginator = $query->paginate($perPage);
+
+        return response()->json([
+            'data' => $paginator->getCollection()->values(),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ]);
     }
 
     public function decide(Request $request, LeaveRequestModel $leave): JsonResponse

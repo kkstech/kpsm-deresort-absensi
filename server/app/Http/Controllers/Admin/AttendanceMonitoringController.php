@@ -6,6 +6,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
+use App\Models\LeaveRequest;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftSession;
 use App\Models\User;
@@ -39,6 +40,10 @@ class AttendanceMonitoringController extends Controller
                 ->whereDoesntHave('attendanceRecord')
                 ->whereHas('attendanceEvents', fn (Builder $event) => $event->where('result', 'REVIEW_REQUIRED'))));
 
+        $scheduledSessions = (clone $sessions)->count();
+        $checkedInSessions = (clone $records)->whereNotNull('check_in_at')->count();
+        $reviewSessionsCount = (clone $review)->count();
+
         $recent = (clone $sessions)
             ->where(fn (Builder $query) => $query->whereHas('attendanceRecord')->orWhereHas('attendanceEvents'))
             ->with(['assignment.employee.department:id,name', 'attendanceRecord.latePermission', 'attendanceEvents'])
@@ -46,16 +51,29 @@ class AttendanceMonitoringController extends Controller
             ->orderByDesc('attendance_events_max_effective_at')
             ->limit(8)->get();
 
+        $reviewItems = (clone $review)
+            ->with(['assignment.employee.department:id,name', 'attendanceRecord.latePermission', 'attendanceEvents'])
+            ->limit(5)->get();
+
+        $pendingLeavesCount = LeaveRequest::query()->where('status', 'PENDING')->count();
+
         return response()->json([
             'filters' => $filters,
             'summary' => [
                 'scheduled_employees' => $this->assignments($request->user(), $filters)->distinct()->count('employee_id'),
-                'scheduled_sessions' => (clone $sessions)->count(),
-                'checked_in_sessions' => (clone $records)->whereNotNull('check_in_at')->count(),
-                'review_sessions' => $review->count(),
+                'scheduled_sessions' => $scheduledSessions,
+                'checked_in_sessions' => $checkedInSessions,
+                'review_sessions' => $reviewSessionsCount,
                 'verified_minutes' => (clone $records)->sum('verified_minutes'),
+                'attendance_rate' => $scheduledSessions > 0 ? (int) round(($checkedInSessions / $scheduledSessions) * 100) : 0,
+                'on_time_count' => (clone $records)->whereNotNull('check_in_at')->where('is_late', false)->count(),
+                'late_count' => (clone $records)->whereNotNull('check_in_at')->where('is_late', true)->count(),
+                'in_progress_count' => (clone $records)->whereNotNull('check_in_at')->whereNull('check_out_at')->count(),
+                'completed_count' => (clone $records)->whereNotNull('check_out_at')->count(),
+                'pending_leaves_count' => $pendingLeavesCount,
             ],
             'recent' => $recent->map(fn (ShiftSession $session) => $this->row($session))->values(),
+            'review_items' => $reviewItems->map(fn (ShiftSession $session) => $this->row($session))->values(),
         ]);
     }
 
@@ -70,7 +88,14 @@ class AttendanceMonitoringController extends Controller
         return response()->json([
             'filters' => $filters,
             'data' => $paginator->getCollection()->map(fn (ShiftSession $session) => $this->row($session))->values(),
-            'meta' => ['current_page' => $paginator->currentPage(), 'last_page' => $paginator->lastPage(), 'total' => $paginator->total()],
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
         ]);
     }
 
