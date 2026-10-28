@@ -20,6 +20,18 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    protected $appends = ['avatar_url'];
+
+    public function getAvatarUrlAttribute(): ?string
+    {
+        $path = $this->avatar_path ?? $this->employee?->avatar_path;
+        if (! $path) {
+            return null;
+        }
+
+        return url('storage/' . ltrim($path, '/'));
+    }
+
     public const ROLES = ['super_admin', 'admin', 'supervisor', 'employee'];
 
     public const WEB_ROLES = ['super_admin', 'admin', 'supervisor'];

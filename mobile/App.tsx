@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet,
+  Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet,
   Switch, Text as NativeText, TextInput, type TextProps, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { File as ExpoFile, readAsStringAsync, EncodingType } from 'expo-file-system';
 import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import * as Network from 'expo-network';
@@ -13,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
-  ApiError, authStore, enqueueEvent, normalizeBaseUrl, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
+  ApiError, authStore, clearCache, enqueueEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
@@ -78,7 +80,38 @@ type ActionIntent = { assignment: Assignment; session: Session; eventType: 'CHEC
 type RequestKind = 'leave' | 'late' | 'correction' | 'swap' | 'overtime';
 
 const colors = { ink: '#142019', muted: '#374151', line: '#DDE4DE', canvas: '#F2F5F1', surface: '#FFFFFF', primary: '#173D2B', accent: '#D9F25F', successSoft: '#E6F1E9', warning: '#A65718', warningSoft: '#FFF1DC', blueSoft: '#E8F1FB', dangerSoft: '#FEECEC', danger: '#A51F18' };
-const Text = ({ style, ...props }: TextProps) => {
+function sanitizeTextChildren(child: any): any {
+  if (child === null || child === undefined || typeof child === 'boolean') {
+    return null;
+  }
+  if (typeof child === 'string' || typeof child === 'number') {
+    return child;
+  }
+  if (Array.isArray(child)) {
+    return child.map(sanitizeTextChildren);
+  }
+  if (typeof child === 'object') {
+    if (child.$$typeof) {
+      return child;
+    }
+    if ('name' in child && typeof child.name === 'string') {
+      return child.name;
+    }
+    if ('title' in child && typeof child.title === 'string') {
+      return child.title;
+    }
+    if ('label' in child && typeof child.label === 'string') {
+      return child.label;
+    }
+    if ('message' in child && typeof child.message === 'string') {
+      return child.message;
+    }
+    return '';
+  }
+  return String(child);
+}
+
+const Text = ({ style, children, ...props }: TextProps) => {
   const flat = StyleSheet.flatten(style);
   const weight = String(flat?.fontWeight ?? '500');
   const family = (weight === '800' || weight === '900')
@@ -88,7 +121,7 @@ const Text = ({ style, ...props }: TextProps) => {
     : weight === '600'
     ? 'PlusJakartaSans-SemiBold'
     : 'PlusJakartaSans-Medium';
-  return <NativeText {...props} style={[{ fontFamily: family }, style]} />;
+  return <NativeText {...props} style={[{ fontFamily: family }, style]}>{sanitizeTextChildren(children)}</NativeText>;
 };
 const localDate = (value?: string | Date | null) => {
   if (!value) return '—';
@@ -105,6 +138,42 @@ const nameOrString = (val: unknown, fallback = '—'): string => {
   }
   return fallback;
 };
+
+function normalizeProfile(p: Profile | null | undefined): Profile | null {
+  if (!p) return null;
+  const cloned = { ...p };
+  if (cloned.employee) {
+    cloned.employee = {
+      ...cloned.employee,
+      department: typeof cloned.employee.department === 'object' && cloned.employee.department !== null
+        ? (cloned.employee.department as any).name
+        : (cloned.employee.department || ''),
+      position: typeof cloned.employee.position === 'object' && cloned.employee.position !== null
+        ? (cloned.employee.position as any).name
+        : (cloned.employee.position || ''),
+    };
+  }
+  return cloned;
+}
+
+function normalizeColleague(e: Colleague): Colleague {
+  if (!e) return e;
+  return {
+    ...e,
+    department: typeof e.department === 'object' && e.department !== null ? (e.department as any).name : (e.department || ''),
+    position: typeof e.position === 'object' && e.position !== null ? (e.position as any).name : (e.position || ''),
+  };
+}
+
+function normalizeExchangeItem(item: ShiftExchangeItem): ShiftExchangeItem {
+  if (!item) return item;
+  return {
+    ...item,
+    employee: item.employee ? normalizeColleague(item.employee) : null,
+    target_employee: item.target_employee ? normalizeColleague(item.target_employee) : null,
+  };
+}
+
 const dateRange = () => {
   const date = todayKey().split('-').map(Number);
   const year = date[0] ?? 2026; const month = date[1] ?? 1; const day = date[2] ?? 1;
@@ -560,6 +629,82 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
   );
 }
 
+function decodeBase64ToUint8Array(b64: string): Uint8Array {
+  if (typeof atob === 'function') {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let bufferLength = b64.length * 0.75;
+  if (b64.endsWith('==')) bufferLength -= 2;
+  else if (b64.endsWith('=')) bufferLength -= 1;
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < b64.length; i += 4) {
+    const enc1 = chars.indexOf(b64.charAt(i));
+    const enc2 = chars.indexOf(b64.charAt(i + 1));
+    const enc3 = chars.indexOf(b64.charAt(i + 2));
+    const enc4 = chars.indexOf(b64.charAt(i + 3));
+    bytes[p++] = (enc1 << 2) | (enc2 >> 4);
+    if (enc3 !== 64 && enc3 !== -1) bytes[p++] = ((enc2 & 15) << 4) | (enc3 >> 2);
+    if (enc4 !== 64 && enc4 !== -1) bytes[p++] = ((enc3 & 3) << 6) | enc4;
+  }
+  return bytes;
+}
+
+async function appendFileToFormData(
+  form: FormData,
+  fieldName: string,
+  uri: string,
+  fileName: string,
+  mimeType: string
+): Promise<void> {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    form.append(fieldName, blob, fileName);
+    return;
+  }
+
+  let fileUri = uri;
+  if (Platform.OS === 'android') {
+    if (!fileUri.startsWith('file://') && !fileUri.startsWith('content://')) {
+      fileUri = fileUri.startsWith('file:/') ? fileUri.replace('file:/', 'file:///') : `file://${fileUri}`;
+    }
+  }
+
+  const part: any = {
+    name: fileName,
+    type: mimeType,
+    uri: fileUri,
+    bytes: async () => {
+      try {
+        const file = new ExpoFile(fileUri);
+        if (typeof (file as any).bytes === 'function') {
+          return await (file as any).bytes();
+        }
+      } catch {}
+
+      try {
+        const b64 = await readAsStringAsync(fileUri, {
+          encoding: EncodingType.Base64,
+        });
+        return decodeBase64ToUint8Array(b64);
+      } catch {}
+
+      const res = await fetch(fileUri);
+      const buf = await res.arrayBuffer();
+      return new Uint8Array(buf);
+    },
+  };
+
+  form.append(fieldName, part);
+}
+
 function Main() {
   const [baseUrl, setBaseUrl] = useState(process.env.EXPO_PUBLIC_API_URL || 'http://192.168.106.188:8000');
   const [token, setToken] = useState<string | null>(null);
@@ -573,6 +718,7 @@ function Main() {
   const [outbox, setOutbox] = useState<OutboxRow[]>([]);
   const [online, setOnline] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('Hari ini');
   const tabFade = useRef(new Animated.Value(1)).current;
@@ -792,6 +938,30 @@ function Main() {
     return () => subscription.remove();
   }, []);
 
+  const handleSessionExpired = useCallback(async (msg?: string) => {
+    await authStore.clearToken();
+    await clearCache();
+    setToken(null);
+    setProfile(null);
+    setAssignments([]);
+    setBalance(null);
+    setLeaveRequests([]);
+    setLateRequests([]);
+    setCorrections([]);
+    setShiftExchanges([]);
+    setAdminShiftExchanges([]);
+    setAdminSchedules([]);
+    setOvertimes([]);
+    setColleagues([]);
+    setAllEmployees([]);
+    setError(msg || 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
+  }, []);
+
+  useEffect(() => {
+    onUnauthorized(handleSessionExpired);
+    return () => onUnauthorized(null);
+  }, [handleSessionExpired]);
+
   useEffect(() => {
     if (!token) return;
     loadData(token, baseUrl);
@@ -826,6 +996,15 @@ function Main() {
     ];
 
     const results = await Promise.allSettled(tasks.map((t) => t.promise));
+    const isUnauthorized = results.some(
+      (r) => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 401
+    );
+    if (isUnauthorized) {
+      await handleSessionExpired('Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
+      setLoading(false);
+      return;
+    }
+
     for (let index = 0; index < results.length; index += 1) {
       const result = results[index];
       const task = tasks[index];
@@ -833,7 +1012,14 @@ function Main() {
       try {
         if (result.status === 'fulfilled') {
           const value = result.value;
-          const normalized = task.key === 'profile' ? (value as { user: Profile }).user : (value as { data: unknown }).data;
+          let normalized: any = task.key === 'profile' ? (value as { user: Profile }).user : (value as { data: unknown }).data;
+          if (task.key === 'profile') {
+            normalized = normalizeProfile(normalized as Profile);
+          } else if (task.key === 'shiftExchanges' || task.key === 'adminShiftExchanges') {
+            normalized = Array.isArray(normalized) ? normalized.map(normalizeExchangeItem) : [];
+          } else if (task.key === 'colleagues' || task.key === 'allEmployees') {
+            normalized = Array.isArray(normalized) ? normalized.map(normalizeColleague) : [];
+          }
           await saveCache(task.key, normalized);
           applyCached(task.key, normalized);
         } else {
@@ -852,17 +1038,9 @@ function Main() {
 
   function applyCached(key: string, value: unknown) {
     if (key === 'profile') {
-      const p = value as any;
-      if (p?.employee) {
-        if (typeof p.employee.department === 'object' && p.employee.department !== null) {
-          p.employee.department = p.employee.department.name;
-        }
-        if (typeof p.employee.position === 'object' && p.employee.position !== null) {
-          p.employee.position = p.employee.position.name;
-        }
-      }
-      setProfile(p as Profile);
-      if (!p?.employee && ['super_admin', 'admin', 'supervisor'].includes(p?.role)) {
+      const p = normalizeProfile(value as Profile);
+      setProfile(p);
+      if (!p?.employee && ['super_admin', 'admin', 'supervisor'].includes(p?.role ?? '')) {
         setPengajuanView('admin');
       }
     }
@@ -871,25 +1049,23 @@ function Main() {
     if (key === 'leaveRequests') setLeaveRequests(value as WorkRequest[]);
     if (key === 'lateRequests') setLateRequests(value as WorkRequest[]);
     if (key === 'corrections') setCorrections(value as WorkRequest[]);
-    if (key === 'shiftExchanges') setShiftExchanges(value as ShiftExchangeItem[]);
+    if (key === 'shiftExchanges') {
+      const list = Array.isArray(value) ? value : [];
+      setShiftExchanges(list.map(normalizeExchangeItem));
+    }
     if (key === 'overtimes') setOvertimes(Array.isArray(value) ? value as OvertimeItem[] : []);
     if (key === 'colleagues') {
       const list = Array.isArray(value) ? value : [];
-      setColleagues(list.map((e: any) => ({
-        ...e,
-        department: typeof e.department === 'object' && e.department !== null ? e.department.name : (e.department || ''),
-        position: typeof e.position === 'object' && e.position !== null ? e.position.name : (e.position || ''),
-      })));
+      setColleagues(list.map(normalizeColleague));
     }
-    if (key === 'adminShiftExchanges') setAdminShiftExchanges(value as ShiftExchangeItem[]);
+    if (key === 'adminShiftExchanges') {
+      const list = Array.isArray(value) ? value : [];
+      setAdminShiftExchanges(list.map(normalizeExchangeItem));
+    }
     if (key === 'adminSchedules') setAdminSchedules(value as Assignment[]);
     if (key === 'allEmployees') {
       const list = Array.isArray(value) ? value : [];
-      setAllEmployees(list.map((e: any) => ({
-        ...e,
-        department: typeof e.department === 'object' && e.department !== null ? e.department.name : (e.department || ''),
-        position: typeof e.position === 'object' && e.position !== null ? e.position.name : (e.position || ''),
-      })));
+      setAllEmployees(list.map(normalizeColleague));
     }
   }
 
@@ -938,7 +1114,7 @@ function Main() {
       setBaseUrl(url);
       setPassword('');
       setToken(receivedToken);
-      if (result.user) setProfile(result.user);
+      if (result.user) setProfile(normalizeProfile(result.user));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Login gagal.');
     } finally { setLoginBusy(false); }
@@ -946,9 +1122,7 @@ function Main() {
 
   async function logout() {
     try { if (token && online) await request(baseUrl, 'auth/logout', token, { method: 'POST' }); } catch {}
-    await authStore.clearToken();
-    setToken(null); setProfile(null); setAssignments([]); setBalance(null);
-    setShiftExchanges([]); setAdminShiftExchanges([]); setAdminSchedules([]); setOvertimes([]);
+    await handleSessionExpired('');
   }
 
   async function syncOutbox(authToken = token, url = baseUrl) {
@@ -986,12 +1160,27 @@ function Main() {
         }
       }
     } catch (failure) {
-      if (failure instanceof ApiError && failure.status === 401) setError('Sesi login sudah habis. Masuk kembali untuk menyinkronkan data.');
+      if (failure instanceof ApiError && failure.status === 401) {
+        await handleSessionExpired('Sesi login sudah habis. Masuk kembali untuk menyinkronkan data.');
+      }
     } finally {
       setOutbox(await outboxRows());
       syncingOutbox = false;
     }
   }
+
+  const handleRefresh = useCallback(async () => {
+    if (!token) return;
+    setRefreshing(true);
+    try {
+      await Promise.allSettled([
+        loadData(token, baseUrl),
+        syncOutbox(token, baseUrl),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [token, baseUrl]);
 
   async function captureLocation(session: Session) {
     if (!session.attendance_policy?.location_required) return undefined;
@@ -1039,10 +1228,12 @@ function Main() {
     if (!result.canceled && result.assets[0]) setProof({ uri: result.assets[0].uri, name: result.assets[0].name, mimeType: result.assets[0].mimeType ?? undefined });
   }
 
-  function formData(values: Record<string, string>, attachment: Proof | null): FormData {
+  async function formData(values: Record<string, string>, attachment: Proof | null): Promise<FormData> {
     const form = new FormData();
     Object.entries(values).forEach(([key, value]) => { if (value !== '') form.append(key, value); });
-    if (attachment) form.append('evidence', { uri: attachment.uri, name: attachment.name, type: attachment.mimeType ?? 'application/octet-stream' } as unknown as Blob);
+    if (attachment) {
+      await appendFileToFormData(form, 'evidence', attachment.uri, attachment.name, attachment.mimeType ?? 'application/octet-stream');
+    }
     return form;
   }
 
@@ -1130,11 +1321,11 @@ function Main() {
         if (proofRequired && !proof) throw new Error('Kebijakan sesi ini mewajibkan bukti lampiran.');
         if (requestKind === 'late') {
           if (!allowedUntil && !minutes) throw new Error('Isi jam target hadir atau durasi izin.');
-          await request(baseUrl, 'late-permissions', token, { method: 'POST', body: formData({ shift_session_id: String(sessionId), allowed_until: allowedUntil, allowed_minutes: minutes, reason: reason.trim() }, proof) });
+          await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), allowed_until: allowedUntil, allowed_minutes: minutes, reason: reason.trim() }, proof) });
         } else if (requestKind === 'correction') {
           if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
           if (!requestedIn && !requestedOut) throw new Error('Isi minimal waktu check-in atau check-out yang diminta.');
-          await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
+          await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
         }
       }
       setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setRequestedIn(''); setRequestedOut(''); setProof(null);
@@ -1499,8 +1690,9 @@ function Main() {
         method: 'PATCH',
         body,
       });
-      setProfile(res.user);
-      await saveCache('profile', res.user);
+      const normalized = normalizeProfile(res.user);
+      setProfile(normalized);
+      await saveCache('profile', normalized);
       setEditProfileOpen(false);
       Alert.alert('Sukses', res.message || 'Profil berhasil diperbarui.');
     } catch (err) {
@@ -1510,19 +1702,11 @@ function Main() {
     }
   }
 
-  async function handleChooseAvatar() {
+  async function uploadAvatarAsset(asset: ImagePicker.ImagePickerAsset) {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/*'],
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      if (result.canceled || !result.assets || !result.assets[0]) return;
-      const asset = result.assets[0];
-
       setAvatarUploading(true);
 
-      let fileName = asset.name || 'avatar.jpg';
+      let fileName = asset.fileName || 'avatar.jpg';
       let mimeType = asset.mimeType || 'image/jpeg';
 
       if (!mimeType || mimeType === 'application/octet-stream') {
@@ -1537,17 +1721,8 @@ function Main() {
         fileName = `${fileName.replace(/\.[^/.]+$/, '')}${ext}`;
       }
 
-      let fileUri = asset.uri;
-      if (Platform.OS === 'ios' && fileUri.startsWith('file://')) {
-        fileUri = fileUri.replace('file://', '');
-      }
-
       const form = new FormData();
-      form.append('avatar', {
-        uri: fileUri,
-        name: fileName,
-        type: mimeType,
-      } as any);
+      await appendFileToFormData(form, 'avatar', asset.uri, fileName, mimeType);
 
       const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', token, {
         method: 'POST',
@@ -1555,8 +1730,9 @@ function Main() {
       });
 
       if (res?.user) {
-        setProfile(res.user);
-        await saveCache('profile', res.user);
+        const normalized = normalizeProfile(res.user);
+        setProfile(normalized);
+        await saveCache('profile', normalized);
       }
       Alert.alert('Sukses', res.message || 'Foto profil berhasil diperbarui.');
     } catch (err) {
@@ -1564,6 +1740,53 @@ function Main() {
     } finally {
       setAvatarUploading(false);
     }
+  }
+
+  async function pickAvatar(source: 'camera' | 'gallery') {
+    try {
+      if (source === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Izin Kamera Diperlukan', 'Mohon izinkan akses kamera pada pengaturan ponsel untuk mengambil foto.');
+          return;
+        }
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Izin Galeri Diperlukan', 'Mohon izinkan akses galeri foto pada pengaturan ponsel untuk memilih foto.');
+          return;
+        }
+      }
+
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
+
+      const result = source === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+
+      if (result.canceled || !result.assets || !result.assets[0]) return;
+      await uploadAvatarAsset(result.assets[0]);
+    } catch (err) {
+      Alert.alert('Gagal Memilih Foto', err instanceof Error ? err.message : 'Terjadi kesalahan saat memproses foto.');
+    }
+  }
+
+  function handleChooseAvatar() {
+    Alert.alert(
+      'Ubah Foto Profil',
+      'Pilih sumber foto profil Anda:',
+      [
+        { text: 'Kamera', onPress: () => pickAvatar('camera') },
+        { text: 'Galeri Foto', onPress: () => pickAvatar('gallery') },
+        { text: 'Batal', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
   }
 
   async function handleDeleteAvatar() {
@@ -1578,8 +1801,9 @@ function Main() {
             const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', token, {
               method: 'DELETE',
             });
-            setProfile(res.user);
-            await saveCache('profile', res.user);
+            const normalized = normalizeProfile(res.user);
+            setProfile(normalized);
+            await saveCache('profile', normalized);
             Alert.alert('Sukses', res.message || 'Foto profil berhasil dihapus.');
           } catch (err) {
             Alert.alert('Gagal', err instanceof Error ? err.message : 'Terjadi kesalahan.');
@@ -1698,7 +1922,18 @@ function Main() {
     // Pure Admin / HRD view (account without dedicated employee schedule)
     if (!hasEmployee && isAdminOrSupervisor) {
       return (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
+        >
           <View style={styles.headingRow}>
             <View>
               <Text style={styles.overline}>{localDate(new Date()).toLocaleUpperCase('id-ID')}</Text>
@@ -1784,7 +2019,18 @@ function Main() {
     const creditedOvertime = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_overtime_minutes ?? 0), 0);
 
     return (
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.headingRow}>
           <View>
             <Text style={styles.overline}>{localDate(new Date()).toLocaleUpperCase('id-ID')}</Text>
@@ -1883,7 +2129,18 @@ function Main() {
     const upcoming = [...displayedAssignments].sort((a, b) => a.work_date.localeCompare(b.work_date));
 
     return (
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.headingRow}>
           <View>
             <Text style={styles.overline}>JADWAL & ROSTER</Text>
@@ -2554,7 +2811,19 @@ function Main() {
     const pendingConsentOrders = overtimes.filter((o) => o.status === 'APPROVED' && o.consent_status === 'PENDING');
 
     return (
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.headingRow}>
           <View>
             <Text style={styles.overline}>LAYANAN & PERSETUJUAN</Text>
@@ -2761,7 +3030,18 @@ function Main() {
       : null;
 
     return (
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <View style={styles.headingRow}>
           <View>
             <Text style={styles.overline}>AKUN & PENGATURAN</Text>
@@ -2878,7 +3158,12 @@ function Main() {
               <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
               <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="characters" />
               <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
-              {!!error && <Text style={styles.errorText}>{error}</Text>}
+              {!!error && (
+                <View style={styles.sessionNoticeBox}>
+                  <Ionicons name="alert-circle" size={18} color="#991B1B" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={styles.sessionNoticeText}>{error}</Text>
+                </View>
+              )}
               <Pressable disabled={loginBusy} onPress={login} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, loginBusy && styles.disabled]}>
                 <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
               </Pressable>
@@ -3397,6 +3682,24 @@ const styles = StyleSheet.create({
   logoutButton: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 10, borderRadius: 10, backgroundColor: colors.warningSoft },
   logoutText: { color: colors.warning, fontSize: 14, fontWeight: '800' },
   errorText: { color: '#A51F18', fontSize: 13.5, lineHeight: 20, marginTop: 10, fontWeight: '600' },
+  sessionNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 12,
+  },
+  sessionNoticeText: {
+    flex: 1,
+    color: '#991B1B',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
   statRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
   statCard: { flex: 1, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
   statLabel: { color: colors.muted, fontSize: 13, fontWeight: '800' },

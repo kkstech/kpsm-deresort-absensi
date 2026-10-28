@@ -96,7 +96,7 @@ class AttendanceWorkflowController extends Controller
         return [
             'id' => $item->id,
             'shift_session_id' => $item->shift_session_id,
-            'employee' => ['id' => $item->employee->id, 'name' => $item->employee->name, 'code' => $item->employee->code, 'department' => $item->employee->department?->name],
+            'employee' => ['id' => $item->employee->id, 'name' => $item->employee->name, 'code' => $item->employee->code, 'avatar_url' => $item->employee->avatar_url, 'department' => $item->employee->department?->name],
             'work_date' => $item->session->assignment->work_date,
             'shift' => $item->session->assignment->template_name.' · sesi '.$item->session->seq,
             'allowed_until' => WorkTime::iso($item->allowed_until),
@@ -114,7 +114,7 @@ class AttendanceWorkflowController extends Controller
         return [
             'id' => $item->id,
             'shift_session_id' => $item->shift_session_id,
-            'employee' => ['id' => $item->employee->id, 'name' => $item->employee->name, 'code' => $item->employee->code, 'department' => $item->employee->department?->name],
+            'employee' => ['id' => $item->employee->id, 'name' => $item->employee->name, 'code' => $item->employee->code, 'avatar_url' => $item->employee->avatar_url, 'department' => $item->employee->department?->name],
             'work_date' => $item->session->assignment->work_date,
             'shift' => $item->session->assignment->template_name.' · sesi '.$item->session->seq,
             'requested_check_in_at' => WorkTime::iso($item->requested_check_in_at),

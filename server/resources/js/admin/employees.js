@@ -11,6 +11,7 @@ const opts = (list, label = (x) => x.name) => list.map((x) => ({ value: x.id, la
 async function fields(withAccount, employee) {
     const [departments, positions, locations] = await Promise.all([lookup('departments'), lookup('positions'), lookup('locations')]);
     const list = [
+        { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maks 5MB.' },
         { name: 'code', label: 'Kode karyawan', required: true, maxlength: 32, hint: 'Huruf, angka, titik, strip. Contoh: FO-001' },
         { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120 },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
@@ -20,7 +21,7 @@ async function fields(withAccount, employee) {
         { name: 'phone', label: 'No. HP', type: 'tel', maxlength: 32, autocomplete: 'off' },
         { name: 'email', label: 'Email', type: 'email', maxlength: 255, hint: employee?.user ? `Mengikuti akun login: ${employee.user.email}` : 'Email pribadi karyawan.' },
     ];
-    if (!employee) list.splice(5, 0, { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true });
+    if (!employee) list.splice(6, 0, { name: 'started_on', label: 'Mulai kerja', type: 'date', required: true });
     if (withAccount) {
         list.push(
             { name: 'make_account', label: 'Buat akun app sekarang', type: 'checkbox' },
@@ -46,7 +47,13 @@ function render() {
         rows,
         empty: 'Belum ada karyawan yang cocok dengan filter.',
         columns: [
-            { label: 'Karyawan', cell: (e) => `<b>${esc(e.name)}</b><small>${esc(e.code)}</small>` },
+            { label: 'Karyawan', cell: (e) => {
+                const initial = (e.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+                const avatar = e.avatar_url
+                    ? `<img src="${esc(e.avatar_url)}" alt="${esc(e.name)}" class="avatar" style="width:36px;height:36px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;">`
+                    : `<span class="avatar" style="width:36px;height:36px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;">${esc(initial)}</span>`;
+                return `<div style="display:flex;align-items:center;">${avatar}<div><b>${esc(e.name)}</b><small style="display:block;">${esc(e.code)}</small></div></div>`;
+            } },
             { label: 'Departemen', cell: (e) => `${esc(e.department?.name)}<small>${esc(e.position?.name)}</small>` },
             { label: 'Level', cell: (e) => e.level ? `${esc(e.level.name)}<small>${esc(e.level.code)}</small>` : '<span class="status warning">Belum diatur</span>' },
             { label: 'Status kerja', cell: (e) => {
@@ -80,10 +87,24 @@ async function openEmployee(employee) {
         title: employee ? `Ubah ${employee.name}` : 'Tambah karyawan',
         hint: employee ? 'Pindah departemen tercatat di riwayat penempatan.' : 'Akun app bisa dibuat sekarang atau nanti.',
         fields: await fields(!employee, employee),
-        values: employee ? { ...employee, email: employee.user?.email || employee.email } : {},
+        values: employee ? { ...employee, email: employee.user?.email || employee.email, avatar: employee.avatar_url } : {},
         onSubmit: async (values) => {
             const { make_account: _, ...body } = values;
-            await api(employee ? `employees/${employee.id}` : 'employees', { method: employee ? 'PUT' : 'POST', body });
+            if (body.avatar instanceof File) {
+                const form = new FormData();
+                Object.entries(body).forEach(([k, v]) => {
+                    if (v !== null && v !== undefined) form.append(k, v);
+                });
+                if (employee) {
+                    form.append('_method', 'PUT');
+                    await api(`employees/${employee.id}`, { method: 'POST', body: form });
+                } else {
+                    await api('employees', { method: 'POST', body: form });
+                }
+            } else {
+                delete body.avatar;
+                await api(employee ? `employees/${employee.id}` : 'employees', { method: employee ? 'PUT' : 'POST', body });
+            }
             toast(employee ? 'Data karyawan disimpan.' : 'Karyawan ditambahkan.');
             load();
         },

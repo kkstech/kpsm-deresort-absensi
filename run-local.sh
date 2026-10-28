@@ -26,4 +26,4 @@ echo "  Email   : admin@deresort.test"
 echo "  Password: (sesuai ADMIN_PASSWORD di server/.env)"
 echo ""
 echo "Tekan Ctrl+C untuk menghentikan server."
-exec php artisan serve --host=0.0.0.0 --port=8000
+exec php -d upload_max_filesize=20M -d post_max_size=25M artisan serve --host=0.0.0.0 --port=8000

@@ -63,6 +63,48 @@ class MasterCrudTest extends TestCase
         $this->assertSame(0, $employee->user->tokens()->count());
     }
 
+    public function test_admin_can_upload_and_update_employee_avatar(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+
+        $file = UploadedFile::fake()->image('profile.jpg', 200, 200);
+
+        $res = $this->asAdmin()->post('/admin/api/employees', [
+            ...$this->employeePayload([
+                'account_email' => 'avatar.test@deresort.test',
+                'account_password' => 'password123',
+            ]),
+            'avatar' => $file,
+        ], ['Accept' => 'application/json']);
+
+        $res->assertCreated();
+        $employee = Employee::query()->where('code', 'FO-001')->firstOrFail();
+        $this->assertNotNull($employee->avatar_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($employee->avatar_path);
+        $this->assertSame($employee->avatar_path, $employee->user->fresh()->avatar_path);
+
+        $listRes = $this->asAdmin()->getJson('/admin/api/employees');
+        $listRes->assertOk();
+        $this->assertNotNull($listRes->json('data.0.avatar_url'));
+
+        // Update avatar with method spoofing
+        $newFile = UploadedFile::fake()->image('profile2.png', 300, 300);
+        $oldPath = $employee->avatar_path;
+
+        $updateRes = $this->asAdmin()->post("/admin/api/employees/{$employee->id}", [
+            ...$this->employeePayload(['name' => 'Rina Updated']),
+            '_method' => 'PUT',
+            'avatar' => $newFile,
+        ], ['Accept' => 'application/json']);
+
+        $updateRes->assertOk();
+        $employee->refresh();
+        $this->assertSame('Rina Updated', $employee->name);
+        $this->assertNotSame($oldPath, $employee->avatar_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($employee->avatar_path);
+        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing($oldPath);
+    }
+
     public function test_supervisor_reads_only_own_department_and_cannot_write(): void
     {
         $fo = Department::query()->where('name', 'Front Office')->value('id');

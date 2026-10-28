@@ -10,6 +10,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['code', 'name', 'department_id', 'position_id', 'level_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email', 'avatar_path'])]
 class Employee extends Model
 {
+    protected $appends = ['avatar_url'];
+
+    public function getAvatarUrlAttribute(): ?string
+    {
+        if (! $this->avatar_path) {
+            return null;
+        }
+
+        return url('storage/' . ltrim($this->avatar_path, '/'));
+    }
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);

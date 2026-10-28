@@ -51,7 +51,11 @@
             <div class="sidebar-bottom">
                 <button type="button" class="nav-item" data-view="settings" data-requires="web_admin"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>Pengaturan</button>
                 <div class="operator">
-                    <span class="avatar">{{ \Illuminate\Support\Str::of($me->name)->explode(' ')->take(2)->map(fn ($w) => mb_substr($w, 0, 1))->join('') }}</span>
+                    @if ($me->avatar_url)
+                        <img src="{{ $me->avatar_url }}" alt="{{ $me->name }}" class="avatar" style="object-fit: cover;">
+                    @else
+                        <span class="avatar">{{ \Illuminate\Support\Str::of($me->name)->explode(' ')->take(2)->map(fn ($w) => mb_substr($w, 0, 1))->join('') }}</span>
+                    @endif
                     <span><strong>{{ $me->name }}</strong><small>{{ ['super_admin' => 'Super Admin', 'admin' => 'Admin', 'supervisor' => 'Supervisor'][$me->role] ?? $me->role }}</small></span>
                 </div>
                 <form method="post" action="{{ route('logout') }}">@csrf<button type="submit" class="nav-item logout-button">Keluar</button></form>

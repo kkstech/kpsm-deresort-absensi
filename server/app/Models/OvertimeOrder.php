@@ -68,6 +68,13 @@ class OvertimeOrder extends Model
             'employee_id' => $this->employee_id,
             'employee_name' => $employee?->name,
             'department_name' => $employee?->department?->name,
+            'employee' => $employee ? [
+                'id' => $employee->id,
+                'name' => $employee->name,
+                'code' => $employee->code,
+                'avatar_url' => $employee->avatar_url,
+                'department' => $employee->department?->name,
+            ] : null,
             'work_date' => $this->work_date,
             'shift_session_id' => $this->shift_session_id,
             'session_name' => $session ? "Sesi {$session->seq}" : null,

@@ -53,6 +53,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .operator strong { font-size: 14px; }
 .operator small { margin-top: 2px; color: #a8b7ae; font-size: 12px; }
 .avatar { display: inline-grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px; color: var(--primary); background: #d8e6dd; font-size: 12px; font-weight: 800; }
+img.avatar { object-fit: cover; }
 .avatar.rust { color: #763a14; background: #f5dcc8; }
 .avatar.teal { color: #175449; background: #d2eee8; }
 .avatar.violet { color: #59427d; background: #e9e0f3; }

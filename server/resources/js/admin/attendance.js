@@ -232,11 +232,14 @@ function renderQueueItem(item, kind) {
 
     const canDecide = late ? (role === 'super_admin' || role === 'admin' || (role === 'supervisor' && item.requester_id !== Number(document.body.dataset.userId))) : isAdmin;
     const initialLetter = esc(item.employee.name.charAt(0).toUpperCase());
+    const avatarHtml = item.employee?.avatar_url
+        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar workflow-avatar">`
+        : `<span class="avatar workflow-avatar">${initialLetter}</span>`;
 
     return `<article class="workflow-card">
         <div class="workflow-card-header">
             <div class="workflow-user-info">
-                <span class="avatar workflow-avatar">${initialLetter}</span>
+                ${avatarHtml}
                 <div class="workflow-user-meta">
                     <strong>${esc(item.employee.name)}</strong>
                     <div class="workflow-sub-meta">
@@ -277,6 +280,9 @@ function renderOvertimeItem(item) {
     const isEmployeeRequest = item.status === 'PENDING';
     const initialLetter = esc(item.employee?.name?.charAt(0).toUpperCase() ?? '?');
     const isSuperOrAdmin = role === 'super_admin' || role === 'admin';
+    const avatarHtml = item.employee?.avatar_url
+        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name ?? '')}" class="avatar workflow-avatar">`
+        : `<span class="avatar workflow-avatar">${initialLetter}</span>`;
 
     let statusBadge = '<span class="status warning">Menunggu Admin</span>';
     if (item.status === 'APPROVED') {
@@ -299,7 +305,7 @@ function renderOvertimeItem(item) {
     return `<article class="workflow-card">
         <div class="workflow-card-header">
             <div class="workflow-user-info">
-                <span class="avatar workflow-avatar">${initialLetter}</span>
+                ${avatarHtml}
                 <div class="workflow-user-meta">
                     <strong>${esc(item.employee?.name ?? '—')}</strong>
                     <div class="workflow-sub-meta">

@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -99,6 +100,7 @@ class EmployeeController extends Controller
                         'email' => $accountEmail,
                         'username' => Str::lower($data['code']),
                         'phone' => $data['phone'] ?? null,
+                        'avatar_path' => $data['avatar_path'] ?? null,
                         'password' => $account['account_password'],
                         'role' => 'employee',
                     ])->id;
@@ -131,6 +133,9 @@ class EmployeeController extends Controller
             }
             if ($user = $employee->user) {
                 $userUpdates = ['name' => $employee->name];
+                if (array_key_exists('avatar_path', $data)) {
+                    $userUpdates['avatar_path'] = $data['avatar_path'];
+                }
                 if (! empty($employee->code)) {
                     $userUpdates['username'] = Str::lower($employee->code);
                 }
@@ -478,11 +483,26 @@ class EmployeeController extends Controller
             'status' => ['required', 'in:active,inactive'],
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
+            'avatar' => ['nullable', 'file', 'image', 'max:5120'],
         ];
         if (! $employee) {
             $rules['started_on'] = ['required', 'date_format:Y-m-d'];
         }
 
-        return $request->validate($rules);
+        $validated = $request->validate($rules);
+        unset($validated['avatar']);
+
+        if ($request->hasFile('avatar')) {
+            $file = $request->file('avatar');
+            $ext = $file->getClientOriginalExtension() ?: 'jpg';
+            $filename = 'avatar_' . ($employee?->user_id ?? $employee?->id ?? time()) . '_' . time() . '.' . $ext;
+            $path = $file->storeAs('avatars', $filename, 'public');
+            $validated['avatar_path'] = $path;
+            if ($employee?->avatar_path && Storage::disk('public')->exists($employee->avatar_path)) {
+                Storage::disk('public')->delete($employee->avatar_path);
+            }
+        }
+
+        return $validated;
     }
 }

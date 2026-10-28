@@ -7,6 +7,13 @@ export class ApiError extends Error {
   }
 }
 
+type UnauthorizedCallback = (message?: string) => void;
+let unauthorizedHandler: UnauthorizedCallback | null = null;
+
+export function onUnauthorized(handler: UnauthorizedCallback | null): void {
+  unauthorizedHandler = handler;
+}
+
 export function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '').replace(/\/api\/v1\/?$/i, '').replace(/\/api\/?$/i, '');
 }
@@ -28,15 +35,40 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
       },
       body: options.body ? (isForm ? (options.body as any) : JSON.stringify(options.body)) : undefined,
     });
-  } catch {
-    throw new ApiError(0, 'NETWORK_ERROR', 'Server tidak dapat dijangkau. Periksa alamat server dan koneksi.');
+  } catch (error: any) {
+    const rawMsg = error instanceof Error ? error.message : String(error ?? '');
+    const isNetworkAbort = rawMsg.toLowerCase().includes('network') || rawMsg.toLowerCase().includes('failed') || rawMsg.toLowerCase().includes('abort');
+    const msg = isNetworkAbort
+      ? `Server tidak dapat dijangkau (${cleanBase}). Periksa alamat server dan koneksi.`
+      : (rawMsg ? `Koneksi gagal: ${rawMsg}` : 'Server tidak dapat dijangkau. Periksa alamat server dan koneksi.');
+    throw new ApiError(0, 'NETWORK_ERROR', msg);
   }
-  const data = response.headers.get('content-type')?.includes('json') ? await response.json() : null;
+
+  let data: any = null;
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('json')) {
+    try {
+      data = await response.json();
+    } catch {
+      // If server returned text/html warning before JSON, extract JSON payload
+      try {
+        const text = await response.text();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          data = JSON.parse(jsonMatch[0]);
+        }
+      } catch {}
+    }
+  }
   if (!response.ok) {
     let msg = data?.message ?? 'Permintaan gagal.';
     if (data?.details && typeof data.details === 'object') {
       const detailsStr = Object.values(data.details).flat().filter(Boolean).join(' ');
       if (detailsStr) msg = `${msg} (${detailsStr})`;
+    }
+    if (response.status === 401 && path !== 'auth/login') {
+      const sessionMsg = 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.';
+      unauthorizedHandler?.(sessionMsg);
     }
     throw new ApiError(response.status, data?.code, msg);
   }
@@ -259,6 +291,12 @@ export async function saveCache(key: string, value: unknown): Promise<void> {
 export async function readCache<T>(key: string): Promise<T | null> {
   const row = await (await db()).getFirstAsync<{ value: string }>('SELECT value FROM app_cache WHERE cache_key = ?', key);
   return row ? JSON.parse(row.value) as T : null;
+}
+
+export async function clearCache(): Promise<void> {
+  try {
+    await (await db()).runAsync('DELETE FROM app_cache');
+  } catch {}
 }
 
 export async function enqueueEvent(payload: Record<string, unknown>, status: 'pending' | 'uncertain'): Promise<OutboxRow> {

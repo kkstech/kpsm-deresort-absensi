@@ -94,6 +94,11 @@ function fieldHtml(f, value) {
     if (f.type === 'sessions') {
         return `<fieldset class="sessions-field" data-field="${esc(f.name)}"><legend>${esc(f.label)}</legend><div class="session-rows"></div><button type="button" class="text-button" data-add-session>+ Tambah sesi</button>${hint}${err}</fieldset>`;
     }
+    if (f.type === 'file') {
+        const accept = f.accept ? ` accept="${esc(f.accept)}"` : '';
+        const preview = value ? `<div style="margin-top:8px;display:flex;align-items:center;gap:10px;"><img src="${esc(value)}" alt="Preview" style="width:48px;height:48px;border-radius:8px;object-fit:cover;border:1px solid var(--line);"><small style="color:var(--muted)">Foto profil saat ini</small></div>` : '';
+        return `<label data-field="${esc(f.name)}">${esc(f.label)}<input type="file" id="${id}" name="${esc(f.name)}"${req}${accept}>${preview}${hint}${err}</label>`;
+    }
     const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
     return `<label data-field="${esc(f.name)}">${esc(f.label)}<input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}>${hint}${err}</label>`;
 }
@@ -137,6 +142,7 @@ function collect() {
         }
         const input = $(`[name="${f.name}"]`, wrap);
         if (f.type === 'checkbox') out[f.name] = input.checked;
+        else if (f.type === 'file') out[f.name] = (input.files && input.files[0]) ? input.files[0] : null;
         else if (input.value === '') out[f.name] = null;
         else out[f.name] = f.type === 'number' || f.numeric ? Number(input.value) : input.value;
     });
