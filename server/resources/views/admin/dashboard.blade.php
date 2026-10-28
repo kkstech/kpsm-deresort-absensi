@@ -289,22 +289,152 @@
                 </section>
                 <section class="view placeholder-view" data-view-panel="reports"><h1>Laporan</h1><p>Rekap kehadiran, lembur, tunjangan, dan periode.</p><div class="empty-state"><strong>Belum tersedia</strong><span>Laporan dan ekspor akan ditambahkan setelah perhitungan kehadiran selesai.</span></div></section>
                 <section class="view" data-view-panel="leaves" data-requires="admin">
-                    <div class="page-heading"><div><h1>Cuti dan day off</h1><span>Pengajuan memakai satu hari kerja berdasarkan tanggal awal siklus, termasuk shift split dan shift malam.</span></div><button type="button" class="primary-button" id="leave-direct-add">Catat cuti</button></div>
-                    <div class="panel leave-year-panel">
-                        <div class="panel-heading"><div><h2>Saldo tahun berjalan</h2><p id="leave-opening-state">Memuat status saldo…</p></div><button type="button" class="secondary-button" id="leave-opening-confirm">Konfirmasi saldo awal</button></div>
-                        <form id="leave-settings-form" class="inline-settings-form">
-                            <label>Tahun saldo<input type="number" name="year" min="2000" max="2100" required></label>
-                            <label>Cuti reguler per tahun<input type="number" name="regular_quota" min="0" max="60" required></label>
-                            <label>Day off per tahun<input type="number" name="day_off_quota" min="0" max="60" required></label>
-                            <label>Alasan perubahan<input name="reason" maxlength="1000" required></label>
-                            <button type="submit" class="secondary-button">Simpan kuota</button>
-                            <p class="form-error" id="leave-settings-error" role="alert" hidden></p>
-                        </form>
+                    <div class="page-heading">
+                        <div>
+                            <h1>Cuti &amp; Day Off</h1>
+                            <span>Pengelolaan permohonan cuti karyawan, monitoring kuota saldo tahunan, dan pencatatan cuti langsung.</span>
+                        </div>
+                        <div class="heading-actions">
+                            <button type="button" class="primary-button" id="leave-direct-add">
+                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-calendar"/></svg>
+                                <span>+ Catat Cuti</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="panel"><div class="panel-heading"><div><h2>Sisa kuota per karyawan</h2><p id="leave-balance-count">Memuat saldo…</p></div></div><div id="leave-balance-table" aria-live="polite"></div></div>
-                    <div class="panel">
-                        <div class="panel-heading"><div><h2>Pengajuan cuti</h2><p id="leave-list-count"></p></div><label class="sr-only" for="leave-status-filter">Filter status pengajuan</label><select id="leave-status-filter"><option value="">Semua status</option><option value="PENDING">Menunggu</option><option value="APPROVED">Disetujui</option><option value="REJECTED">Ditolak</option><option value="CANCELLED">Dibatalkan</option></select></div>
-                        <div id="leave-table" aria-live="polite"></div>
+
+                    <!-- Top Metric Cards -->
+                    <div class="metric-grid allowance-metric-grid" style="margin-bottom: 20px;">
+                        <article class="metric-card" id="leave-card-pending" style="cursor: pointer;" title="Klik untuk melihat pengajuan yang menunggu">
+                            <div class="metric-header">
+                                <span class="metric-title">Menunggu Persetujuan</span>
+                                <span class="metric-badge warning">Pending</span>
+                            </div>
+                            <strong id="leave-metric-pending">—</strong>
+                            <small class="metric-sub">Permohonan cuti perlu ditinjau</small>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-header">
+                                <span class="metric-title">Disetujui</span>
+                                <span class="metric-badge success">Approved</span>
+                            </div>
+                            <strong id="leave-metric-approved">—</strong>
+                            <small class="metric-sub">Total cuti yang telah disetujui</small>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-header">
+                                <span class="metric-title">Status Saldo Tahunan</span>
+                                <span class="metric-badge" id="leave-metric-year-badge">Checking…</span>
+                            </div>
+                            <strong id="leave-metric-year" style="font-size: 20px;">—</strong>
+                            <small class="metric-sub" id="leave-metric-year-desc">Memuat status…</small>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-header">
+                                <span class="metric-title">Karyawan Aktif</span>
+                                <span class="metric-badge blue">Pegawai</span>
+                            </div>
+                            <strong id="leave-metric-employees">—</strong>
+                            <small class="metric-sub">Karyawan dengan hak kuota</small>
+                        </article>
+                    </div>
+
+                    <!-- Sub-tabs navigation -->
+                    <div class="tabs" role="tablist" style="margin-bottom: 16px;">
+                        <button type="button" role="tab" aria-selected="true" data-leave-tab="requests">
+                            <svg class="icon" aria-hidden="true"><use href="#i-file-text"/></svg>
+                            <span>Daftar Pengajuan Cuti</span>
+                            <span class="badge" id="leave-pending-tab-badge" style="display: none; background: #b06000; color: #fff; border-radius: 10px; padding: 1px 7px; font-size: 11px; margin-left: 4px;">0</span>
+                        </button>
+                        <button type="button" role="tab" aria-selected="false" data-leave-tab="balances">
+                            <svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>
+                            <span>Sisa Saldo &amp; Kuota Karyawan</span>
+                        </button>
+                        <button type="button" role="tab" aria-selected="false" data-leave-tab="settings">
+                            <svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg>
+                            <span>Konfigurasi Saldo Tahunan</span>
+                        </button>
+                    </div>
+
+                    <!-- Tab 1: Pengajuan Cuti -->
+                    <div id="leave-tab-panel-requests" class="leave-tab-panel">
+                        <div class="panel">
+                            <div class="panel-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
+                                <div>
+                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Daftar Pengajuan Cuti &amp; Day Off</h2>
+                                    <p id="leave-list-count" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat data…</p>
+                                </div>
+                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                    <input type="search" id="leave-request-search" placeholder="Cari nama karyawan / alasan…" style="min-height: 38px; height: 38px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 13px; min-width: 220px;">
+                                    <label class="sr-only" for="leave-status-filter">Filter status pengajuan</label>
+                                    <select id="leave-status-filter" style="min-height: 38px; height: 38px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 13px;">
+                                        <option value="">Semua Status</option>
+                                        <option value="PENDING">Menunggu Persetujuan</option>
+                                        <option value="APPROVED">Disetujui</option>
+                                        <option value="REJECTED">Ditolak</option>
+                                        <option value="CANCELLED">Dibatalkan</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="leave-table" aria-live="polite"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Sisa Saldo & Kuota Karyawan -->
+                    <div id="leave-tab-panel-balances" class="leave-tab-panel" hidden>
+                        <div class="panel">
+                            <div class="panel-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
+                                <div>
+                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Sisa Kuota Cuti Karyawan</h2>
+                                    <p id="leave-balance-count" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat saldo…</p>
+                                </div>
+                                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                    <input type="search" id="leave-balance-search" placeholder="Cari karyawan / kode…" style="min-height: 38px; height: 38px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 13px; min-width: 200px;">
+                                    <select id="leave-balance-dept-filter" style="min-height: 38px; height: 38px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 13px;">
+                                        <option value="">Semua Departemen</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="leave-balance-table" aria-live="polite"></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Konfigurasi Saldo Tahunan -->
+                    <div id="leave-tab-panel-settings" class="leave-tab-panel" hidden>
+                        <div class="panel leave-year-panel" style="padding: 20px;">
+                            <div class="panel-heading" style="margin-bottom: 16px; padding: 0 0 16px; border-bottom: 1px solid var(--line);">
+                                <div>
+                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Pengaturan Kuota &amp; Saldo Tahunan</h2>
+                                    <p id="leave-opening-state" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat status saldo…</p>
+                                </div>
+                                <button type="button" class="primary-button" id="leave-opening-confirm" style="height: 40px; min-height: 40px; padding: 0 18px;">
+                                    Konfirmasi Saldo Awal
+                                </button>
+                            </div>
+                            <form id="leave-settings-form" class="inline-settings-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: flex-end;">
+                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
+                                    <span>Tahun Saldo</span>
+                                    <input type="number" name="year" min="2000" max="2100" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                </label>
+                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
+                                    <span>Cuti Reguler (Hari/Tahun)</span>
+                                    <input type="number" name="regular_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                </label>
+                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
+                                    <span>Day Off (Hari/Tahun)</span>
+                                    <input type="number" name="day_off_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                </label>
+                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); grid-column: 1 / -1;">
+                                    <span>Alasan Perubahan Kuota</span>
+                                    <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kuota standar tahunan 2026" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                </label>
+                                <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
+                                    <button type="submit" class="secondary-button" style="min-height: 42px; height: 42px; padding: 0 20px;">
+                                        Simpan Kuota
+                                    </button>
+                                </div>
+                                <p class="form-error" id="leave-settings-error" role="alert" hidden style="grid-column: 1 / -1;"></p>
+                            </form>
+                        </div>
                     </div>
                 </section>
                 <section class="view" data-view-panel="allowances" data-requires="admin">

@@ -39,6 +39,8 @@ class LeaveController extends Controller
         $rows = Employee::query()->with('department:id,name')->where('status', 'active')->orderBy('name')->get()
             ->map(fn (Employee $employee) => [
                 'employee_id' => $employee->id, 'name' => $employee->name, 'code' => $employee->code,
+                'avatar_url' => $employee->avatar_url,
+                'department_id' => $employee->department_id,
                 'department' => $employee->department?->name,
                 ...$this->balanceFor($employee, $year),
             ]);
@@ -221,7 +223,7 @@ class LeaveController extends Controller
     {
         Gate::authorize('admin');
         $filters = $request->validate(['status' => ['nullable', 'in:PENDING,APPROVED,REJECTED,CANCELLED'], 'from' => ['nullable', 'date_format:Y-m-d'], 'to' => ['nullable', 'date_format:Y-m-d']]);
-        $rows = LeaveRequestModel::query()->with('employee:id,code,name,department_id', 'employee.department:id,name', 'assignment:id,status,template_name')
+        $rows = LeaveRequestModel::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,status,template_name')
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereRaw('COALESCE(end_date, work_date) >= ?', [$from]))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('work_date', '<=', $to))

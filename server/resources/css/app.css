@@ -969,6 +969,33 @@ main:focus { outline: none; }
     padding: 12px 14px;
     font-size: 13.5px;
 }
+
+/* Halaman Cuti & Day Off Styling */
+.quota-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.quota-meter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+.quota-meter-badge.high { background: #e6f4ea; color: #137333; }
+.quota-meter-badge.medium { background: #fef7e0; color: #b06000; }
+.quota-meter-badge.empty { background: #fce8e6; color: #c5221f; }
+
+.leave-tab-panel {
+    display: block;
+}
+.leave-tab-panel[hidden] {
+    display: none !important;
+}
 .table-pagination button:disabled { cursor: not-allowed; opacity: .5; }
 /* ---------- Halaman Persetujuan (Workflow) ---------- */
 .workflow-view.active { display: flex; flex-direction: column; gap: 20px; }
