@@ -177,6 +177,67 @@ export type SwapPreviewResult = {
 
 export type OutboxStatus = 'pending' | 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted';
 export type OutboxRow = { event_uuid: string; batch_uuid: string; payload: string; created_at: string; first_sent_at: string | null; local_sequence: number; status: OutboxStatus; message: string | null };
+
+export type OvertimeItem = {
+  id: number;
+  order_number: string;
+  employee_id: number;
+  shift_session_id?: number | null;
+  work_date: string;
+  title: string;
+  start_at: string;
+  end_at: string;
+  local_start: string;
+  local_end: string;
+  planned_minutes: number;
+  actual_minutes: number;
+  verified_minutes: number;
+  is_day_off: boolean;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  consent_status: 'PENDING' | 'ACCEPTED' | 'DECLINED';
+  consent_notes?: string | null;
+  notes?: string | null;
+  decision_reason?: string | null;
+  decision_by_name?: string | null;
+  created_at: string;
+};
+
+export type OvertimeRequestPayload = {
+  work_date: string;
+  start_time: string;
+  end_time: string;
+  title: string;
+  notes?: string;
+  is_cross_day?: boolean;
+};
+
+export async function fetchOvertimes(baseUrl: string, token: string): Promise<OvertimeItem[]> {
+  const res = await request<{ data: OvertimeItem[] }>(baseUrl, 'overtime', token);
+  return res.data ?? [];
+}
+
+export async function submitOvertimeRequest(baseUrl: string, token: string, payload: OvertimeRequestPayload): Promise<OvertimeItem> {
+  const res = await request<{ message: string; data: OvertimeItem }>(baseUrl, 'overtime', token, {
+    method: 'POST',
+    body: payload,
+  });
+  return res.data;
+}
+
+export async function submitOvertimeConsent(baseUrl: string, token: string, orderId: number, accepted: boolean, notes?: string): Promise<OvertimeItem> {
+  const res = await request<{ message: string; data: OvertimeItem }>(baseUrl, `overtime/${orderId}/consent`, token, {
+    method: 'POST',
+    body: { accepted, notes },
+  });
+  return res.data;
+}
+
+export async function cancelOvertime(baseUrl: string, token: string, orderId: number): Promise<void> {
+  await request<{ message: string }>(baseUrl, `overtime/${orderId}/cancel`, token, {
+    method: 'POST',
+  });
+}
+
 let database: Promise<SQLite.SQLiteDatabase> | undefined;
 
 async function db(): Promise<SQLite.SQLiteDatabase> {

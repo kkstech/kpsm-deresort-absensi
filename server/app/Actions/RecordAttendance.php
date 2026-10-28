@@ -218,6 +218,9 @@ class RecordAttendance
         $record->needs_review = $needsReview;
         $record->save();
         $this->syncAssignmentStatus($session);
+        if ($event->type === 'CHECK_OUT') {
+            app(ManageOvertime::class)->calculateRealization($session, $record);
+        }
 
         return $record;
     }

@@ -36,6 +36,12 @@ Route::prefix('v1')->group(function () {
         Route::post('attendance-corrections/{correction}/cancel', [AttendanceWorkflowController::class, 'cancelCorrection'])->whereNumber('correction');
         Route::get('attendance/attachments/{attachment}', [AttendanceAttachmentController::class, 'mobile'])->whereNumber('attachment');
 
+        // Overtime (Lembur)
+        Route::get('me/overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
+        Route::post('overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
+        Route::post('overtimes/{order}/consent', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'consent'])->whereNumber('order');
+        Route::post('overtimes/{order}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel'])->whereNumber('order');
+
         // Shift Exchange (Pengajuan & Pengaturan Tukar Shift)
         Route::get('shift-exchanges/colleagues', [ShiftExchangeController::class, 'colleagues']);
         Route::get('shift-exchanges/employee-schedules', [ShiftExchangeController::class, 'employeeSchedules']);

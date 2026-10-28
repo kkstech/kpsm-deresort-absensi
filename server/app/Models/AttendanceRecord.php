@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_at', 'verified_by'])]
+#[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'overtime_order_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_overtime_minutes', 'verified_at', 'verified_by'])]
 class AttendanceRecord extends Model
 {
     public function session(): BelongsTo
@@ -23,6 +23,11 @@ class AttendanceRecord extends Model
     public function latePermission(): BelongsTo
     {
         return $this->belongsTo(LatePermission::class);
+    }
+
+    public function overtimeOrder(): BelongsTo
+    {
+        return $this->belongsTo(OvertimeOrder::class);
     }
 
     /** Menit dibayar = irisan hadir dengan jendela sesi, maksimal panjang sesi dikurangi istirahat. */
@@ -41,6 +46,7 @@ class AttendanceRecord extends Model
             'shift_session_id' => $this->shift_session_id,
             'late_permission_id' => $this->late_permission_id,
             'late_permission_status' => $this->latePermission?->status,
+            'overtime_order_id' => $this->overtime_order_id,
             'status' => $this->status,
             'needs_review' => $this->needs_review,
             'review_reason' => $this->review_reason,
@@ -50,6 +56,7 @@ class AttendanceRecord extends Model
             'raw_late_minutes' => $this->raw_late_minutes,
             'is_late' => $this->is_late,
             'verified_minutes' => $this->verified_minutes,
+            'verified_overtime_minutes' => $this->verified_overtime_minutes,
         ];
     }
 

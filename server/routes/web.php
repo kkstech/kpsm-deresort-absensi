@@ -35,6 +35,10 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('dashboard/attendance', [AttendanceMonitoringController::class, 'dashboard']);
         Route::get('attendance', [AttendanceMonitoringController::class, 'index']);
         Route::get('workflows', [AttendanceWorkflowController::class, 'index']);
+        Route::get('overtimes', [\App\Http\Controllers\Admin\OvertimeAdminController::class, 'index']);
+        Route::post('overtimes/order', [\App\Http\Controllers\Admin\OvertimeAdminController::class, 'order']);
+        Route::post('overtimes/{order}/decision', [\App\Http\Controllers\Admin\OvertimeAdminController::class, 'decision'])->whereNumber('order');
+        Route::post('overtimes/{order}/cancel', [\App\Http\Controllers\Admin\OvertimeAdminController::class, 'cancel'])->whereNumber('order');
         Route::post('late-permissions/direct', [AttendanceWorkflowController::class, 'directLatePermission']);
         Route::post('late-permissions/{permission}/decision', [AttendanceWorkflowController::class, 'decideLatePermission'])->whereNumber('permission');
         Route::post('attendance-corrections/direct/{session}', [AttendanceWorkflowController::class, 'directCorrection'])->whereNumber('session');

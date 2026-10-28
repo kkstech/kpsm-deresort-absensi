@@ -1,5 +1,5 @@
 import { api, isAdmin, isSuperAdmin, role } from './api';
-import { $, esc, icon, toast } from './ui';
+import { $, $$, esc, icon, toast } from './ui';
 
 const today = document.body.dataset.today;
 const dashboardForm = $('#dashboard-filters');
@@ -97,12 +97,14 @@ function renderMonitoring({ data, meta }) {
     if (!data.length) {
         container.innerHTML = '<p class="list-empty">Tidak ada sesi untuk filter yang dipilih.</p>';
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col">Tanggal</th><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Jadwal</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th><th scope="col">Menit valid</th>${isAdmin ? '<th scope="col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col">Tanggal</th><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Jadwal</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th><th scope="col">Menit valid</th><th scope="col">Lembur</th>${isAdmin ? '<th scope="col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
             const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button></td>` : '';
-            return `<tr><td data-label="Tanggal">${formatDate(row.work_date)}</td><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · sesi ${row.shift.seq}</td><td data-label="Jadwal">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${attendance.provisional_out_at && !attendance.check_out_at ? ' · provisional' : ''}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small>${esc(attendance.review_reason)}</small>` : ''}</td><td data-label="Menit valid" class="number-cell">${attendance.verified_minutes}</td>${actions}</tr>`;
+            const otMinutes = attendance.verified_overtime_minutes || 0;
+            const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
+            return `<tr><td data-label="Tanggal">${formatDate(row.work_date)}</td><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · sesi ${row.shift.seq}</td><td data-label="Jadwal">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${attendance.provisional_out_at && !attendance.check_out_at ? ' · provisional' : ''}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small>${esc(attendance.review_reason)}</small>` : ''}</td><td data-label="Menit valid" class="number-cell">${attendance.verified_minutes}</td>${otCell}${actions}</tr>`;
         }).join('')}</tbody></table></div>`;
     }
 
@@ -271,11 +273,108 @@ function renderQueueItem(item, kind) {
     </article>`;
 }
 
+function renderOvertimeItem(item) {
+    const isEmployeeRequest = item.status === 'PENDING';
+    const initialLetter = esc(item.employee?.name?.charAt(0).toUpperCase() ?? '?');
+    const isSuperOrAdmin = role === 'super_admin' || role === 'admin';
+
+    let statusBadge = '<span class="status warning">Menunggu Admin</span>';
+    if (item.status === 'APPROVED') {
+        if (item.consent_status === 'ACCEPTED') {
+            statusBadge = '<span class="status success">SPL Disetujui</span>';
+        } else if (item.consent_status === 'DECLINED') {
+            statusBadge = '<span class="status danger">Ditolak Karyawan</span>';
+        } else {
+            statusBadge = '<span class="status warning">Menunggu Karyawan</span>';
+        }
+    } else if (item.status === 'REJECTED') {
+        statusBadge = '<span class="status danger">Ditolak Admin</span>';
+    } else if (item.status === 'CANCELLED') {
+        statusBadge = '<span class="status neutral">Dibatalkan</span>';
+    }
+
+    const durationInfo = `${item.local_start}–${item.local_end} (${item.planned_minutes} mnt)`;
+    const verifiedInfo = item.verified_minutes > 0 ? ` · <strong style="color:var(--primary);">${item.verified_minutes} mnt tervalidasi</strong>` : '';
+
+    return `<article class="workflow-card">
+        <div class="workflow-card-header">
+            <div class="workflow-user-info">
+                <span class="avatar workflow-avatar">${initialLetter}</span>
+                <div class="workflow-user-meta">
+                    <strong>${esc(item.employee?.name ?? '—')}</strong>
+                    <div class="workflow-sub-meta">
+                        <span class="meta-pill">${esc(item.employee?.department ?? 'Tanpa departemen')}</span>
+                        <span>${formatDate(item.work_date)}</span>
+                        <span>·</span>
+                        <span>SPL: ${esc(item.order_number)}</span>
+                    </div>
+                </div>
+            </div>
+            ${statusBadge}
+        </div>
+
+        <div class="workflow-card-body">
+            <div class="workflow-target-badge">
+                ${icon('clock', 14)}
+                <span>Rencana:</span> <strong>${durationInfo}</strong>${verifiedInfo}
+            </div>
+
+            <div class="workflow-reason-box">
+                <span class="reason-label">Tugas / Alasan:</span>
+                <p class="reason-text">"${esc(item.title)}"</p>
+                ${item.notes ? `<small style="color:var(--muted);margin-top:4px;display:block;">Catatan: ${esc(item.notes)}</small>` : ''}
+                ${item.consent_notes ? `<small style="color:#b45309;margin-top:2px;display:block;">Respon Karyawan: "${esc(item.consent_notes)}"</small>` : ''}
+                ${item.decision_reason ? `<small style="color:#0f766e;margin-top:2px;display:block;">Alasan Keputusan: "${esc(item.decision_reason)}"</small>` : ''}
+            </div>
+        </div>
+
+        <div class="workflow-card-footer" style="gap: 8px;">
+            ${isEmployeeRequest && isSuperOrAdmin ? `
+                <button type="button" class="secondary-button workflow-review-btn" data-overtime-decision="${item.id}">
+                    ${icon('eye', 15)} <span>Tinjau &amp; Putuskan</span>
+                </button>
+            ` : ''}
+            ${item.status === 'APPROVED' && item.actual_minutes === 0 && isSuperOrAdmin ? `
+                <button type="button" class="secondary-button text-button" data-overtime-cancel="${item.id}" style="color:#b91c1c; font-size:12px;">
+                    Batalkan SPL
+                </button>
+            ` : ''}
+        </div>
+    </article>`;
+}
+
+function decisionOvertimeModal(item) {
+    const summaryCard = `
+        <div class="workflow-modal-summary">
+            <div class="workflow-modal-summary-row"><span class="modal-label">Karyawan:</span> <strong>${esc(item.employee?.name)}</strong> (${esc(item.employee?.department ?? 'Tanpa departemen')})</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Tanggal:</span> ${formatDate(item.work_date)}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Waktu Lembur:</span> <strong>${item.local_start}–${item.local_end} (${item.planned_minutes} menit)</strong></div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Tugas / Alasan:</span> <p class="modal-reason-text">"${esc(item.title)}"</p></div>
+            ${item.notes ? `<div class="workflow-modal-summary-row"><span class="modal-label">Catatan:</span> <p class="modal-reason-text">${esc(item.notes)}</p></div>` : ''}
+        </div>
+        <hr class="modal-divider">
+        <label>Keputusan
+            <select name="decision" required>
+                <option value="APPROVED">Setujui lembur</option>
+                <option value="REJECTED">Tolak lembur</option>
+            </select>
+        </label>
+        <label>Alasan keputusan (wajib)
+            <textarea name="decision_reason" rows="3" maxlength="500" placeholder="Contoh: Disetujui sesuai kebutuhan operasional..." required></textarea>
+        </label>`;
+
+    openWorkflowModal('Putuskan Pengajuan Lembur', 'Tinjau rincian tugas dan durasi lembur sebelum menetapkan keputusan.', summaryCard, (body) => api(`overtimes/${item.id}/decision`, { method: 'POST', body }), 'Simpan Keputusan');
+}
+
 export async function showApprovals() {
     const error = $('#workflow-error');
     error.hidden = true;
     try {
-        const result = await api('workflows', { query: { status: 'PENDING' } });
+        const [result, overtimeResult] = await Promise.all([
+            api('workflows', { query: { status: 'PENDING' } }),
+            api('overtimes', { query: $('#overtime-filter')?.value === 'all' ? {} : { status: $('#overtime-filter')?.value ?? 'PENDING' } }),
+        ]);
+
         const lateCount = result.late_permissions.length;
         const correctionCount = result.corrections.length;
 
@@ -311,6 +410,47 @@ export async function showApprovals() {
             const item = result.corrections.find((request) => request.id === Number(button.dataset.requestId));
             if (item) decisionModal('correction', item);
         }));
+
+        // Overtime queue
+        const overtimeList = overtimeResult.data ?? [];
+        const pendingOtCount = overtimeList.filter((o) => o.status === 'PENDING').length;
+        const otBadge = $('#overtime-count-badge');
+        if (otBadge) otBadge.textContent = pendingOtCount;
+        const otCount = $('#overtime-count');
+        if (otCount) {
+            otCount.textContent = pendingOtCount
+                ? `${pendingOtCount} pengajuan menunggu keputusan`
+                : (overtimeList.length ? `${overtimeList.length} SPL / pengajuan` : 'Semua antrean selesai');
+        }
+
+        const emptyOvertime = `
+            <div class="workflow-empty-state">
+                <div class="empty-icon-wrap">${icon('check', 26)}</div>
+                <strong>Tidak ada antrean lembur</strong>
+                <span>Tidak ada pengajuan atau perintah lembur pada filter ini.</span>
+            </div>`;
+
+        const otQueue = $('#overtime-queue');
+        if (otQueue) {
+            otQueue.innerHTML = overtimeList.length ? overtimeList.map(renderOvertimeItem).join('') : emptyOvertime;
+
+            otQueue.querySelectorAll('[data-overtime-decision]').forEach((button) => button.addEventListener('click', () => {
+                const item = overtimeList.find((r) => r.id === Number(button.dataset.overtimeDecision));
+                if (item) decisionOvertimeModal(item);
+            }));
+
+            otQueue.querySelectorAll('[data-overtime-cancel]').forEach((button) => button.addEventListener('click', async () => {
+                const id = Number(button.dataset.overtimeCancel);
+                if (!confirm('Apakah Anda yakin ingin membatalkan perintah lembur ini?')) return;
+                try {
+                    await api(`overtimes/${id}/cancel`, { method: 'POST', body: { reason: 'Dibatalkan oleh admin' } });
+                    toast('Perintah lembur berhasil dibatalkan.');
+                    await showApprovals();
+                } catch (err) {
+                    toast(err.message);
+                }
+            }));
+        }
     } catch (failure) {
         error.textContent = failure.message;
         error.hidden = false;
@@ -345,12 +485,199 @@ async function loadDirectSessions() {
     }
 }
 
+let overtimeEmployees = [];
+
+function updateOvertimeCounter() {
+    const list = $('#overtime-emp-list');
+    const checked = list ? $$('input[name="ot_emp_id"]:checked', list).length : 0;
+    const counter = $('#overtime-emp-counter');
+    if (counter) counter.textContent = `${checked} dipilih`;
+}
+
+function renderOvertimeEmployeeList(selectedDept = 'all', searchQuery = '') {
+    const container = $('#overtime-emp-list');
+    if (!container) return;
+    const q = searchQuery.toLowerCase().trim();
+    const list = overtimeEmployees.filter((e) => {
+        const deptName = e.department?.name || e.dept || '';
+        const matchDept = selectedDept === 'all' || deptName === selectedDept;
+        const matchSearch = !q || e.name.toLowerCase().includes(q) || deptName.toLowerCase().includes(q);
+        return matchDept && matchSearch;
+    });
+
+    if (!list.length) {
+        container.innerHTML = '<p class="list-empty" style="grid-column: 1 / -1; padding: 12px; margin: 0; text-align: center;">Tidak ada karyawan yang cocok.</p>';
+        updateOvertimeCounter();
+        return;
+    }
+
+    container.innerHTML = list.map((e) => {
+        const deptName = e.department?.name || e.dept || 'Tanpa Departemen';
+        const posName = e.position?.name || e.position || '';
+        return `
+            <label class="bulk-emp-item">
+                <input type="checkbox" name="ot_emp_id" value="${e.id}" data-dept="${esc(deptName)}">
+                <div class="bulk-emp-info">
+                    <strong>${esc(e.name)}</strong>
+                    <small>${esc(deptName)}${posName ? ` · ${esc(posName)}` : ''}</small>
+                </div>
+            </label>
+        `;
+    }).join('');
+    updateOvertimeCounter();
+}
+
+function updateOvertimeCalcInfo() {
+    const startVal = $('#overtime-start-time')?.value;
+    const endVal = $('#overtime-end-time')?.value;
+    const crossDay = $('#overtime-cross-day')?.checked;
+    const infoEl = $('#overtime-calc-info');
+    if (!infoEl) return;
+
+    if (!startVal || !endVal) {
+        infoEl.textContent = '';
+        return;
+    }
+
+    const [sh, sm] = startVal.split(':').map(Number);
+    const [eh, em] = endVal.split(':').map(Number);
+    let startMin = sh * 60 + sm;
+    let endMin = eh * 60 + em;
+
+    if (crossDay || endMin <= startMin) {
+        if (crossDay) {
+            endMin += 24 * 60;
+        } else {
+            infoEl.textContent = 'Perhatian: Jam selesai lebih awal dari jam mulai. Centang lembur lintas hari jika melewati tengah malam.';
+            infoEl.style.color = '#dc2626';
+            return;
+        }
+    }
+
+    const diff = endMin - startMin;
+    infoEl.style.color = 'var(--primary)';
+    infoEl.textContent = `Perkiraan durasi lembur: ${diff} menit (${Math.floor(diff / 60)} jam ${diff % 60} menit)`;
+}
+
+function initOvertimeModal() {
+    const modal = $('#overtime-order-modal');
+    const openBtn = $('#open-overtime-order-btn');
+    const form = $('#overtime-order-form');
+    const errorEl = $('#overtime-modal-error');
+    if (!modal || !openBtn || !form) return;
+
+    openBtn.addEventListener('click', async () => {
+        errorEl.hidden = true;
+        form.reset();
+        $('#overtime-work-date').value = today;
+        $('#overtime-start-time').value = '17:00';
+        $('#overtime-end-time').value = '20:00';
+        updateOvertimeCalcInfo();
+
+        if (!overtimeEmployees.length) {
+            try {
+                const res = await api('employees', { query: { status: 'active' } });
+                overtimeEmployees = res.data ?? [];
+                const depts = [...new Set(overtimeEmployees.map((e) => e.department?.name || e.dept).filter(Boolean))].sort();
+                const deptSelect = $('#overtime-dept-filter');
+                if (deptSelect) {
+                    deptSelect.innerHTML = '<option value="all">Semua Departemen</option>' + depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+                }
+            } catch (err) {
+                toast(err.message);
+            }
+        }
+
+        renderOvertimeEmployeeList();
+        modal.showModal();
+    });
+
+    $('#overtime-emp-search')?.addEventListener('input', (e) => {
+        renderOvertimeEmployeeList($('#overtime-dept-filter')?.value, e.target.value);
+    });
+
+    $('#overtime-dept-filter')?.addEventListener('change', (e) => {
+        renderOvertimeEmployeeList(e.target.value, $('#overtime-emp-search')?.value);
+    });
+
+    $('#overtime-select-all')?.addEventListener('click', () => {
+        const list = $('#overtime-emp-list');
+        if (list) $$('input[name="ot_emp_id"]', list).forEach((cb) => { cb.checked = true; });
+        updateOvertimeCounter();
+    });
+
+    $('#overtime-clear-all')?.addEventListener('click', () => {
+        const list = $('#overtime-emp-list');
+        if (list) $$('input[name="ot_emp_id"]', list).forEach((cb) => { cb.checked = false; });
+        updateOvertimeCounter();
+    });
+
+    $('#overtime-emp-list')?.addEventListener('change', (event) => {
+        if (event.target.matches('input[name="ot_emp_id"]')) updateOvertimeCounter();
+    });
+
+    $('#overtime-start-time')?.addEventListener('input', updateOvertimeCalcInfo);
+    $('#overtime-end-time')?.addEventListener('input', updateOvertimeCalcInfo);
+    $('#overtime-cross-day')?.addEventListener('change', updateOvertimeCalcInfo);
+
+    modal.querySelectorAll('[data-close-modal]').forEach((btn) => btn.addEventListener('click', () => modal.close()));
+    modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorEl.hidden = true;
+
+        const list = $('#overtime-emp-list');
+        const employeeIds = list ? $$('input[name="ot_emp_id"]:checked', list).map((cb) => Number(cb.value)) : [];
+        if (!employeeIds.length) {
+            errorEl.textContent = 'Pilih minimal satu karyawan untuk ditugaskan lembur.';
+            errorEl.hidden = false;
+            return;
+        }
+
+        const workDate = $('#overtime-work-date').value;
+        const startTime = $('#overtime-start-time').value;
+        const endTime = $('#overtime-end-time').value;
+        const title = $('#overtime-title').value.trim();
+        const notes = $('#overtime-notes').value.trim();
+        const isCrossDay = $('#overtime-cross-day').checked;
+
+        const submitBtn = $('#overtime-submit-btn');
+        submitBtn.disabled = true;
+
+        try {
+            const res = await api('overtimes/order', {
+                method: 'POST',
+                body: {
+                    employee_ids: employeeIds,
+                    work_date: workDate,
+                    start_time: startTime,
+                    end_time: endTime,
+                    title,
+                    notes: notes || undefined,
+                    is_cross_day: isCrossDay,
+                },
+            });
+            toast(res.message || 'SPL berhasil diterbitkan.');
+            modal.close();
+            await Promise.all([showApprovals(), loadMonitoring(monitoringPage)]);
+        } catch (err) {
+            errorEl.textContent = err.message;
+            errorEl.hidden = false;
+        } finally {
+            submitBtn.disabled = false;
+        }
+    });
+}
+
 export async function initAttendance() {
     if (initialized) return;
     initialized = true;
     setInitialDates(dashboardForm);
     setInitialDates(monitoringForm);
     $('#workflow-refresh').addEventListener('click', showApprovals);
+    $('#overtime-filter')?.addEventListener('change', showApprovals);
+    initOvertimeModal();
     $('#workflow-modal').querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => $('#workflow-modal').close()));
     $('#workflow-modal').addEventListener('click', (event) => { if (event.target === $('#workflow-modal')) $('#workflow-modal').close(); });
     $('#monitoring-table').addEventListener('click', (event) => {

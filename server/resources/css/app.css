@@ -169,7 +169,7 @@ main:focus { outline: none; }
 
 /* Dialog */
 .app-dialog { position: fixed; inset: 0; width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); margin: auto; padding: 0; overflow: hidden; border: 0; border-radius: 16px; color: var(--ink); box-shadow: var(--shadow); }
-.schedule-editor-dialog, .schedule-swap-dialog, .schedule-bulk-dialog, .employee-import-dialog { width: min(880px, calc(100vw - 32px)); }
+.schedule-editor-dialog, .schedule-swap-dialog, .schedule-bulk-dialog, .employee-import-dialog, .overtime-order-dialog { width: min(880px, calc(100vw - 32px)); }
 .schedule-swap-row, .schedule-swap-vacancy { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .schedule-swap-vacancy { margin-top: 10px; }
 .schedule-swap-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
@@ -693,7 +693,7 @@ main:focus { outline: none; }
 .direct-form-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* Workflow Queues Grid */
-.workflow-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.workflow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start; }
 .workflow-grid > .panel { min-width: 0; }
 .workflow-queue-panel { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); overflow: hidden; }
 .queue-title-wrap { display: flex; align-items: center; gap: 10px; }

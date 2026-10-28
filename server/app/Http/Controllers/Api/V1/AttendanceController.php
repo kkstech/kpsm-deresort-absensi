@@ -217,8 +217,30 @@ class AttendanceController extends Controller
     private function assignmentData(ShiftAssignment $assignment, bool $includeEvents = false): array
     {
         $data = $assignment->toApi();
+        $overtimes = \App\Models\OvertimeOrder::query()
+            ->where('employee_id', $assignment->employee_id)
+            ->where('work_date', $assignment->work_date)
+            ->where('status', 'APPROVED')
+            ->where('consent_status', 'ACCEPTED')
+            ->get();
+
         foreach ($assignment->sessions as $index => $session) {
             $data['sessions'][$index]['attendance'] = $session->attendanceRecord?->toApi();
+            $sessionOvertime = $overtimes->first(fn ($o) => $o->shift_session_id === $session->id || $overtimes->count() === 1);
+            if ($sessionOvertime) {
+                $data['sessions'][$index]['overtime'] = [
+                    'id' => $sessionOvertime->id,
+                    'order_number' => $sessionOvertime->order_number,
+                    'title' => $sessionOvertime->title,
+                    'start_at' => WorkTime::iso($sessionOvertime->start_at),
+                    'end_at' => WorkTime::iso($sessionOvertime->end_at),
+                    'local_start' => WorkTime::local($sessionOvertime->start_at)->format('H:i'),
+                    'local_end' => WorkTime::local($sessionOvertime->end_at)->format('H:i'),
+                    'planned_minutes' => $sessionOvertime->planned_minutes,
+                    'verified_minutes' => $sessionOvertime->verified_minutes,
+                    'is_day_off' => (bool) $sessionOvertime->is_day_off,
+                ];
+            }
             if ($includeEvents) {
                 $data['sessions'][$index]['events'] = $session->attendanceEvents->map(fn (AttendanceEvent $event) => [
                     'event_uuid' => $event->event_uuid,

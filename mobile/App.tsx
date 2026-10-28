@@ -13,7 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
   ApiError, authStore, enqueueEvent, normalizeBaseUrl, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
-  type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult
+  fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
+  type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
+  type OvertimeItem
 } from './src/api';
 
 type Tab = 'Hari ini' | 'Jadwal' | 'Pengajuan' | 'Profil';
@@ -33,7 +35,8 @@ type Session = {
   id: number; seq: number; start_at: string; end_at: string; local_start: string; local_end: string; local_start_date?: string; local_end_date?: string;
   attendance_window?: { check_in_opens_at: string; check_in_closes_at: string; max_elapsed_minutes: number | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
-  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; status: string; needs_review: boolean } | null;
+  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
+  overtime?: OvertimeItem | null;
 };
 type Assignment = { id: number; employee_id?: number; employee_name?: string; work_date: string; template_name: string; status: string; revision?: number; scheduled_minutes: number; sessions: Session[] };
 type Profile = {
@@ -71,7 +74,7 @@ type WorkRequest = {
 };
 type Proof = { uri: string; name: string; mimeType?: string };
 type ActionIntent = { assignment: Assignment; session: Session; eventType: 'CHECK_IN' | 'CHECK_OUT' };
-type RequestKind = 'leave' | 'late' | 'correction' | 'swap';
+type RequestKind = 'leave' | 'late' | 'correction' | 'swap' | 'overtime';
 
 const colors = { ink: '#142019', muted: '#657168', line: '#DDE4DE', canvas: '#F2F5F1', surface: '#FFFFFF', primary: '#173D2B', accent: '#D9F25F', successSoft: '#E6F1E9', warning: '#A65718', warningSoft: '#FFF1DC', blueSoft: '#E8F1FB', dangerSoft: '#FEECEC', danger: '#A51F18' };
 const Text = ({ style, ...props }: TextProps) => {
@@ -256,6 +259,15 @@ function Main() {
   const [pengajuanView, setPengajuanView] = useState<'mine' | 'admin'>('mine');
   const [approvalFilter, setApprovalFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
 
+  // Overtime states
+  const [overtimes, setOvertimes] = useState<OvertimeItem[]>([]);
+  const [otWorkDate, setOtWorkDate] = useState('');
+  const [otStartTime, setOtStartTime] = useState('17:00');
+  const [otEndTime, setOtEndTime] = useState('20:00');
+  const [otTitle, setOtTitle] = useState('');
+  const [otNotes, setOtNotes] = useState('');
+  const [otCrossDay, setOtCrossDay] = useState(false);
+
   // Employee shift exchange form
   const [swapSourceAssId, setSwapSourceAssId] = useState<number | null>(null);
   const [swapTargetEmpId, setSwapTargetEmpId] = useState<number | null>(null);
@@ -373,6 +385,7 @@ function Main() {
       { key: 'lateRequests', promise: request<{ data: WorkRequest[] }>(url, 'late-permissions', authToken) },
       { key: 'corrections', promise: request<{ data: WorkRequest[] }>(url, 'attendance-corrections', authToken) },
       { key: 'shiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges', authToken) },
+      { key: 'overtimes', promise: fetchOvertimes(url, authToken) },
       { key: 'colleagues', promise: request<{ data: Colleague[] }>(url, 'shift-exchanges/colleagues', authToken) },
       { key: 'adminShiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges?scope=admin', authToken) },
       { key: 'adminSchedules', promise: request<{ data: Assignment[] }>(url, `admin/schedule?from=${range.from}&to=${range.to}`, authToken) },
@@ -425,6 +438,7 @@ function Main() {
     if (key === 'lateRequests') setLateRequests(value as WorkRequest[]);
     if (key === 'corrections') setCorrections(value as WorkRequest[]);
     if (key === 'shiftExchanges') setShiftExchanges(value as ShiftExchangeItem[]);
+    if (key === 'overtimes') setOvertimes(Array.isArray(value) ? value as OvertimeItem[] : []);
     if (key === 'colleagues') {
       const list = Array.isArray(value) ? value : [];
       setColleagues(list.map((e: any) => ({
@@ -500,7 +514,7 @@ function Main() {
     try { if (token && online) await request(baseUrl, 'auth/logout', token, { method: 'POST' }); } catch {}
     await authStore.clearToken();
     setToken(null); setProfile(null); setAssignments([]); setBalance(null);
-    setShiftExchanges([]); setAdminShiftExchanges([]); setAdminSchedules([]);
+    setShiftExchanges([]); setAdminShiftExchanges([]); setAdminSchedules([]); setOvertimes([]);
   }
 
   async function syncOutbox(authToken = token, url = baseUrl) {
@@ -653,6 +667,10 @@ function Main() {
       await submitShiftExchange();
       return;
     }
+    if (requestKind === 'overtime') {
+      await submitOvertime();
+      return;
+    }
 
     setBusy(true); setError('');
     try {
@@ -700,6 +718,76 @@ function Main() {
     } catch (failure) {
       Alert.alert(`Tidak dapat membatalkan ${label.toLowerCase()}`, failure instanceof Error ? failure.message : 'Coba kembali.');
     }
+  }
+
+  async function submitOvertime() {
+    if (!token) return;
+    setBusy(true); setError('');
+    try {
+      const cleanDate = otWorkDate.trim() || todayKey();
+      const cleanStart = otStartTime.trim();
+      const cleanEnd = otEndTime.trim();
+      const cleanTitle = otTitle.trim();
+      if (!cleanDate || !cleanStart || !cleanEnd || cleanTitle.length < 3) {
+        throw new Error('Lengkapi tanggal, jam mulai, jam selesai, dan judul lembur minimal 3 karakter.');
+      }
+      await submitOvertimeRequest(baseUrl, token, {
+        work_date: cleanDate,
+        start_time: cleanStart,
+        end_time: cleanEnd,
+        title: cleanTitle,
+        notes: otNotes.trim() || undefined,
+        is_cross_day: otCrossDay,
+      });
+      setOtTitle('');
+      setOtNotes('');
+      Alert.alert('Pengajuan lembur terkirim', 'Menunggu tinjauan dan persetujuan dari atasan / HRD.');
+      await loadData();
+    } catch (failure) {
+      Alert.alert('Pengajuan lembur gagal', failure instanceof Error ? failure.message : 'Periksa formulir lalu coba lagi.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleConsent(orderId: number, accepted: boolean) {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await submitOvertimeConsent(baseUrl, token, orderId, accepted);
+      Alert.alert(
+        accepted ? 'Lembur Disetujui' : 'Lembur Ditolak',
+        accepted ? 'Persetujuan lembur Anda telah dicatat di sistem.' : 'Penolakan lembur telah dikirimkan ke HRD.'
+      );
+      await loadData();
+    } catch (failure) {
+      Alert.alert('Gagal memproses SPL', failure instanceof Error ? failure.message : 'Terjadi kendala.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelOvertimeItem(orderId: number) {
+    if (!token) return;
+    Alert.alert('Batalkan Pengajuan Lembur', 'Apakah Anda yakin ingin membatalkan pengajuan ini?', [
+      { text: 'Tidak', style: 'cancel' },
+      {
+        text: 'Ya, Batalkan',
+        style: 'destructive',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await cancelOvertime(baseUrl, token, orderId);
+            Alert.alert('Pengajuan Dibatalkan', 'Pengajuan lembur berhasil dibatalkan.');
+            await loadData();
+          } catch (failure) {
+            Alert.alert('Gagal membatalkan', failure instanceof Error ? failure.message : 'Coba kembali.');
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
   }
 
   async function handleDecideShiftExchange(item: ShiftExchangeItem, decision: 'APPROVED' | 'REJECTED', note?: string, vacancyAction?: string, crossUnit = false) {
@@ -1122,7 +1210,27 @@ function Main() {
             </View>
           )
         )}
+        {session.overtime && (
+          <View style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>
+                + Perintah Lembur: {session.overtime.local_start}–{session.overtime.local_end} ({session.overtime.planned_minutes} mnt)
+              </Text>
+              <Text style={{ fontSize: 11, color: '#15803d' }}>
+                {session.overtime.title}
+              </Text>
+            </View>
+            <Pill tone={session.overtime.consent_status === 'ACCEPTED' ? 'success' : 'warning'}>
+              {session.overtime.consent_status === 'ACCEPTED' ? 'Disetujui' : 'Menunggu Konfirmasi'}
+            </Pill>
+          </View>
+        )}
         {verifiedMinutes > 0 && <Text style={styles.verified}>Terverifikasi {Math.floor(verifiedMinutes / 60)}j {verifiedMinutes % 60}m</Text>}
+        {Boolean(record?.verified_overtime_minutes) && (
+          <Text style={[styles.verified, { color: '#047857', marginTop: 2 }]}>
+            + Lembur terverifikasi {record?.verified_overtime_minutes} menit
+          </Text>
+        )}
       </View>
     );
   };
@@ -1233,6 +1341,7 @@ function Main() {
       ?? sessions.find(({ session }) => !session.attendance?.check_in_at && new Date(session.attendance_window?.check_in_opens_at ?? session.start_at) <= new Date() && new Date(session.end_at) > new Date());
     const activeIntent = activeSession ? { assignment: activeSession.assignment, session: activeSession.session, eventType: activeSession.session.attendance?.check_in_at ? 'CHECK_OUT' as const : 'CHECK_IN' as const } : null;
     const credited = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_minutes ?? 0), 0);
+    const creditedOvertime = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_overtime_minutes ?? 0), 0);
 
     return (
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -1315,7 +1424,10 @@ function Main() {
 
         <View style={styles.notice}>
           <Text style={styles.noticeTitle}>Menit kerja terverifikasi</Text>
-          <Text style={styles.noticeValue}>{Math.floor(credited / 60)}j {credited % 60}m</Text>
+          <Text style={styles.noticeValue}>
+            {Math.floor(credited / 60)}j {credited % 60}m
+            {creditedOvertime > 0 ? ` · +Lembur: ${Math.floor(creditedOvertime / 60)}j ${creditedOvertime % 60}m` : ''}
+          </Text>
           <Text style={styles.cardCopy}>Kehadiran provisional dan event offline belum masuk total ini.</Text>
         </View>
         {!!error && <Text style={styles.errorText}>{error}</Text>}
@@ -1494,9 +1606,103 @@ function Main() {
     );
   }
 
+  function renderOvertimeForm() {
+    let calcMinutes = 0;
+    if (otStartTime && otEndTime) {
+      const sParts = otStartTime.split(':').map(Number);
+      const eParts = otEndTime.split(':').map(Number);
+      const sh = sParts[0];
+      const sm = sParts[1];
+      const eh = eParts[0];
+      const em = eParts[1];
+      if (typeof sh === 'number' && !isNaN(sh) && typeof sm === 'number' && !isNaN(sm) && typeof eh === 'number' && !isNaN(eh) && typeof em === 'number' && !isNaN(em)) {
+        let startTotal = sh * 60 + sm;
+        let endTotal = eh * 60 + em;
+        if (otCrossDay || endTotal <= startTotal) {
+          endTotal += 24 * 60;
+        }
+        calcMinutes = Math.max(0, endTotal - startTotal);
+      }
+    }
+
+    return (
+      <View style={styles.formCard}>
+        <Text style={styles.cardTitle}>Pengajuan Lembur Mandiri</Text>
+        <Text style={styles.cardCopy}>Ajukan permohonan lembur untuk pekerjaan tambahan di luar jadwal reguler.</Text>
+
+        <TextField
+          label="Tanggal Kerja Lembur"
+          value={otWorkDate || todayKey()}
+          onChangeText={setOtWorkDate}
+          placeholder="YYYY-MM-DD"
+        />
+
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <TextField
+              label="Jam Mulai"
+              value={otStartTime}
+              onChangeText={setOtStartTime}
+              placeholder="17:00"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <TextField
+              label="Jam Selesai"
+              value={otEndTime}
+              onChangeText={setOtEndTime}
+              placeholder="20:00"
+            />
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8 }}>
+          <Text style={styles.fieldLabel}>Lembur lintas hari (melewati tengah malam)</Text>
+          <Switch
+            value={otCrossDay}
+            onValueChange={setOtCrossDay}
+            trackColor={{ false: '#cbd5e1', true: colors.primary }}
+          />
+        </View>
+
+        {calcMinutes > 0 && (
+          <Text style={[styles.leaveDurationText, { color: colors.primary }]}>
+            Estimasi durasi: {calcMinutes} menit ({Math.floor(calcMinutes / 60)} jam {calcMinutes % 60} menit)
+          </Text>
+        )}
+
+        <TextField
+          label="Judul / Uraian Tugas Lembur"
+          value={otTitle}
+          onChangeText={setOtTitle}
+          placeholder="Contoh: Pembersihan area ballroom pasca event"
+        />
+
+        <TextField
+          label="Catatan Tambahan (Opsional)"
+          value={otNotes}
+          onChangeText={setOtNotes}
+          placeholder="Tuliskan keterangan bila ada"
+          multiline
+        />
+
+        <Pressable
+          disabled={busy}
+          onPress={submitRequest}
+          style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}
+        >
+          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan Lembur'}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   function renderRequestForm() {
     if (requestKind === 'swap') {
       return renderSwapForm();
+    }
+    if (requestKind === 'overtime') {
+      return renderOvertimeForm();
     }
 
     const sessions = requestKind === 'late' ? unfinishedSessions : openSessions;
@@ -1660,6 +1866,7 @@ function Main() {
 
   function renderRequests() {
     const pendingHrdCount = adminShiftExchanges.filter((i) => i.status === 'PENDING').length;
+    const pendingConsentOrders = overtimes.filter((o) => o.status === 'APPROVED' && o.consent_status === 'PENDING');
 
     return (
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -1695,6 +1902,41 @@ function Main() {
           renderAdminExchangeApproval()
         ) : (
           <>
+            {pendingConsentOrders.length > 0 && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={[styles.sectionTitle, { color: colors.primary }]}>Perintah Lembur Masuk (SPL)</Text>
+                {pendingConsentOrders.map((order) => (
+                  <View key={`spl-consent-${order.id}`} style={[styles.exchangeCard, { borderColor: '#86efac', borderWidth: 1.5, backgroundColor: '#f0fdf4', marginBottom: 10 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[styles.cardTitle, { color: '#166534' }]}>SPL: {order.order_number}</Text>
+                      <Pill tone="warning">Konfirmasi</Pill>
+                    </View>
+                    <Text style={[styles.cardCopy, { fontWeight: '700', marginTop: 4, color: '#14532d' }]}>
+                      {localDate(order.work_date)} · {order.local_start} – {order.local_end} ({order.planned_minutes} menit)
+                    </Text>
+                    <Text style={[styles.cardCopy, { marginTop: 4 }]}>Tugas: {order.title}</Text>
+                    {order.notes ? <Text style={[styles.fieldHint, { marginTop: 2 }]}>Catatan: {order.notes}</Text> : null}
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => handleConsent(order.id, true)}
+                        style={[styles.actionButton, { flex: 1, backgroundColor: '#16a34a', marginTop: 0 }]}
+                      >
+                        <Text style={styles.actionButtonText}>Setujui Lembur</Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => handleConsent(order.id, false)}
+                        style={[styles.secondaryButton, { flex: 1, borderColor: '#dc2626', marginTop: 0 }]}
+                      >
+                        <Text style={[styles.secondaryButtonText, { color: '#dc2626' }]}>Tolak</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {balance && (
               <View style={styles.balanceStrip}>
                 <Text style={styles.cardTitle}>Tersedia tahun {balance.year}</Text>
@@ -1703,10 +1945,10 @@ function Main() {
             )}
 
             <View style={styles.segmentRow}>
-              {(['leave', 'late', 'correction', 'swap'] as const).map((item) => (
+              {(['leave', 'late', 'correction', 'swap', 'overtime'] as const).map((item) => (
                 <Pressable key={item} onPress={() => { setRequestKind(item); setSessionId(null); setProof(null); }} style={[styles.segment, requestKind === item && styles.segmentActive]}>
                   <Text style={[styles.segmentText, requestKind === item && styles.segmentTextActive]}>
-                    {item === 'leave' ? 'Cuti' : item === 'late' ? 'Izin' : item === 'correction' ? 'Koreksi' : 'Tukar Shift'}
+                    {item === 'leave' ? 'Cuti' : item === 'late' ? 'Izin' : item === 'correction' ? 'Koreksi' : item === 'swap' ? 'Tukar Shift' : 'Lembur'}
                   </Text>
                 </Pressable>
               ))}
@@ -1716,9 +1958,9 @@ function Main() {
 
             <Text style={styles.sectionTitle}>Riwayat pengajuan</Text>
             {[
-              ...leaveRequests.map((item) => ({ ...item, group: 'Cuti', sortDate: item.work_date })),
-              ...lateRequests.map((item) => ({ ...item, group: 'Izin terlambat', sortDate: item.work_date })),
-              ...corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date })),
+              ...leaveRequests.map((item) => ({ ...item, group: 'Cuti', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...lateRequests.map((item) => ({ ...item, group: 'Izin terlambat', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...shiftExchanges.map((item) => ({
                 id: item.id,
                 work_date: item.assignment?.work_date ?? item.created_at.slice(0, 10),
@@ -1727,11 +1969,51 @@ function Main() {
                 shift: item.assignment?.template_name ?? 'Shift',
                 reason: `${item.swap_mode === 'direct' ? 'Tukar langsung' : 'Pelimpahan'} dengan ${item.target_employee?.name}: ${item.reason}`,
                 status: item.status,
+                statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral',
+                statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan',
                 decision_reason: item.decision_reason ?? undefined,
                 shift_session_id: 0,
                 group: 'Tukar shift',
                 sortDate: item.assignment?.work_date ?? item.created_at.slice(0, 10),
               })),
+              ...overtimes.map((item) => {
+                let statusTone: 'success' | 'warning' | 'danger' | 'neutral' = 'neutral';
+                let statusLabel = 'Dibatalkan';
+                if (item.status === 'PENDING') {
+                  statusTone = 'warning';
+                  statusLabel = 'Menunggu Admin';
+                } else if (item.status === 'APPROVED') {
+                  if (item.consent_status === 'ACCEPTED') {
+                    statusTone = 'success';
+                    statusLabel = 'Disetujui';
+                  } else if (item.consent_status === 'DECLINED') {
+                    statusTone = 'danger';
+                    statusLabel = 'Ditolak Karyawan';
+                  } else {
+                    statusTone = 'warning';
+                    statusLabel = 'Menunggu Konfirmasi';
+                  }
+                } else if (item.status === 'REJECTED') {
+                  statusTone = 'danger';
+                  statusLabel = 'Ditolak Admin';
+                }
+
+                return {
+                  id: item.id,
+                  work_date: item.work_date,
+                  end_date: null,
+                  days_count: 1,
+                  shift: 'Lembur',
+                  reason: `${item.title} (${item.local_start}–${item.local_end}, ${item.planned_minutes}m)${item.verified_minutes > 0 ? ` · Terealisasi: ${item.verified_minutes}m` : ''}`,
+                  status: item.status,
+                  statusTone,
+                  statusLabel,
+                  decision_reason: item.decision_reason ?? undefined,
+                  shift_session_id: 0,
+                  group: 'Lembur',
+                  sortDate: item.work_date,
+                };
+              }),
             ].sort((a, b) => (b.sortDate || '').localeCompare(a.sortDate || '')).map((item) => (
               <View key={`${item.group}-${item.id}`} style={styles.listCard}>
                 <View style={styles.flex}>
@@ -1742,18 +2024,21 @@ function Main() {
                   </Text>
                   <Text style={styles.cardCopy}>{item.reason}{item.decision_reason ? ` · ${item.decision_reason}` : ''}</Text>
                 </View>
-                <Pill tone={item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral'}>
-                  {item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan'}
+                <Pill tone={item.statusTone}>
+                  {item.statusLabel}
                 </Pill>
                 {item.status === 'PENDING' && (
                   <Pressable
-                    onPress={() => cancelRequest(
-                      item.group === 'Cuti' ? `leaves/${item.id}/cancel` :
-                      item.group === 'Izin terlambat' ? `late-permissions/${item.id}/cancel` :
-                      item.group === 'Koreksi' ? `attendance-corrections/${item.id}/cancel` :
-                      `shift-exchanges/${item.id}/cancel`,
-                      item.group
-                    )}
+                    onPress={() => item.group === 'Lembur'
+                      ? cancelOvertimeItem(item.id)
+                      : cancelRequest(
+                          item.group === 'Cuti' ? `leaves/${item.id}/cancel` :
+                          item.group === 'Izin terlambat' ? `late-permissions/${item.id}/cancel` :
+                          item.group === 'Koreksi' ? `attendance-corrections/${item.id}/cancel` :
+                          `shift-exchanges/${item.id}/cancel`,
+                          item.group
+                        )
+                    }
                     style={styles.smallButton}
                   >
                     <Text style={styles.smallButtonText}>Batalkan</Text>
@@ -1762,7 +2047,7 @@ function Main() {
               </View>
             ))}
 
-            {!leaveRequests.length && !lateRequests.length && !corrections.length && !shiftExchanges.length && (
+            {!leaveRequests.length && !lateRequests.length && !corrections.length && !shiftExchanges.length && !overtimes.length && (
               <Text style={styles.cardCopy}>Belum ada pengajuan tersimpan.</Text>
             )}
           </>

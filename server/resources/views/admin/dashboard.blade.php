@@ -155,12 +155,17 @@
                         <div>
                             <p data-site-name>{{ $siteSettings->site_name }}</p>
                             <h1>Persetujuan</h1>
-                            <span>Permintaan izin dan koreksi menunggu keputusan.</span>
+                            <span>Permintaan izin, koreksi, dan lembur menunggu keputusan.</span>
                         </div>
-                        <button type="button" class="secondary-button workflow-refresh-btn" id="workflow-refresh">
-                            <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
-                            <span>Muat ulang</span>
-                        </button>
+                        <div class="page-heading-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                            <button type="button" class="primary-button" id="open-overtime-order-btn" data-requires="admin">
+                                + Terbitkan SPL Lembur
+                            </button>
+                            <button type="button" class="secondary-button workflow-refresh-btn" id="workflow-refresh">
+                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                                <span>Muat ulang</span>
+                            </button>
+                        </div>
                     </div>
                     <p class="form-error" id="workflow-error" role="alert" hidden></p>
                     <section class="panel direct-late-panel" id="direct-late-panel" data-requires="super_admin">
@@ -231,6 +236,27 @@
                                 </div>
                             </div>
                             <div id="correction-queue" class="workflow-queue-list" aria-live="polite">
+                                <p class="list-empty">Memuat data…</p>
+                            </div>
+                        </section>
+                        <section class="panel workflow-queue-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <div class="queue-title-wrap">
+                                        <h2>Lembur &amp; SPL</h2>
+                                        <span class="queue-count-badge" id="overtime-count-badge">0</span>
+                                    </div>
+                                    <p id="overtime-count">Memuat…</p>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <select id="overtime-filter" style="font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter status lembur">
+                                        <option value="PENDING">Menunggu</option>
+                                        <option value="APPROVED">Disetujui / SPL Aktif</option>
+                                        <option value="all">Semua</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="overtime-queue" class="workflow-queue-list" aria-live="polite">
                                 <p class="list-empty">Memuat data…</p>
                             </div>
                         </section>
@@ -583,6 +609,79 @@
             <div class="modal-actions">
                 <button type="button" class="secondary-button" data-close-modal>Batal</button>
                 <button type="submit" class="primary-button" id="employee-import-submit" disabled>Simpan & Impor Karyawan</button>
+            </div>
+        </form>
+    </dialog>
+    <dialog class="app-dialog overtime-order-dialog" id="overtime-order-modal" aria-labelledby="overtime-order-modal-title">
+        <form id="overtime-order-form">
+            <div class="modal-heading">
+                <div>
+                    <h2 id="overtime-order-modal-title">Terbitkan Surat Perintah Lembur (SPL)</h2>
+                    <p>Tugaskan perintah lembur resmi kepada karyawan untuk tanggal dan jam tertentu.</p>
+                </div>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog">×</button>
+            </div>
+            <div class="modal-body bulk-modal-body">
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>1. Pilih Karyawan yang Ditugaskan Lembur</strong>
+                        <span class="bulk-counter" id="overtime-emp-counter">0 dipilih</span>
+                    </div>
+                    <div class="bulk-emp-toolbar">
+                        <input type="search" id="overtime-emp-search" placeholder="Cari nama karyawan..." class="bulk-search-input" aria-label="Cari nama karyawan">
+                        <select id="overtime-dept-filter" class="bulk-dept-select" aria-label="Filter departemen">
+                            <option value="all">Semua Departemen</option>
+                        </select>
+                        <div class="bulk-quick-actions">
+                            <button type="button" class="text-button" id="overtime-select-all">Pilih Semua</button>
+                            <span class="sep">|</span>
+                            <button type="button" class="text-button" id="overtime-clear-all">Batal</button>
+                        </div>
+                    </div>
+                    <div class="bulk-emp-list" id="overtime-emp-list" role="group" aria-label="Daftar karyawan lembur"></div>
+                </div>
+
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>2. Waktu &amp; Tanggal Lembur</strong>
+                    </div>
+                    <div class="schedule-modal-top-grid">
+                        <label>Tanggal kerja
+                            <input type="date" id="overtime-work-date" required>
+                        </label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <label>Jam mulai
+                                <input type="time" id="overtime-start-time" required>
+                            </label>
+                            <label>Jam selesai
+                                <input type="time" id="overtime-end-time" required>
+                            </label>
+                        </div>
+                    </div>
+                    <label class="check-field" style="margin-top: 8px;">
+                        <input type="checkbox" id="overtime-cross-day">
+                        <span>Lembur lintas hari (melewati tengah malam / selesai esok hari)</span>
+                    </label>
+                    <div id="overtime-calc-info" class="field-hint" style="margin-top: 6px; font-weight: 600; color: var(--primary);"></div>
+                </div>
+
+                <div class="bulk-section">
+                    <div class="bulk-section-header">
+                        <strong>3. Uraian Pekerjaan Lembur</strong>
+                    </div>
+                    <label>Judul / Uraian Tugas Lembur
+                        <input type="text" id="overtime-title" placeholder="Contoh: Penanganan acara banquet malam" required minlength="3" maxlength="150">
+                    </label>
+                    <label style="margin-top: 8px;">Catatan Tambahan (Opsional)
+                        <textarea id="overtime-notes" rows="2" maxlength="500" placeholder="Instruksi khusus atau catatan pengawas..."></textarea>
+                    </label>
+                </div>
+
+                <p class="form-error" id="overtime-modal-error" role="alert" hidden></p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="submit" class="primary-button" id="overtime-submit-btn">Terbitkan SPL</button>
             </div>
         </form>
     </dialog>
