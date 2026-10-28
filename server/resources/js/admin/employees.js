@@ -43,6 +43,7 @@ async function load() {
 }
 
 function render() {
+    closeMoreMenu();
     renderTable(table, {
         rows,
         empty: 'Belum ada karyawan yang cocok dengan filter.',
@@ -82,11 +83,8 @@ function render() {
         actions: isAdmin ? (e) => `
             <button type="button" class="action-btn" data-action="edit" data-id="${e.id}" title="Ubah data karyawan" aria-label="Ubah data ${esc(e.name)}">${icon('edit')}</button>
             <button type="button" class="action-btn" data-action="employment" data-id="${e.id}" title="Status kerja &amp; kontrak" aria-label="Status kerja ${esc(e.name)}">${icon('contract')}</button>
-            <button type="button" class="action-btn" data-action="level" data-id="${e.id}" title="Ubah level karyawan" aria-label="Ubah level ${esc(e.name)}">${icon('award')}</button>
             <button type="button" class="action-btn" data-action="account" data-id="${e.id}" title="${e.user ? 'Ganti password / kelola akun' : 'Hubungkan / buat akun app'}" aria-label="${e.user ? 'Ganti password' : 'Buat akun'} ${esc(e.name)}">${icon(e.user ? 'key' : 'user-plus')}</button>
-            ${e.user ? `<button type="button" class="action-btn" data-action="unlink" data-id="${e.id}" title="Putuskan tautan akun app" aria-label="Putuskan tautan ${esc(e.name)}">${icon('link-slash')}</button>` : ''}
-            ${e.user && e.devices_count ? `<button type="button" class="action-btn" data-action="revoke" data-id="${e.id}" title="Keluarkan semua perangkat" aria-label="Keluarkan perangkat ${esc(e.name)}">${icon('device-logout')}</button>` : ''}
-            ${e.status === 'active' ? `<button type="button" class="action-btn danger" data-action="deactivate" data-id="${e.id}" title="Nonaktifkan karyawan" aria-label="Nonaktifkan ${esc(e.name)}">${icon('user-x')}</button>` : ''}` : null,
+            <button type="button" class="action-btn" data-action="more" data-id="${e.id}" title="Aksi lainnya" aria-label="Aksi lainnya untuk ${esc(e.name)}" aria-haspopup="menu" aria-expanded="false">${icon('more-horizontal')}</button>` : null,
     });
 }
 
@@ -267,16 +265,132 @@ function formatDateTime(iso) {
     }
 }
 
-table.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-action]');
-    const employee = button && rows.find((e) => String(e.id) === button.dataset.id);
-    if (!employee) return;
-    const action = button.dataset.action;
+let activeMoreButton = null;
+let moreMenuEl = null;
+
+function closeMoreMenu() {
+    if (moreMenuEl) {
+        moreMenuEl.hidden = true;
+    }
+    if (activeMoreButton) {
+        activeMoreButton.setAttribute('aria-expanded', 'false');
+        activeMoreButton.classList.remove('active');
+        activeMoreButton = null;
+    }
+}
+
+function getMoreMenu() {
+    if (!moreMenuEl) {
+        moreMenuEl = document.createElement('div');
+        moreMenuEl.id = 'employee-more-menu';
+        moreMenuEl.className = 'action-dropdown-menu';
+        moreMenuEl.hidden = true;
+        document.body.appendChild(moreMenuEl);
+
+        moreMenuEl.addEventListener('click', (event) => {
+            const item = event.target.closest('[data-action]');
+            if (!item) return;
+            const action = item.dataset.action;
+            const employee = rows.find((e) => String(e.id) === item.dataset.id);
+            closeMoreMenu();
+            if (employee) runAction(action, employee);
+        });
+
+        document.addEventListener('click', (event) => {
+            if (!event.target.closest('#employee-more-menu') && !event.target.closest('[data-action="more"]')) {
+                closeMoreMenu();
+            }
+        });
+
+        window.addEventListener('scroll', closeMoreMenu, true);
+        window.addEventListener('resize', closeMoreMenu);
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeMoreMenu();
+        });
+    }
+    return moreMenuEl;
+}
+
+function toggleMoreMenu(button, employee) {
+    if (activeMoreButton === button && moreMenuEl && !moreMenuEl.hidden) {
+        closeMoreMenu();
+        return;
+    }
+
+    closeMoreMenu();
+    activeMoreButton = button;
+    button.setAttribute('aria-expanded', 'true');
+    button.classList.add('active');
+
+    const menu = getMoreMenu();
+    const items = [];
+
+    items.push(`
+        <button type="button" class="action-dropdown-item" data-action="level" data-id="${employee.id}">
+            ${icon('award', 15)} <span>Ubah level tunjangan</span>
+        </button>
+    `);
+
+    if (employee.user) {
+        items.push(`
+            <button type="button" class="action-dropdown-item" data-action="unlink" data-id="${employee.id}">
+                ${icon('link-slash', 15)} <span>Putuskan tautan akun</span>
+            </button>
+        `);
+    }
+
+    if (employee.user && employee.devices_count) {
+        items.push(`
+            <button type="button" class="action-dropdown-item" data-action="revoke" data-id="${employee.id}">
+                ${icon('device-logout', 15)} <span>Keluarkan perangkat (${employee.devices_count})</span>
+            </button>
+        `);
+    }
+
+    if (employee.status === 'active') {
+        items.push('<div class="action-dropdown-divider" role="separator"></div>');
+        items.push(`
+            <button type="button" class="action-dropdown-item danger" data-action="deactivate" data-id="${employee.id}">
+                ${icon('user-x', 15)} <span>Nonaktifkan karyawan</span>
+            </button>
+        `);
+    }
+
+    menu.innerHTML = items.join('');
+    menu.hidden = false;
+
+    const rect = button.getBoundingClientRect();
+    const menuWidth = menu.offsetWidth || 210;
+    const menuHeight = menu.offsetHeight || 160;
+
+    let left = rect.right - menuWidth;
+    if (left < 10) left = 10;
+    if (left + menuWidth > window.innerWidth - 10) {
+        left = window.innerWidth - menuWidth - 10;
+    }
+
+    let top = rect.bottom + 4;
+    if (window.innerHeight - rect.bottom < menuHeight + 10 && rect.top > menuHeight) {
+        top = rect.top - menuHeight - 4;
+    }
+
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
+}
+
+async function runAction(action, employee) {
     if (action === 'edit') openEmployee(employee);
     if (action === 'employment') openEmployment(employee);
     if (action === 'level') openLevel(employee);
     if (action === 'account') openAccount(employee);
-    if (action === 'unlink' && await confirmDialog({ title: 'Putuskan tautan akun?', message: `Putuskan hubungan antara karyawan ${employee.name} dengan akun ${employee.user.email}? Karyawan tidak akan dapat login ke mobile app sampai ditautkan kembali.`, confirmLabel: 'Putuskan tautan', danger: true })) act(`employees/${employee.id}/unlink-user`, 'Tautan akun berhasil diputuskan.');
+    if (action === 'unlink' && await confirmDialog({
+        title: 'Putuskan tautan akun?',
+        message: `Putuskan hubungan antara karyawan ${employee.name} dengan akun ${employee.user?.email}? Karyawan tidak akan dapat login ke mobile app sampai ditautkan kembali.`,
+        confirmLabel: 'Putuskan tautan',
+        danger: true,
+    })) {
+        act(`employees/${employee.id}/unlink-user`, 'Tautan akun berhasil diputuskan.');
+    }
     if (action === 'revoke') {
         try {
             const { data: devices } = await api(`employees/${employee.id}/devices`);
@@ -342,7 +456,27 @@ table.addEventListener('click', async (event) => {
             toast(error.message);
         }
     }
-    if (action === 'deactivate' && await confirmDialog({ title: 'Nonaktifkan karyawan?', message: `Nonaktifkan ${employee.name}? Akun app ikut nonaktif.`, confirmLabel: 'Nonaktifkan', danger: true })) act(`employees/${employee.id}/deactivate`, 'Karyawan dinonaktifkan.');
+    if (action === 'deactivate' && await confirmDialog({
+        title: 'Nonaktifkan karyawan?',
+        message: `Nonaktifkan ${employee.name}? Akun app ikut nonaktif.`,
+        confirmLabel: 'Nonaktifkan',
+        danger: true,
+    })) {
+        act(`employees/${employee.id}/deactivate`, 'Karyawan dinonaktifkan.');
+    }
+}
+
+table.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-action]');
+    const employee = button && rows.find((e) => String(e.id) === button.dataset.id);
+    if (!employee) return;
+    const action = button.dataset.action;
+    if (action === 'more') {
+        toggleMoreMenu(button, employee);
+        return;
+    }
+    closeMoreMenu();
+    runAction(action, employee);
 });
 
 $('#employee-add').addEventListener('click', () => openEmployee(null));
