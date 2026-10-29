@@ -41,6 +41,7 @@
         <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
         <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
         <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Lewati ke konten</a>
@@ -583,7 +584,201 @@
                         <div id="employee-pagination" class="table-pagination"></div>
                     </div>
                 </section>
-                <section class="view placeholder-view" data-view-panel="reports"><h1>Laporan</h1><p>Rekap kehadiran, lembur, tunjangan, dan periode.</p><div class="empty-state"><strong>Belum tersedia</strong><span>Laporan dan ekspor akan ditambahkan setelah perhitungan kehadiran selesai.</span></div></section>
+                <section class="view report-view" data-view-panel="reports">
+                    <div class="page-heading">
+                        <div>
+                            <p data-site-name>{{ $siteSettings->site_name }}</p>
+                            <h1>Laporan &amp; Rekapitulasi</h1>
+                            <span>Rekapitulasi kehadiran, jam kerja reguler, keterlambatan, lembur, dan tunjangan per periode.</span>
+                        </div>
+                        <div class="heading-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button type="button" class="secondary-button" id="btn-export-excel" style="display: inline-flex; align-items: center; gap: 6px;">
+                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-download"/></svg>
+                                <span>Unduh Excel (.xlsx)</span>
+                            </button>
+                            <button type="button" class="primary-button" id="btn-export-pdf" style="display: inline-flex; align-items: center; gap: 6px;">
+                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-file-text"/></svg>
+                                <span>Unduh PDF (.pdf)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filter Card -->
+                    <div class="report-filter-card panel" style="padding: 16px 20px; margin-bottom: 20px;">
+                        <form id="report-filters" class="report-filter-form">
+                            <div class="report-presets-bar" style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
+                                <span class="allowance-preset-label" style="font-size: 13px; font-weight: 600; color: var(--text-muted, #64748b);">Periode Cepat:</span>
+                                <div class="monitoring-preset-chips" id="report-preset-chips">
+                                    <button type="button" class="preset-chip" data-report-preset="today">Hari Ini</button>
+                                    <button type="button" class="preset-chip" data-report-preset="7d">7 Hari Terakhir</button>
+                                    <button type="button" class="preset-chip active" data-report-preset="month">Bulan Ini</button>
+                                    <button type="button" class="preset-chip" data-report-preset="last-month">Bulan Lalu</button>
+                                </div>
+                            </div>
+                            <div class="monitoring-inputs-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end;">
+                                <label>
+                                    <span>Dari Tanggal</span>
+                                    <input type="date" name="from" id="report-from" required>
+                                </label>
+                                <label>
+                                    <span>Sampai Tanggal</span>
+                                    <input type="date" name="to" id="report-to" required>
+                                </label>
+                                <label>
+                                    <span>Departemen</span>
+                                    <select name="department_id" id="report-dept">
+                                        <option value="">Semua departemen</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Karyawan</span>
+                                    <select name="employee_id" id="report-employee">
+                                        <option value="">Semua karyawan</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Cari Nama / NIK</span>
+                                    <input type="search" name="q" id="report-search" placeholder="Ketik nama atau kode...">
+                                </label>
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="submit" class="primary-button" style="height: 38px;">Terapkan</button>
+                                    <button type="button" class="secondary-button" id="report-reset-btn" style="height: 38px;">Reset</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Period Status & KPI Cards -->
+                    <div class="report-status-bar" id="report-status-bar" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 13px; font-weight: 500; color: var(--text-muted, #64748b);">Status Periode:</span>
+                            <span class="report-status-badge" id="report-status-badge">Memeriksa...</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-muted, #64748b);" id="report-meta-generated"></div>
+                    </div>
+
+                    <div class="kpi-grid report-kpi-grid" id="report-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px;">
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Total Karyawan</span>
+                            <strong class="kpi-value" id="kpi-total-employees">0</strong>
+                            <span class="kpi-hint">Terdaftar di laporan</span>
+                        </div>
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Total Hari Hadir</span>
+                            <strong class="kpi-value" id="kpi-total-attended-days">0</strong>
+                            <span class="kpi-hint" id="kpi-attendance-rate">Tingkat kehadiran: 0%</span>
+                        </div>
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Jam Reguler Valid</span>
+                            <strong class="kpi-value" id="kpi-total-verified-hours">0j 0m</strong>
+                            <span class="kpi-hint">Tervalidasi &amp; diakui</span>
+                        </div>
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Jam Lembur Diakui</span>
+                            <strong class="kpi-value" id="kpi-total-overtime-hours">0j 0m</strong>
+                            <span class="kpi-hint">Dari SPL disetujui</span>
+                        </div>
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Keterlambatan</span>
+                            <strong class="kpi-value" id="kpi-total-late-count">0x</strong>
+                            <span class="kpi-hint" id="kpi-total-late-minutes">Total: 0 menit</span>
+                        </div>
+                        <div class="kpi-card panel">
+                            <span class="kpi-title">Total Tunjangan</span>
+                            <strong class="kpi-value" id="kpi-total-allowance">Rp 0</strong>
+                            <span class="kpi-hint" id="kpi-allowance-split">Makan: Rp 0 | Trs: Rp 0</span>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Tabs -->
+                    <div class="report-tabs-bar" style="display: flex; gap: 8px; border-bottom: 1px solid var(--border, #e2e8f0); margin-bottom: 16px;">
+                        <button type="button" class="tab-button active" data-report-tab="summary">Rekapitulasi Karyawan</button>
+                        <button type="button" class="tab-button" data-report-tab="details">Detail Kehadiran Sesi</button>
+                        <button type="button" class="tab-button" data-report-tab="overtime">Rekap Lembur</button>
+                    </div>
+
+                    <!-- Tab 1: Summary Table -->
+                    <div class="report-tab-panel active" id="tab-panel-summary">
+                        <div class="table-card panel" style="overflow-x: auto;">
+                            <table class="data-table" id="report-summary-table">
+                                <thead>
+                                    <tr>
+                                        <th>Karyawan</th>
+                                        <th>Departemen</th>
+                                        <th style="text-align: center;">Hari Hadir / Jadwal</th>
+                                        <th style="text-align: center;">Sesi Hadir</th>
+                                        <th style="text-align: center;">Jam Reguler</th>
+                                        <th style="text-align: center;">Terlambat</th>
+                                        <th style="text-align: center;">Lembur Diakui</th>
+                                        <th style="text-align: center;">Cuti</th>
+                                        <th style="text-align: center;">Review</th>
+                                        <th style="text-align: right;">Total Tunjangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-summary-tbody">
+                                    <tr><td colspan="10" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat data rekapitulasi...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Details Table -->
+                    <div class="report-tab-panel" id="tab-panel-details" hidden>
+                        <div class="table-card panel" style="overflow-x: auto;">
+                            <table class="data-table" id="report-details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tanggal</th>
+                                        <th>Karyawan</th>
+                                        <th>Shift / Sesi</th>
+                                        <th style="text-align: center;">Jadwal Shift</th>
+                                        <th style="text-align: center;">Jam Masuk</th>
+                                        <th style="text-align: center;">Jam Pulang</th>
+                                        <th style="text-align: center;">Status</th>
+                                        <th style="text-align: center;">Terlambat</th>
+                                        <th style="text-align: center;">Jam Valid</th>
+                                        <th style="text-align: center;">Lembur</th>
+                                        <th style="text-align: right;">Tunjangan</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-details-tbody">
+                                    <tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat detail...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="pagination-bar" id="report-details-pagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 4px;" hidden>
+                            <span class="pagination-info" id="report-details-pagination-info" style="font-size: 13px; color: var(--text-muted);"></span>
+                            <div class="pagination-buttons" style="display: flex; gap: 8px;">
+                                <button type="button" class="secondary-button" id="report-details-prev-btn" disabled>Sebelumnya</button>
+                                <button type="button" class="secondary-button" id="report-details-next-btn" disabled>Selanjutnya</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Overtime Table -->
+                    <div class="report-tab-panel" id="tab-panel-overtime" hidden>
+                        <div class="table-card panel" style="overflow-x: auto;">
+                            <table class="data-table" id="report-overtime-table">
+                                <thead>
+                                    <tr>
+                                        <th>No. SPL</th>
+                                        <th>Tanggal</th>
+                                        <th>Karyawan</th>
+                                        <th>Departemen</th>
+                                        <th>Uraian Tugas Lembur</th>
+                                        <th style="text-align: center;">Jam Pelaksanaan</th>
+                                        <th style="text-align: center;">Durasi Rencana</th>
+                                        <th style="text-align: center;">Durasi Diakui</th>
+                                        <th style="text-align: center;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-overtime-tbody">
+                                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekap lembur...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
                 <section class="view" data-view-panel="leaves" data-requires="admin">
                     <div class="page-heading">
                         <div>

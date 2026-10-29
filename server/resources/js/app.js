@@ -6,8 +6,9 @@ import { showSettings } from './admin/settings';
 import { initAttendance, showApprovals, showDashboard, showMonitoring } from './admin/attendance';
 import { showLeaves } from './admin/leaves';
 import { showAllowances } from './admin/allowances';
+import { showReports } from './admin/reports';
 
-const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, leaves: showLeaves, allowances: showAllowances, settings: showSettings };
+const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, leaves: showLeaves, allowances: showAllowances, reports: showReports, settings: showSettings };
 const canSee = (el) => ({
     web_admin: ['super_admin', 'admin', 'supervisor'].includes(role),
     admin: role === 'admin' || role === 'super_admin',

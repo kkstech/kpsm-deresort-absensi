@@ -2604,3 +2604,58 @@ main:focus { outline: none; }
         flex: 1 1 100%;
     }
 }
+
+/* ---------- Laporan & Rekapitulasi ---------- */
+.report-tabs-bar {
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 20px;
+    overflow-x: auto;
+}
+.report-tabs-bar .tab-button {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+.report-tabs-bar .tab-button:hover {
+    color: var(--ink);
+}
+.report-tabs-bar .tab-button.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+}
+.report-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.report-status-badge.final {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+}
+.report-status-badge.provisional {
+    background: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fcd34d;
+}
+.report-tab-panel {
+    display: none;
+}
+.report-tab-panel.active {
+    display: block;
+    animation: viewFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

@@ -4,7 +4,21 @@ Baca file ini sebelum lanjut mengerjakan backend. `README.md` masih menggambarka
 
 Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lanjut dari bagian yang belum selesai di bawah.
 
-Tanggal: 24 Oktober 2026.
+Tanggal: 29 Oktober 2026.
+
+## Perubahan terbaru — Menu Laporan dan Ekspor (XLSX & PDF)
+
+- Menyediakan antarmuka interaktif **Menu Laporan** pada web admin (`#reports`) dengan filter rentang tanggal, preset cepat (Hari Ini, 7 Hari Terakhir, Bulan Ini, Bulan Lalu), filter departemen, karyawan, dan pencarian nama/NIK.
+- Menyediakan tiga tab tampilan laporan:
+  1. **Rekapitulasi Karyawan:** Ringkasan agregat per karyawan (Hari Terjadwal vs Hadir, Sesi Hadir, Menit & Jam Kerja Valid, Keterlambatan, Terlambat Berizin vs Tanpa Izin, Lembur Diakui, Cuti, Sesi Review, dan Tunjangan).
+  2. **Detail Kehadiran Sesi:** Log terperinci per sesi dan tanggal kerja dengan waktu check-in, check-out, status kehadiran, jam valid, dan tunjangan harian, dilengkapi paginasi.
+  3. **Rekap Lembur:** Rekapitulasi Surat Perintah Lembur (SPL) dengan nomor SPL, jam rencana, aktual, menit diakui, dan status keputusan.
+- Kartu KPI ringkasan: Total Karyawan Terlapor, Total Hari Hadir, Total Jam Reguler Valid, Total Jam Lembur Diakui, Total Keterlambatan, dan Total Tunjangan (Makan + Transport).
+- Menghubungkan ekspor **Excel (.xlsx)** via `openspout/openspout` multi-sheet (Sheet 1: Ringkasan Kehadiran & Sheet 2: Detail Sesi) dengan kop resmi, formatting, dan baris total agregat.
+- Menghubungkan ekspor **PDF (.pdf)** via `barryvdh/laravel-dompdf` berformat A4 Landscape dengan kop resmi resort dari `SiteSetting`, ringkasan KPI, watermark diagonal `PROVISIONAL` (bila periode belum final), dan kolom tanda tangan otorisasi.
+- Endpoint backend baru: `GET /admin/api/reports/filters`, `GET /admin/api/reports/summary`, `GET /admin/api/reports/details`, `GET /admin/api/reports/overtime`, `GET /admin/api/reports/export/excel`, dan `GET /admin/api/reports/export/pdf`.
+- Hak akses supervisor otomatis dibatasi pada karyawan dan data dalam departemennya.
+- Test suite: `server/tests/Feature/ReportTest.php` (8 tes, 42 assertion, seluruh test suite 116 tes lulus 100%).
 
 ## Perubahan terbaru — Docker, GitHub Actions, GHCR, dan Dokploy
 
@@ -111,8 +125,6 @@ JSON di `/admin/api`, session plus CSRF.
 
 Jangan anggap ini sudah ada.
 
-- Lembur: perintah, consent sebelum mulai, event terpisah, metode `ACTUAL_CAPPED` saja.
-- Laporan JSON, export XLSX (`openspout`) dan PDF (`dompdf`). Paket sudah terpasang, belum dipakai.
 - Finalisasi dan buka ulang periode. Buka ulang butuh alasan dan revisi baru.
 
 ## Database lokal
