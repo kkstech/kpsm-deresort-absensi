@@ -268,7 +268,7 @@ function fieldHtml(f, value) {
                         <small class="avatar-card-hint">${esc(f.hint ?? 'Format JPG, PNG, atau WEBP. Maksimal 5MB.')}</small>
                     </div>
                     <div class="avatar-card-action">
-                        <label class="avatar-upload-btn" for="${id}">
+                        <label class="avatar-upload-btn" for="${id}" style="display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:7px;">
                             ${icon('camera', 15)}
                             <span>${value ? 'Ganti Foto' : 'Pilih Foto'}</span>
                         </label>
