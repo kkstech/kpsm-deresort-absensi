@@ -1121,7 +1121,7 @@
     </div>
 
     <dialog class="app-dialog schedule-editor-dialog" id="schedule-modal" aria-labelledby="schedule-modal-title">
-        <form method="dialog" id="schedule-form">
+        <form method="dialog" id="schedule-form" novalidate>
             <div class="modal-heading"><div><h2 id="schedule-modal-title">Buat jadwal</h2><p>Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
             <div class="modal-body">
                 <div class="schedule-modal-top-grid">
@@ -1148,7 +1148,7 @@
         </form>
     </dialog>
     <dialog class="app-dialog schedule-bulk-dialog" id="schedule-bulk-modal" aria-labelledby="schedule-bulk-modal-title">
-        <form method="dialog" id="schedule-bulk-form">
+        <form method="dialog" id="schedule-bulk-form" novalidate>
             <div class="modal-heading">
                 <div>
                     <h2 id="schedule-bulk-modal-title">Penugasan Jadwal Massal</h2>
@@ -1226,7 +1226,7 @@
         </form>
     </dialog>
     <dialog class="app-dialog schedule-swap-dialog" id="schedule-swap-modal" aria-labelledby="schedule-swap-title">
-        <form id="schedule-swap-form">
+        <form id="schedule-swap-form" novalidate>
             <div class="modal-heading">
                 <div>
                     <h2 id="schedule-swap-title">Tukar siklus jadwal</h2>
@@ -1432,7 +1432,7 @@
         </form>
     </dialog>
     <dialog class="app-dialog overtime-order-dialog" id="overtime-order-modal" aria-labelledby="overtime-order-modal-title">
-        <form id="overtime-order-form">
+        <form id="overtime-order-form" novalidate>
             <div class="modal-heading">
                 <div>
                     <h2 id="overtime-order-modal-title">Terbitkan Surat Perintah Lembur (SPL)</h2>

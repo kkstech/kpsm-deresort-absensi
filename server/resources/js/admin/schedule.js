@@ -254,6 +254,10 @@ function setScheduleMode(mode) {
     $('#schedule-template-wrap').hidden = custom;
     $('#schedule-custom-wrap').hidden = !custom;
     $('#schedule-template').required = !custom;
+    $('#schedule-template').disabled = custom;
+    $$('#schedule-custom-wrap input, #schedule-custom-wrap select, #schedule-custom-wrap textarea').forEach((input) => {
+        input.disabled = !custom;
+    });
 }
 
 function fillScheduleSessions(sessions = [{}, {}]) {
@@ -332,6 +336,43 @@ async function saveSchedule() {
         } : { shift_template_id: Number($('#schedule-template').value) || null }),
     };
     errorBox.hidden = true;
+
+    if (!body.employee_id) {
+        errorBox.textContent = 'Pilih karyawan terlebih dahulu.';
+        errorBox.hidden = false;
+        return;
+    }
+    if (!body.work_date) {
+        errorBox.textContent = 'Pilih tanggal kerja terlebih dahulu.';
+        errorBox.hidden = false;
+        return;
+    }
+    if (!custom && !body.shift_template_id) {
+        errorBox.textContent = 'Pilih shift reguler terlebih dahulu.';
+        errorBox.hidden = false;
+        return;
+    }
+    if (custom) {
+        if (!body.sessions.length) {
+            errorBox.textContent = 'Minimal satu sesi shift harus ditentukan.';
+            errorBox.hidden = false;
+            return;
+        }
+        for (let i = 0; i < body.sessions.length; i++) {
+            const s = body.sessions[i];
+            if (!s.start_date || !s.start_time || !s.end_date || !s.end_time) {
+                errorBox.textContent = `Lengkapi jam mulai dan jam selesai untuk Sesi ${i + 1}.`;
+                errorBox.hidden = false;
+                return;
+            }
+        }
+        if (editingSchedule && editingSchedule.status !== 'DRAFT' && !body.reason) {
+            errorBox.textContent = 'Tuliskan alasan perubahan sesi jadwal.';
+            errorBox.hidden = false;
+            return;
+        }
+    }
+
     const submit = $('#schedule-form [type="submit"]');
     submit.disabled = true;
     try {
