@@ -53,6 +53,21 @@ export function toast(message) {
     toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
+/** Menghasilkan skeleton loading placeholder untuk tabel */
+export function renderSkeletonTable(rows = 5, cols = 5) {
+    let html = '<div class="table-scroll"><table class="data-table"><tbody>';
+    for (let i = 0; i < rows; i++) {
+        html += '<tr>';
+        for (let j = 0; j < cols; j++) {
+            const widthClass = j === 0 ? 'medium' : j === cols - 1 ? 'short' : '';
+            html += `<td><span class="skeleton skeleton-text ${widthClass}"></span></td>`;
+        }
+        html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    return html;
+}
+
 /** columns: [{ label, cell(row) => html yang sudah di-escape }] */
 export function renderTable(container, { columns, rows, empty, actions }) {
     if (!rows.length) {
@@ -129,7 +144,7 @@ export function renderPagination(container, meta, onPageChange) {
     });
 }
 
-export const loadingInto = (container) => { container.innerHTML = '<p class="list-empty">Memuat data…</p>'; };
+export const loadingInto = (container) => { container.innerHTML = renderSkeletonTable(5, 5); };
 export const errorInto = (container, error) => { container.innerHTML = `<p class="form-error list-error" role="alert">${esc(error.message)}</p>`; };
 
 export function confirmDialog({ title = 'Konfirmasi', message, html, confirmLabel = 'Lanjutkan', danger = false }) {

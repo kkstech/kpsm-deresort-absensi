@@ -210,7 +210,7 @@ function renderRequestsTable() {
                     </div>
                 </td>
                 <td data-label="Jenis">
-                    <span class="status ${typeTone}" style="font-size:11.5px;padding:2px 8px;">${esc(typeLabel[item.type] ?? item.type)}</span>
+                    <span class="status ${typeTone}">${esc(typeLabel[item.type] ?? item.type)}</span>
                 </td>
                 <td data-label="Alasan" style="max-width:240px;line-height:1.4;">
                     <span>${esc(item.reason)}</span>

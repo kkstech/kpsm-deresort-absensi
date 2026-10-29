@@ -40,6 +40,7 @@
         <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
         <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
         <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+        <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></symbol>
     </svg>
 
     <a class="skip-link" href="#main-content">Lewati ke konten</a>
@@ -55,8 +56,8 @@
                 <button type="button" class="nav-item" data-view="attendance"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Monitoring Absensi</button>
                 <button type="button" class="nav-item" data-view="requests"><svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg>Persetujuan</button>
                 <button type="button" class="nav-item" data-view="employees"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>Karyawan</button>
-                <button type="button" class="nav-item" data-view="leaves" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Cuti</button>
-                <button type="button" class="nav-item" data-view="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Tunjangan</button>
+                <button type="button" class="nav-item" data-view="leaves" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg>Cuti</button>
+                <button type="button" class="nav-item" data-view="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg>Tunjangan</button>
                 <button type="button" class="nav-item" data-view="reports"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>Laporan</button>
             </nav>
             <div class="sidebar-bottom">
@@ -850,7 +851,7 @@
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg><span>Jabatan</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-map-pin"/></svg><span>Lokasi kerja</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="levels" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg><span>Level karyawan</span></button>
-                                <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span>Tarif tunjangan</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg><span>Tarif tunjangan</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="allowance-overrides" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Pengecualian individu</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Akun admin</span></button>
                             </div>

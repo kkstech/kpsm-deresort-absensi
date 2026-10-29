@@ -1,5 +1,5 @@
 import { api, isAdmin, isSuperAdmin, role } from './api';
-import { $, $$, esc, icon, renderPagination, toast } from './ui';
+import { $, $$, esc, icon, renderPagination, renderSkeletonTable, toast } from './ui';
 
 const today = document.body.dataset.today;
 const dashboardForm = $('#dashboard-filters');
@@ -98,7 +98,11 @@ function renderReviewBox(reviewItems) {
 async function loadDashboard(filters = filterValues(dashboardForm)) {
     const error = $('#dashboard-error');
     error.hidden = true;
-    $('#dashboard-activity').setAttribute('aria-busy', 'true');
+    const actEl = $('#dashboard-activity');
+    if (actEl) {
+        actEl.setAttribute('aria-busy', 'true');
+        actEl.innerHTML = renderSkeletonTable(4, 5);
+    }
 
     // Dynamic greeting & date
     const hour = new Date().getHours();
@@ -306,7 +310,11 @@ async function loadMonitoring(page = 1) {
     const error = $('#monitoring-error');
     error.hidden = true;
     monitoringPage = page;
-    $('#monitoring-table').setAttribute('aria-busy', 'true');
+    const monTable = $('#monitoring-table');
+    if (monTable) {
+        monTable.setAttribute('aria-busy', 'true');
+        monTable.innerHTML = renderSkeletonTable(6, 8);
+    }
     try {
         renderMonitoring(await api('attendance', { query: { ...monitoringFilters, page } }));
     } catch (failure) {

@@ -256,8 +256,13 @@ function openScheduleModal() {
 
 function openScheduleEdit(assignment) {
     editingSchedule = assignment;
-    $('#schedule-modal-title').textContent = `Atur sesi · ${assignment.template_name}`;
-    $('#schedule-form').querySelector('.modal-heading p').textContent = 'Sesi berjalan dan yang sudah selesai tetap tercatat; sesi mendatang bisa disesuaikan.';
+    const isDraft = assignment.status === 'DRAFT';
+    $('#schedule-modal-title').textContent = isDraft
+        ? `Edit jadwal draft · ${assignment.template_name}`
+        : `Atur sesi · ${assignment.template_name}`;
+    $('#schedule-form').querySelector('.modal-heading p').textContent = isDraft
+        ? 'Sesuaikan jam kerja, sesi shift, atau durasi istirahat sebelum jadwal diterbitkan ke karyawan.'
+        : 'Sesi berjalan dan yang sudah selesai tetap tercatat; sesi mendatang bisa disesuaikan.';
     $('#schedule-form [type="submit"]').textContent = 'Simpan perubahan';
     $('#schedule-employee').value = assignment.employee_id;
     $('#schedule-employee').disabled = true;
@@ -265,8 +270,9 @@ function openScheduleEdit(assignment) {
     $('#schedule-date').disabled = true;
     $('#schedule-mode').value = 'custom';
     $('#schedule-name').value = assignment.template_name;
-    $('#schedule-reason-wrap').hidden = false;
-    $('#schedule-reason').value = '';
+    $('#schedule-reason-wrap').hidden = isDraft;
+    $('#schedule-reason').required = !isDraft;
+    $('#schedule-reason').value = isDraft ? 'Penyesuaian jadwal draft' : '';
     fillScheduleSessions(assignment.sessions);
     setScheduleMode('custom');
     errorBox.hidden = true;
@@ -303,7 +309,7 @@ async function saveSchedule() {
     const submit = $('#schedule-form [type="submit"]');
     submit.disabled = true;
     try {
-        if (editingSchedule) await api(`schedule/${editingSchedule.id}/sessions`, { method: 'PATCH', body });
+        if (editingSchedule && custom) await api(`schedule/${editingSchedule.id}/sessions`, { method: 'PATCH', body });
         else await api('schedule', { method: 'POST', body });
     } catch (error) {
         errorBox.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;

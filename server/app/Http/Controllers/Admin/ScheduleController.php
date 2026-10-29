@@ -121,9 +121,10 @@ class ScheduleController extends Controller
     public function updateSessions(Request $request, ShiftAssignment $assignment): JsonResponse
     {
         Gate::authorize('admin');
+        $isDraft = $assignment->status === 'DRAFT';
         $data = $request->validate([
             'expected_revision' => ['required', 'integer', 'min:1'],
-            'reason' => ['required', 'string', 'min:3', 'max:500'],
+            'reason' => [$isDraft ? 'nullable' : 'required', 'string', 'min:3', 'max:500'],
             'sessions' => ['required', 'array', 'min:1', 'max:4'],
             'sessions.*.id' => ['nullable', 'integer'],
             'sessions.*.seq' => ['required', 'integer', 'between:1,4'],
@@ -140,7 +141,7 @@ class ScheduleController extends Controller
             $data,
             $request->user(),
             $data['expected_revision'],
-            $data['reason'],
+            $data['reason'] ?? 'Penyesuaian jadwal draft',
         );
 
         return response()->json(['data' => $assignment->toApi()]);

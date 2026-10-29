@@ -1,5 +1,5 @@
 import { api, lookup } from './api';
-import { $, $$, esc, icon } from './ui';
+import { $, $$, esc, icon, renderSkeletonTable } from './ui';
 
 const form = $('#allowance-filters');
 const table = $('#allowance-table');
@@ -180,7 +180,7 @@ function renderTable() {
                     </div>
                 </td>
                 <td data-label="Shift">
-                    <span class="status neutral" style="font-size:11px;font-weight:600;padding:2px 8px;">${esc(row.assignment?.template_name ?? 'Siklus Reguler')}</span>
+                    <span class="status neutral">${esc(row.assignment?.template_name ?? 'Siklus Reguler')}</span>
                 </td>
                 <td data-label="Durasi Hadir">${formatDuration(row.verified_minutes)}</td>
                 <td data-label="Status"><span class="status ${tone}">${label}</span></td>
@@ -230,6 +230,7 @@ async function load() {
     const error = $('#allowance-error');
     if (error) error.hidden = true;
     table.setAttribute('aria-busy', 'true');
+    table.innerHTML = renderSkeletonTable(6, 6);
 
     try {
         await Promise.all([initDepartments(), initLevels()]);

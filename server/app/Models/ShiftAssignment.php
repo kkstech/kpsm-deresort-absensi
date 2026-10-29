@@ -68,7 +68,7 @@ class ShiftAssignment extends Model
             'rules_version' => $this->rules_version,
             'scheduled_minutes' => $this->sessions->sum(fn (ShiftSession $session) => $session->scheduledMinutes()),
             'editable' => in_array($this->status, ['DRAFT', 'PUBLISHED'], true) && $this->sessions->first()?->start_at->gt($now),
-            'sessions_editable' => in_array($this->status, ['PUBLISHED', 'IN_PROGRESS'], true)
+            'sessions_editable' => in_array($this->status, ['DRAFT', 'PUBLISHED', 'IN_PROGRESS'], true)
                 && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
             'sessions' => $this->sessions->map(fn (ShiftSession $s) => [
                 'id' => $s->id,
