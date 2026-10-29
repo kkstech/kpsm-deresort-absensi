@@ -203,6 +203,14 @@ function humanizeReason(code?: string | null): string {
       return 'Periode absensi telah dikunci oleh HR.';
     case 'AUTO_CHECKOUT_DUE':
       return 'Batas waktu kerja sesi telah terlampaui (auto-checkout).';
+    case 'FAKE_GPS_DETECTED':
+      return 'Presensi ditolak karena terdeteksi aplikasi lokasi tiruan / Fake GPS. Matikan Fake GPS untuk melakukan presensi.';
+    case 'OUTSIDE_RADIUS':
+      return 'Posisi GPS Anda berada di luar radius area kerja resort yang ditentukan.';
+    case 'GPS_REQUIRED':
+      return 'Sesi ini mewajibkan data lokasi GPS yang valid.';
+    case 'GPS_ACCURACY_LOW':
+      return 'Sinyal akurasi GPS terlalu rendah. Pindah ke area terbuka agar lokasi terdeteksi akurat.';
     default:
       return code ? `Penolakan server (${code}). Periksa jadwal dan waktu absensi Anda.` : 'Periksa jadwal dan waktu absensi Anda.';
   }
@@ -750,6 +758,7 @@ function Main() {
   const [password, setPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [intent, setIntent] = useState<ActionIntent | null>(null);
+  const [attendancePhoto, setAttendancePhoto] = useState<{ uri: string; base64?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Leave / Late / Correction Form state
@@ -1191,13 +1200,52 @@ function Main() {
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) throw new Error('Lokasi harus diizinkan untuk absensi pada sesi ini.');
     const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+
+    if (position.mocked) {
+      throw new Error('Terdeteksi aplikasi lokasi tiruan (Fake GPS). Harap nonaktifkan Fake GPS untuk melakukan presensi.');
+    }
+
     const maxAccuracy = session.attendance_policy.max_accuracy_meters;
     if (maxAccuracy && position.coords.accuracy !== null && position.coords.accuracy > maxAccuracy) throw new Error(`Akurasi lokasi ${Math.round(position.coords.accuracy)} m melewati batas ${maxAccuracy} m.`);
-    return { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy_meters: position.coords.accuracy ?? undefined };
+    return {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy_meters: position.coords.accuracy ?? undefined,
+      is_mocked: Boolean(position.mocked),
+    };
+  }
+
+  async function takeAttendanceSelfie() {
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Izin Kamera', 'Izin kamera diperlukan untuk mengambil foto selfie kehadiran.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        cameraType: ImagePicker.CameraType.front,
+        allowsEditing: false,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setAttendancePhoto({
+          uri: result.assets[0].uri,
+          base64: result.assets[0].base64 ?? undefined,
+        });
+      }
+    } catch (e) {
+      Alert.alert('Kamera Gagal', e instanceof Error ? e.message : 'Gagal membuka kamera selfie.');
+    }
   }
 
   async function recordAttendance() {
     if (!intent || !token || !deviceId) return;
+    if (!attendancePhoto) {
+      Alert.alert('Foto Wajib', 'Silakan ambil foto selfie kehadiran terlebih dahulu sebelum melanjutkan.');
+      return;
+    }
     setBusy(true); setError('');
     const eventUuid = uuid();
     try {
@@ -1205,6 +1253,7 @@ function Main() {
       const payload = {
         event_uuid: eventUuid, shift_session_id: intent.session.id, event_type: intent.eventType, device_id: deviceId,
         device_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta', captured_offline: false, ...(location ? { location } : {}),
+        ...(attendancePhoto?.base64 ? { photo_base64: attendancePhoto.base64 } : {}),
       };
       if (!online) {
         await enqueueEvent(payload, 'pending');
@@ -1220,6 +1269,7 @@ function Main() {
         }
       }
       setIntent(null);
+      setAttendancePhoto(null);
       if (online) await loadData();
       setOutbox(await outboxRows());
     } catch (failure) {
@@ -3223,20 +3273,39 @@ function Main() {
       </View>
 
       {/* Modal Attendance Action */}
-      <Modal visible={Boolean(intent)} transparent animationType="fade" onRequestClose={() => setIntent(null)}>
+      <Modal visible={Boolean(intent)} transparent animationType="fade" onRequestClose={() => { setIntent(null); setAttendancePhoto(null); }}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalEyebrow}>{intent?.assignment.template_name.toUpperCase()} · SESI {intent?.session.seq}</Text>
-            <Text style={styles.modalTitle}>Konfirmasi {intent?.eventType === 'CHECK_IN' ? 'check-in' : 'check-out'}</Text>
-            <Text style={styles.modalCopy}>{intent ? `${localDate(intent.assignment.work_date)} · ${shortClock(intent.session.local_start)}–${shortClock(intent.session.local_end)}` : ''}. Server memeriksa jadwal, lokasi, dan waktu saat event diterima.</Text>
+            <Text style={styles.modalTitle}>Konfirmasi {intent?.eventType === 'CHECK_IN' ? 'Check-In' : 'Check-Out'}</Text>
+            <Text style={styles.modalCopy}>{intent ? `${localDate(intent.assignment.work_date)} · ${shortClock(intent.session.local_start)}–${shortClock(intent.session.local_end)}` : ''}. Ambil foto selfie wajah Anda di lokasi kerja resort.</Text>
+
+            {/* Selfie Photo Box */}
+            <View style={styles.selfieBox}>
+              {attendancePhoto ? (
+                <View style={styles.selfiePreviewCol}>
+                  <Image source={{ uri: attendancePhoto.uri }} style={styles.selfieImage} />
+                  <Pressable onPress={takeAttendanceSelfie} style={styles.selfieRetakeBtn}>
+                    <Ionicons name="camera-reverse-outline" size={16} color={colors.primary} />
+                    <Text style={styles.selfieRetakeText}>Foto Ulang</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable onPress={takeAttendanceSelfie} style={styles.selfieActionBtn}>
+                  <Ionicons name="camera-outline" size={22} color="#FFFFFF" />
+                  <Text style={styles.selfieActionBtnText}>Ambil Foto Selfie</Text>
+                </Pressable>
+              )}
+            </View>
+
             {!online && (
               <View style={styles.offlineWarning}>
                 <Text style={styles.offlineWarningText}>Event tersimpan dengan waktu perangkat dan dapat memerlukan verifikasi HR.</Text>
               </View>
             )}
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setIntent(null)} style={styles.cancelButton}><Text style={styles.cancelButtonText}>Batal</Text></Pressable>
-              <Pressable disabled={busy} onPress={recordAttendance} style={[styles.confirmButton, busy && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : 'Ya, catat'}</Text></Pressable>
+              <Pressable onPress={() => { setIntent(null); setAttendancePhoto(null); }} style={styles.cancelButton}><Text style={styles.cancelButtonText}>Batal</Text></Pressable>
+              <Pressable disabled={busy || !attendancePhoto} onPress={recordAttendance} style={[styles.confirmButton, (busy || !attendancePhoto) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : 'Kirim Presensi'}</Text></Pressable>
             </View>
           </View>
         </View>
@@ -3793,6 +3862,22 @@ const styles = StyleSheet.create({
   previewMove: { color: '#1B5E20', fontSize: 13, fontWeight: '700', marginVertical: 2 },
   previewVacancy: { color: colors.warning, fontSize: 13, marginVertical: 2 },
   previewBlocker: { color: colors.danger, fontSize: 13, fontWeight: '700', marginVertical: 2 },
+  selfieBox: { marginTop: 14, alignItems: 'center' },
+  selfieActionBtn: {
+    width: '100%',
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  selfieActionBtnText: { color: '#FFFFFF', fontSize: 14.5, fontWeight: '800' },
+  selfiePreviewCol: { alignItems: 'center', gap: 10, width: '100%' },
+  selfieImage: { width: 140, height: 140, borderRadius: 16, borderWidth: 2, borderColor: colors.primary },
+  selfieRetakeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.canvas },
+  selfieRetakeText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
   modalActions: { flexDirection: 'row', gap: 9, marginTop: 18 },
   cancelButton: { minHeight: 50, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10 },
   cancelButtonText: { color: colors.ink, fontWeight: '800', fontSize: 14 },

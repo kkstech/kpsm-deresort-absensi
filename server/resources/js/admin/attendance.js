@@ -271,6 +271,16 @@ function renderMonitoring({ data, meta }) {
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
 
+            const checkInPhotoBtn = attendance.check_in_photo_url
+                ? `<button type="button" class="photo-badge-btn" data-photo-url="${esc(attendance.check_in_photo_url)}" data-photo-caption="Check-In · ${esc(row.employee.name)} · ${formatClock(attendance.check_in_at)}" title="Lihat Foto Check-In">${icon('camera', 13)}</button>`
+                : '';
+            const checkOutPhotoBtn = attendance.check_out_photo_url
+                ? `<button type="button" class="photo-badge-btn" data-photo-url="${esc(attendance.check_out_photo_url)}" data-photo-caption="Check-Out · ${esc(row.employee.name)} · ${formatClock(checkout)}" title="Lihat Foto Check-Out">${icon('camera', 13)}</button>`
+                : '';
+            const mockBadge = attendance.has_mock_event
+                ? `<span class="status danger" style="font-size:10px;padding:1px 5px;margin-left:4px;" title="Terdeteksi Fake GPS">Fake GPS</span>`
+                : '';
+
             const initial = (row.employee.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
             const avatar = row.employee.avatar_url
                 ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;',textContent:'${esc(initial)}'}))">`
@@ -292,9 +302,21 @@ function renderMonitoring({ data, meta }) {
                     <small style="color:var(--muted);margin-top:2px;display:block;">Sesi ${row.shift.seq}</small>
                 </td>
                 <td data-label="Jadwal"><span style="font-family:monospace;font-weight:600;font-size:12.5px;">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</span></td>
-                <td data-label="Masuk">${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
-                <td data-label="Pulang">${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}</td>
-                <td data-label="Status"><span class="status ${status.className}">${status.label}</span>${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(attendance.review_reason)}</small>` : ''}</td>
+                <td data-label="Masuk">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}
+                        ${checkInPhotoBtn}
+                    </div>
+                    ${attendance.check_in_distance != null ? `<small style="display:block;color:var(--muted);font-size:11px;">${attendance.check_in_distance}m</small>` : ''}
+                </td>
+                <td data-label="Pulang">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}
+                        ${checkOutPhotoBtn}
+                    </div>
+                    ${attendance.check_out_distance != null ? `<small style="display:block;color:var(--muted);font-size:11px;">${attendance.check_out_distance}m</small>` : ''}
+                </td>
+                <td data-label="Status"><span class="status ${status.className}">${status.label}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(attendance.review_reason)}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
                 ${otCell}
                 ${actions}
@@ -881,7 +903,29 @@ export async function initAttendance() {
     initOvertimeModal();
     $('#workflow-modal').querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => $('#workflow-modal').close()));
     $('#workflow-modal').addEventListener('click', (event) => { if (event.target === $('#workflow-modal')) $('#workflow-modal').close(); });
+    const photoModal = $('#photo-preview-modal');
+    if (photoModal) {
+        photoModal.querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => photoModal.close()));
+        photoModal.addEventListener('click', (event) => { if (event.target === photoModal) photoModal.close(); });
+    }
+
+    const openPhotoPreview = (url, caption) => {
+        const img = $('#photo-preview-img');
+        const cap = $('#photo-preview-caption');
+        if (photoModal && img) {
+            img.src = url;
+            if (cap) cap.textContent = caption || '';
+            photoModal.showModal();
+        }
+    };
+
     $('#monitoring-table').addEventListener('click', (event) => {
+        const photoBtn = event.target.closest('.photo-badge-btn');
+        if (photoBtn) {
+            openPhotoPreview(photoBtn.dataset.photoUrl, photoBtn.dataset.photoCaption);
+            return;
+        }
+
         const button = event.target.closest('[data-session-action]');
         const row = button && monitoringRows.get(button.dataset.sessionId);
         if (!row) return;

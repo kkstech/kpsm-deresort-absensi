@@ -6,6 +6,28 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Foto Presensi (Selfie Kamera Langsung) & Deteksi Fake GPS / Mock Location
+
+- **Foto Presensi Wajib (Live Selfie):**
+  - Menambahkan verifikasi foto selfie saat melakukan aksi presensi (Check-In dan Check-Out) pada aplikasi mobile (`mobile/App.tsx`).
+  - Menggunakan kamera depan (`ImagePicker.launchCameraAsync({ cameraType: 'front', quality: 0.5, base64: true })`) tanpa akses galeri foto guna mencegah kecurangan (*anti-spoofing*).
+  - Tampilan konfirmasi check-in/out kini menampilkan kotak pratinjau foto selfie dan opsi "Foto Ulang" jika foto dirasa kurang jelas. Tombol "Konfirmasi" hanya aktif setelah foto berhasil diambil.
+  - Foto dikirim dalam payload base64 (`photo_base64`) maupun multipart file (`photo`), disimpan backend secara aman di direktori publik `storage/app/public/attendance_photos/`.
+  - Path foto disimpan pada `attendance_events.photo_path`, dan diproyeksikan ke `attendance_records.check_in_photo_path` / `check_out_photo_path`.
+  - Backend API otomatis mengekspos accessor `check_in_photo_url` dan `check_out_photo_url`.
+
+- **Deteksi & Pencegahan Fake GPS (Mock Location):**
+  - Mendeteksi penggunaan aplikasi Fake GPS / Mock Location Provider di level sistem operasi pada mobile client via `position.mocked` dari `expo-location`.
+  - Jika mock location aktif pada perangkat pengguna, aplikasi mobile langsung memblokir aksi presensi dan memunculkan peringatan *"Aplikasi Fake GPS / lokasi tiruan terdeteksi. Matikan aplikasi pemalsu lokasi untuk melanjutkan presensi."*
+  - Payload lokasi menyertakan flag `is_mocked`. Backend (`RecordAttendance.php`) memvalidasi flag ini: jika `is_mocked = true`, event otomatis ditolak dengan status `REJECTED` dan alasan `FAKE_GPS_DETECTED` serta diaudit tanpa memproyeksikan sesi hadir.
+  - Pesan humanis penolakan alasan `FAKE_GPS_DETECTED`, `OUTSIDE_RADIUS`, `GPS_REQUIRED`, dan `GPS_ACCURACY_LOW` dipetakan di mobile app.
+
+- **Antarmuka Monitoring Web Admin (`#attendance`):**
+  - Menambahkan tombol badge kamera kompak (`.photo-badge-btn`) pada kolom jam masuk dan pulang di tabel monitoring kehadiran harian.
+  - Menampilkan jarak presensi dalam satuan meter (misal `12m`) di bawah jam hadir/pulang.
+  - Menampilkan badge merah peringatan `Fake GPS` bila event presensi karyawan tersebut terdeteksi menggunakan fake GPS.
+  - Menyediakan modal lightbox pratinjau foto (`#photo-preview-modal`) berlatar kontras dengan caption nama karyawan, sesi, dan jam absensi.
+
 ## Perubahan terbaru — Perbaikan Field Username / Kode Karyawan Non-Kapital pada Login
 
 - Memperbaiki field input **Username (Kode Karyawan)** pada aplikasi mobile (`mobile/App.tsx`) dan web admin (`server/resources/views/auth/login.blade.php`) agar keyboard virtual tidak otomatis mengaktifkan huruf kapital pada karakter pertama.

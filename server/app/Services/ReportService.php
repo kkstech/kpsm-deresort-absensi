@@ -439,6 +439,8 @@ class ReportService
                 'state_label' => $stateLabel,
                 'check_in_clock' => $checkInClock,
                 'check_out_clock' => $checkOutClock,
+                'check_in_photo_url' => $record?->check_in_photo_url,
+                'check_out_photo_url' => $record?->check_out_photo_url,
                 'is_late' => (bool) $record?->is_late,
                 'late_minutes' => (int) ($record?->raw_late_minutes ?? 0),
                 'late_permission_status' => $record?->latePermission?->status,

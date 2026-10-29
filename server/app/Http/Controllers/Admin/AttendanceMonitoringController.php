@@ -175,6 +175,8 @@ class AttendanceMonitoringController extends Controller
                 'check_in_at' => WorkTime::iso($record?->check_in_at),
                 'check_out_at' => WorkTime::iso($record?->check_out_at),
                 'provisional_out_at' => WorkTime::iso($record?->provisional_out_at),
+                'check_in_photo_url' => $record?->check_in_photo_url,
+                'check_out_photo_url' => $record?->check_out_photo_url,
                 'is_late' => (bool) $record?->is_late,
                 'late_permission_status' => $record?->latePermission?->status,
                 'needs_review' => $review,
@@ -184,6 +186,9 @@ class AttendanceMonitoringController extends Controller
                 'verified_minutes' => $record?->verified_minutes ?? 0,
                 'last_event_at' => WorkTime::iso($events->last()?->effective_at),
                 'last_event_source' => $events->last()?->source,
+                'has_mock_event' => $events->contains('is_mocked', true),
+                'check_in_distance' => $events->firstWhere('type', 'CHECK_IN')?->distance_meters,
+                'check_out_distance' => $events->firstWhere('type', 'CHECK_OUT')?->distance_meters,
             ],
         ];
     }

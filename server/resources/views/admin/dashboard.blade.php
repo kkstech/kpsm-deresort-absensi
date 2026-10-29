@@ -1546,6 +1546,23 @@
             </div>
         </form>
     </dialog>
+    <dialog class="app-dialog photo-preview-dialog" id="photo-preview-modal" aria-labelledby="photo-preview-title">
+        <div class="modal-heading">
+            <div><h2 id="photo-preview-title">Foto Presensi</h2></div>
+            <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog" onclick="document.getElementById('photo-preview-modal').close()">
+                <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+            </button>
+        </div>
+        <div class="modal-body" style="text-align: center;">
+            <div style="border-radius: 12px; overflow: hidden; background: #0c1c14; display: flex; justify-content: center; align-items: center; min-height: 260px; max-height: 460px; border: 1px solid var(--line);">
+                <img id="photo-preview-img" src="" alt="Foto Presensi" style="max-width: 100%; max-height: 440px; object-fit: contain;">
+            </div>
+            <p id="photo-preview-caption" style="margin: 12px 0 0; color: var(--muted); font-size: 13px; font-weight: 500;"></p>
+        </div>
+        <div class="modal-actions" style="justify-content: flex-end;">
+            <button type="button" class="secondary-button" onclick="document.getElementById('photo-preview-modal').close()">Tutup</button>
+        </div>
+    </dialog>
     <dialog class="app-dialog confirm-dialog" id="confirm-modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
         <form method="dialog">
             <div class="modal-heading"><div><h2 id="confirm-modal-title">Konfirmasi</h2></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>

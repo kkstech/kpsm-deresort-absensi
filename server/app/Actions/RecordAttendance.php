@@ -79,7 +79,10 @@ class RecordAttendance
             'latitude' => $keepLocation ? ($input['location']['latitude'] ?? null) : null,
             'longitude' => $keepLocation ? ($input['location']['longitude'] ?? null) : null,
             'accuracy_meters' => $keepLocation && isset($input['location']['accuracy_meters']) ? (int) round($input['location']['accuracy_meters']) : null,
-            'distance_meters' => $distance, 'local_seq' => $input['local_sequence'] ?? null,
+            'distance_meters' => $distance,
+            'photo_path' => $input['photo_path'] ?? null,
+            'is_mocked' => (bool) ($input['location']['is_mocked'] ?? false),
+            'local_seq' => $input['local_sequence'] ?? null,
             'result' => $result, 'reason_code' => $reason, 'created_at' => $now,
         ]);
         Audit::log('attendance.event_recorded', $event);
@@ -88,6 +91,7 @@ class RecordAttendance
             'SCHEDULE_CANCELLED', 'SCHEDULE_NOT_PUBLISHED', 'PERIOD_LOCKED', 'ALREADY_CHECKED_IN',
             'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'OFFLINE_CLOCK_FUTURE', 'OFFLINE_TOO_OLD',
             'SCHEDULE_CHANGED', 'OPEN_SESSION_EXISTS', 'PREVIOUS_PERIOD_LOCKED', 'AUTO_CHECKOUT_DUE',
+            'FAKE_GPS_DETECTED',
         ];
         if ($result !== 'REJECTED' && ! in_array($problem, $nonProjectable, true)) {
             $record = $this->project($session, $event, $record, $result === 'REVIEW_REQUIRED');
@@ -158,6 +162,10 @@ class RecordAttendance
     /** @return array{0:?int,1:?string} jarak meter dan kode masalah lokasi */
     private function checkLocation(ShiftSession $session, ?array $location): array
     {
+        if (! empty($location['is_mocked'])) {
+            return [null, 'FAKE_GPS_DETECTED'];
+        }
+
         $place = $session->policy_snapshot['location'] ?? null;
         if (! ($session->policy_snapshot['use_location_check'] ?? false)) {
             return [null, null];
@@ -195,19 +203,27 @@ class RecordAttendance
             $late = WorkTime::minutesBetween($session->start_at, $event->effective_at);
             $permission = LatePermission::query()->where('shift_session_id', $session->id)->where('status', 'APPROVED')
                 ->orderByDesc('id')->get()->first(fn (LatePermission $candidate) => $this->permissionCovers($session, $candidate, $event->effective_at));
-            $record->fill([
+            $fill = [
                 'check_in_event_id' => $event->id, 'check_in_at' => $event->effective_at, 'status' => 'IN_PROGRESS',
                 'raw_late_minutes' => $late, 'is_late' => $late > ($session->policy_snapshot['grace_minutes'] ?? 0),
                 'late_permission_id' => $permission?->id,
-            ]);
+            ];
+            if ($event->photo_path) {
+                $fill['check_in_photo_path'] = $event->photo_path;
+            }
+            $record->fill($fill);
         } else {
             $afterAuto = $record->provisional_out_at !== null;
             $needsReview = $needsReview || $afterAuto;
-            $record->fill([
+            $fill = [
                 'check_out_event_id' => $event->id, 'check_out_at' => $event->effective_at,
                 'status' => $afterAuto ? 'PROVISIONAL' : 'COMPLETE',
                 'verified_minutes' => $needsReview ? 0 : AttendanceRecord::paidMinutes($session, $record->check_in_at, $event->effective_at),
-            ]);
+            ];
+            if ($event->photo_path) {
+                $fill['check_out_photo_path'] = $event->photo_path;
+            }
+            $record->fill($fill);
             if ($afterAuto) {
                 $record->review_reason = 'CHECKOUT_AFTER_AUTO';
             }

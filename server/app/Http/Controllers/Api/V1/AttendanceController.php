@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceEvent;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
+use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
 use App\Models\SyncBatch;
 use App\Support\WorkTime;
@@ -15,7 +16,9 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class AttendanceController extends Controller
 {
@@ -42,9 +45,16 @@ class AttendanceController extends Controller
 
     public function storeEvent(Request $request, RecordAttendance $attendance): JsonResponse
     {
-        $input = $this->eventInput($request->all());
+        $input = $this->eventInput($request);
+        $employee = $this->employee($request);
+
+        $photoPath = $this->extractAndStorePhoto($request, $employee, $input);
+        if ($photoPath) {
+            $input['photo_path'] = $photoPath;
+        }
+
         $device = $this->device($request, $input['device_id']);
-        $result = $attendance->handle($this->employee($request), $input, $device->id);
+        $result = $attendance->handle($employee, $input, $device->id);
 
         return response()->json(['data' => $result['data']], $result['http']);
     }
@@ -121,6 +131,12 @@ class AttendanceController extends Controller
 
             try {
                 $input = $validator->validated();
+                if (! empty($input['photo_base64'])) {
+                    $photoPath = $this->storeBase64Photo($employee, $input['photo_base64']);
+                    if ($photoPath) {
+                        $input['photo_path'] = $photoPath;
+                    }
+                }
                 $this->device($request, $input['device_id']);
                 $results[] = $attendance->handle($employee, $input, $device->id, $batch->id)['data'];
             } catch (BusinessRuleException $exception) {
@@ -169,16 +185,67 @@ class AttendanceController extends Controller
             'captured_offline' => ['sometimes', 'boolean'],
             'device_at' => ['nullable', 'required_if:captured_offline,true', 'date'],
             'local_sequence' => ['nullable', 'integer', 'min:0'],
-            'location' => ['nullable', 'array:latitude,longitude,accuracy_meters'],
+            'location' => ['nullable', 'array:latitude,longitude,accuracy_meters,is_mocked'],
             'location.latitude' => ['required_with:location', 'numeric', 'between:-90,90'],
             'location.longitude' => ['required_with:location', 'numeric', 'between:-180,180'],
             'location.accuracy_meters' => ['nullable', 'numeric', 'min:0', 'max:100000'],
+            'location.is_mocked' => ['nullable', 'boolean'],
+            'photo' => ['nullable', 'file', 'image', 'max:5120'],
+            'photo_base64' => ['nullable', 'string'],
         ];
     }
 
-    private function eventInput(array $input): array
+    private function eventInput(Request $request): array
     {
-        return Validator::make($input, $this->eventRules())->validate();
+        $all = $request->all();
+        if (isset($all['location']) && is_string($all['location'])) {
+            $decoded = json_decode($all['location'], true);
+            if (is_array($decoded)) {
+                $all['location'] = $decoded;
+            }
+        }
+        if (isset($all['captured_offline']) && is_string($all['captured_offline'])) {
+            $all['captured_offline'] = filter_var($all['captured_offline'], FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return Validator::make($all, $this->eventRules())->validate();
+    }
+
+    private function extractAndStorePhoto(Request $request, Employee $employee, array $input): ?string
+    {
+        if ($request->hasFile('photo')) {
+            $photo = $request->file('photo');
+            if ($photo->isValid()) {
+                $ext = $photo->getClientOriginalExtension() ?: 'jpg';
+                $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.'.$ext;
+
+                return $photo->storeAs('attendance_photos', $filename, 'public');
+            }
+        }
+
+        if (! empty($input['photo_base64'])) {
+            return $this->storeBase64Photo($employee, $input['photo_base64']);
+        }
+
+        return null;
+    }
+
+    private function storeBase64Photo(Employee $employee, string $rawBase64): ?string
+    {
+        $base64 = $rawBase64;
+        if (str_contains($base64, ';base64,')) {
+            $base64 = explode(';base64,', $base64)[1];
+        }
+        $binary = base64_decode($base64, true);
+        if ($binary === false) {
+            return null;
+        }
+
+        $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.jpg';
+        $photoPath = 'attendance_photos/'.$filename;
+        Storage::disk('public')->put($photoPath, $binary);
+
+        return $photoPath;
     }
 
     private function range(Request $request): array
@@ -217,7 +284,7 @@ class AttendanceController extends Controller
     private function assignmentData(ShiftAssignment $assignment, bool $includeEvents = false): array
     {
         $data = $assignment->toApi();
-        $overtimes = \App\Models\OvertimeOrder::query()
+        $overtimes = OvertimeOrder::query()
             ->where('employee_id', $assignment->employee_id)
             ->where('work_date', $assignment->work_date)
             ->where('status', 'APPROVED')

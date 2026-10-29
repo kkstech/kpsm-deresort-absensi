@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Models\WorkLocation;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -436,6 +437,62 @@ class AttendanceTest extends TestCase
         ]))->assertForbidden()->assertJsonPath('code', 'DEVICE_MISMATCH');
 
         $this->assertDatabaseCount('attendance_events', 0);
+    }
+
+    public function test_attendance_event_rejects_fake_gps(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $this->event('55555555-5555-4555-8555-555555555555', [
+                'location' => [
+                    'latitude' => -6.2,
+                    'longitude' => 106.8,
+                    'accuracy_meters' => 10,
+                    'is_mocked' => true,
+                ],
+            ]));
+
+        $response->assertCreated()
+            ->assertJsonPath('data.status', 'REJECTED')
+            ->assertJsonPath('data.reason_code', 'FAKE_GPS_DETECTED');
+
+        $this->assertDatabaseHas('attendance_events', [
+            'event_uuid' => '55555555-5555-4555-8555-555555555555',
+            'result' => 'REJECTED',
+            'reason_code' => 'FAKE_GPS_DETECTED',
+            'is_mocked' => true,
+        ]);
+
+        // Record should not be marked as checked in
+        $this->assertDatabaseMissing('attendance_records', [
+            'shift_session_id' => $this->sessionId,
+            'state' => 'COMPLETE',
+        ]);
+    }
+
+    public function test_attendance_event_with_photo_saves_path_and_projects(): void
+    {
+        Storage::fake('public');
+        $this->travelTo('2026-10-25 01:10:00');
+
+        // Tiny valid 1x1 PNG as base64 data URI
+        $base64Png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        $response = $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $this->event('66666666-6666-4666-8666-666666666666', [
+                'photo_base64' => $base64Png,
+            ]));
+
+        $response->assertCreated()->assertJsonPath('data.status', 'ACCEPTED');
+
+        $event = AttendanceEvent::query()->where('event_uuid', '66666666-6666-4666-8666-666666666666')->firstOrFail();
+        $this->assertNotNull($event->photo_path);
+        Storage::disk('public')->assertExists($event->photo_path);
+
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $this->assertSame($event->photo_path, $record->check_in_photo_path);
+        $this->assertNotNull($record->toApi()['check_in_photo_url']);
     }
 
     private function event(string $uuid, array $overrides = []): array
