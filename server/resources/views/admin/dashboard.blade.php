@@ -208,10 +208,6 @@
                             <small class="metric-subtext">Berdasarkan check-in valid</small>
                         </div>
                     </section>
-                            </div>
-                            <small class="metric-subtext">Berdasarkan check-in valid</small>
-                        </div>
-                    </section>
 
                     <!-- Bilah Distribusi Status Kehadiran -->
                     <section class="dashboard-breakdown-card panel">
