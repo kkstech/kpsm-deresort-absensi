@@ -11,17 +11,20 @@ use App\Models\Employee;
 use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
 use App\Models\SyncBatch;
+use App\Services\AttendancePhotoService;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 
 class AttendanceController extends Controller
 {
+    public function __construct(
+        private readonly AttendancePhotoService $photoService
+    ) {}
+
     public function schedule(Request $request): JsonResponse
     {
         $range = $this->range($request);
@@ -48,9 +51,12 @@ class AttendanceController extends Controller
         $input = $this->eventInput($request);
         $employee = $this->employee($request);
 
-        $photoPath = $this->extractAndStorePhoto($request, $employee, $input);
-        if ($photoPath) {
-            $input['photo_path'] = $photoPath;
+        $photo = $request->file('photo') ?? ($input['photo_base64'] ?? null);
+        if ($photo) {
+            $photoPath = $this->photoService->processAndStore($employee, $photo);
+            if ($photoPath) {
+                $input['photo_path'] = $photoPath;
+            }
         }
 
         $device = $this->device($request, $input['device_id']);
@@ -132,7 +138,7 @@ class AttendanceController extends Controller
             try {
                 $input = $validator->validated();
                 if (! empty($input['photo_base64'])) {
-                    $photoPath = $this->storeBase64Photo($employee, $input['photo_base64']);
+                    $photoPath = $this->photoService->processAndStore($employee, $input['photo_base64']);
                     if ($photoPath) {
                         $input['photo_path'] = $photoPath;
                     }
@@ -209,43 +215,6 @@ class AttendanceController extends Controller
         }
 
         return Validator::make($all, $this->eventRules())->validate();
-    }
-
-    private function extractAndStorePhoto(Request $request, Employee $employee, array $input): ?string
-    {
-        if ($request->hasFile('photo')) {
-            $photo = $request->file('photo');
-            if ($photo->isValid()) {
-                $ext = $photo->getClientOriginalExtension() ?: 'jpg';
-                $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.'.$ext;
-
-                return $photo->storeAs('attendance_photos', $filename, 'public');
-            }
-        }
-
-        if (! empty($input['photo_base64'])) {
-            return $this->storeBase64Photo($employee, $input['photo_base64']);
-        }
-
-        return null;
-    }
-
-    private function storeBase64Photo(Employee $employee, string $rawBase64): ?string
-    {
-        $base64 = $rawBase64;
-        if (str_contains($base64, ';base64,')) {
-            $base64 = explode(';base64,', $base64)[1];
-        }
-        $binary = base64_decode($base64, true);
-        if ($binary === false) {
-            return null;
-        }
-
-        $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.jpg';
-        $photoPath = 'attendance_photos/'.$filename;
-        Storage::disk('public')->put($photoPath, $binary);
-
-        return $photoPath;
     }
 
     private function range(Request $request): array

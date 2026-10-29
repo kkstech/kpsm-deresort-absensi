@@ -6,6 +6,7 @@ import {
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { File as ExpoFile, readAsStringAsync, EncodingType } from 'expo-file-system';
 import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
@@ -1226,13 +1227,17 @@ function Main() {
         cameraType: ImagePicker.CameraType.front,
         allowsEditing: false,
         aspect: [1, 1],
-        quality: 0.5,
-        base64: true,
+        quality: 0.7,
       });
       if (!result.canceled && result.assets && result.assets[0]) {
+        const manipResult = await ImageManipulator.manipulateAsync(
+          result.assets[0].uri,
+          [{ resize: { width: 640 } }],
+          { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
         setAttendancePhoto({
-          uri: result.assets[0].uri,
-          base64: result.assets[0].base64 ?? undefined,
+          uri: manipResult.uri,
+          base64: manipResult.base64 ?? undefined,
         });
       }
     } catch (e) {

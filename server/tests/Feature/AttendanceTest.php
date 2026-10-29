@@ -488,6 +488,7 @@ class AttendanceTest extends TestCase
 
         $event = AttendanceEvent::query()->where('event_uuid', '66666666-6666-4666-8666-666666666666')->firstOrFail();
         $this->assertNotNull($event->photo_path);
+        $this->assertStringEndsWith('.webp', $event->photo_path);
         Storage::disk('public')->assertExists($event->photo_path);
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();

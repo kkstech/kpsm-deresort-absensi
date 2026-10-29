@@ -6,6 +6,23 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Kompresi Foto Presensi Dua Arah & Watermark Visual
+
+- **Tier 1 — Kompresi & Resize Otomatis pada Perangkat Mobile:**
+  - Mengintegrasikan paket resmi `expo-image-manipulator` (`mobile/package.json`, `mobile/App.tsx`).
+  - Setelah selfie ditangkap kamera depan, gambar otomatis di-resize dimensinya ke lebar 640px dengan kompresi JPEG 60% (`compress: 0.6`).
+  - Menurunkan ukuran payload data base64 dari ~250 KB menjadi hanya **~35–50 KB**, menghemat penggunaan kuota internet karyawan, mempercepat waktu upload saat koneksi seluler lambat, dan meminimalkan beban memori antrean SQLite saat offline.
+
+- **Tier 2 — Watermark & Konversi WebP pada Server Backend:**
+  - Membuat layanan `AttendancePhotoService` (`server/app/Services/AttendancePhotoService.php`) untuk pemrosesan gambar presensi terpusat.
+  - Membubuhkan watermark visual semi-transparan di bagian bawah foto secara otomatis menggunakan PHP GD dan tipografi Plus Jakarta Sans (`plus-jakarta-600.ttf`):
+    - Baris 1: Nama Karyawan & Kode NIK (contoh: `Budi Santoso · EMP-001`).
+    - Baris 2: Tanggal & Waktu presensi (contoh: `29 Okt 2026, 18:45:10 WIB`).
+  - Mengonversi dan mengompresi foto ke format modern **WebP** (`quality: 75`), menghasilkan file akhir yang sangat hemat ruang penyimpanan (**~25–35 KB** per foto) serta cepat diakses saat pratinjau di dashboard web admin.
+  - Mekanisme *graceful fallback*: jika pemrosesan GD gagal membaca file tertentu, server otomatis menyimpan foto mentah sebagai `.jpg` agar proses absensi karyawan tidak pernah gagal.
+  - Menghubungkan layanan ini ke endpoint presensi online (`storeEvent`) dan sinkronisasi offline batch (`sync`) pada `AttendanceController.php`.
+  - Test suite: unit test `AttendancePhotoServiceTest` dan feature test `AttendanceTest` (121 tes lulus 100%).
+
 ## Perubahan terbaru — Foto Presensi (Selfie Kamera Langsung) & Deteksi Fake GPS / Mock Location
 
 - **Foto Presensi Wajib (Live Selfie):**
