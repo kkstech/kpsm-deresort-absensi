@@ -6,6 +6,16 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Perapihan UI Halaman Laporan (UI/UX Pro Max & Anti-Slop)
+
+- Merapikan seluruh komponen visual halaman **Laporan & Rekapitulasi** (`#reports`) agar konsisten dengan tema resort dan bebas dari inline style / AI slop.
+- Mengadopsi sistem kartu metrik standar `.metric-card` dengan styling `metric-highlight`, `metric-badge`, dan tipografi angka tabular (`tabular-nums`).
+- Menyempurnakan filter panel dengan bar status periode resmi, preset cepat rapi, dan tombol aksi filter yang terintegrasi.
+- Menambahkan avatar dan inisial foto karyawan pada tabel ringkasan, detail kehadiran sesi, dan rekap lembur.
+- Menggunakan pill status standar (`.status.success`, `.status.warning`, `.status.danger`, `.status.blue`, `.status.neutral`) pada seluruh status sesi dan persetujuan lembur.
+- Menambahkan empty state dan loading indicator elegan dengan ikon SVG dan pesan kontekstual.
+- Menjamin kepatuhan aksesibilitas kontras WCAG AA, navigasi keyboard dengan `role="tab"` / `aria-selected`, dan responsivitas mobile penuh tanpa horizontal blowout.
+
 ## Perubahan terbaru — Penataan Grid 2x2 Tombol Aksi Jadwal & Shift
 
 - Memperbaiki tata letak 4 tombol aksi pada menu **Jadwal & Shift** (`#schedule`) dari vertikal 1 kolom menjadi rapi 2 kolom x 2 baris (Baris 1: *Buat Jadwal* & *Penugasan Massal*, Baris 2: *Terbitkan Draft* & *Salin Minggu Depan*).

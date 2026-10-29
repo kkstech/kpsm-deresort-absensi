@@ -591,115 +591,128 @@
                             <h1>Laporan &amp; Rekapitulasi</h1>
                             <span>Rekapitulasi kehadiran, jam kerja reguler, keterlambatan, lembur, dan tunjangan per periode.</span>
                         </div>
-                        <div class="heading-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
-                            <button type="button" class="secondary-button" id="btn-export-excel" style="display: inline-flex; align-items: center; gap: 6px;">
-                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-download"/></svg>
+                        <div class="heading-actions report-heading-actions">
+                            <button type="button" class="secondary-button" id="btn-export-excel">
+                                <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
                                 <span>Unduh Excel (.xlsx)</span>
                             </button>
-                            <button type="button" class="primary-button" id="btn-export-pdf" style="display: inline-flex; align-items: center; gap: 6px;">
-                                <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><use href="#i-file-text"/></svg>
+                            <button type="button" class="primary-button" id="btn-export-pdf">
+                                <svg class="icon" aria-hidden="true"><use href="#i-file-text"/></svg>
                                 <span>Unduh PDF (.pdf)</span>
                             </button>
                         </div>
                     </div>
 
                     <!-- Filter Card -->
-                    <div class="report-filter-card panel" style="padding: 16px 20px; margin-bottom: 20px;">
+                    <div class="report-filter-panel panel">
                         <form id="report-filters" class="report-filter-form">
-                            <div class="report-presets-bar" style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;">
-                                <span class="allowance-preset-label" style="font-size: 13px; font-weight: 600; color: var(--text-muted, #64748b);">Periode Cepat:</span>
-                                <div class="monitoring-preset-chips" id="report-preset-chips">
-                                    <button type="button" class="preset-chip" data-report-preset="today">Hari Ini</button>
-                                    <button type="button" class="preset-chip" data-report-preset="7d">7 Hari Terakhir</button>
-                                    <button type="button" class="preset-chip active" data-report-preset="month">Bulan Ini</button>
-                                    <button type="button" class="preset-chip" data-report-preset="last-month">Bulan Lalu</button>
+                            <div class="report-filter-top">
+                                <div class="report-presets-group">
+                                    <span class="report-filter-label">Periode Cepat:</span>
+                                    <div class="report-preset-chips" id="report-preset-chips">
+                                        <button type="button" class="preset-chip" data-report-preset="today">Hari Ini</button>
+                                        <button type="button" class="preset-chip" data-report-preset="7d">7 Hari Terakhir</button>
+                                        <button type="button" class="preset-chip active" data-report-preset="month">Bulan Ini</button>
+                                        <button type="button" class="preset-chip" data-report-preset="last-month">Bulan Lalu</button>
+                                    </div>
+                                </div>
+                                <div class="report-status-wrap">
+                                    <span class="report-status-badge" id="report-status-badge">Memeriksa...</span>
+                                    <span class="report-meta-text" id="report-meta-generated"></span>
                                 </div>
                             </div>
-                            <div class="monitoring-inputs-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: end;">
-                                <label>
+                            <div class="report-filter-fields">
+                                <label class="report-field">
                                     <span>Dari Tanggal</span>
                                     <input type="date" name="from" id="report-from" required>
                                 </label>
-                                <label>
+                                <label class="report-field">
                                     <span>Sampai Tanggal</span>
                                     <input type="date" name="to" id="report-to" required>
                                 </label>
-                                <label>
+                                <label class="report-field">
                                     <span>Departemen</span>
                                     <select name="department_id" id="report-dept">
                                         <option value="">Semua departemen</option>
                                     </select>
                                 </label>
-                                <label>
+                                <label class="report-field">
                                     <span>Karyawan</span>
                                     <select name="employee_id" id="report-employee">
                                         <option value="">Semua karyawan</option>
                                     </select>
                                 </label>
-                                <label>
+                                <label class="report-field report-field-search">
                                     <span>Cari Nama / NIK</span>
                                     <input type="search" name="q" id="report-search" placeholder="Ketik nama atau kode...">
                                 </label>
-                                <div style="display: flex; gap: 8px;">
-                                    <button type="submit" class="primary-button" style="height: 38px;">Terapkan</button>
-                                    <button type="button" class="secondary-button" id="report-reset-btn" style="height: 38px;">Reset</button>
+                                <div class="report-filter-actions">
+                                    <button type="submit" class="primary-button">Terapkan</button>
+                                    <button type="button" class="secondary-button" id="report-reset-btn">Reset</button>
                                 </div>
                             </div>
                         </form>
                     </div>
 
-                    <!-- Period Status & KPI Cards -->
-                    <div class="report-status-bar" id="report-status-bar" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 13px; font-weight: 500; color: var(--text-muted, #64748b);">Status Periode:</span>
-                            <span class="report-status-badge" id="report-status-badge">Memeriksa...</span>
+                    <!-- KPI Cards -->
+                    <div class="metric-grid report-metric-grid" id="report-kpi-grid">
+                        <div class="metric-card">
+                            <span>Total Karyawan</span>
+                            <strong id="kpi-total-employees">0</strong>
+                            <small>Karyawan dalam laporan</small>
                         </div>
-                        <div style="font-size: 12px; color: var(--text-muted, #64748b);" id="report-meta-generated"></div>
-                    </div>
-
-                    <div class="kpi-grid report-kpi-grid" id="report-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px;">
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Total Karyawan</span>
-                            <strong class="kpi-value" id="kpi-total-employees">0</strong>
-                            <span class="kpi-hint">Terdaftar di laporan</span>
+                        <div class="metric-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Hari Hadir</span>
+                                <span class="metric-badge success" id="kpi-attendance-rate">0% hadir</span>
+                            </div>
+                            <strong id="kpi-total-attended-days">0</strong>
+                            <small>Akumulasi hari kerja</small>
                         </div>
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Total Hari Hadir</span>
-                            <strong class="kpi-value" id="kpi-total-attended-days">0</strong>
-                            <span class="kpi-hint" id="kpi-attendance-rate">Tingkat kehadiran: 0%</span>
+                        <div class="metric-card accent">
+                            <span>Jam Reguler Valid</span>
+                            <strong id="kpi-total-verified-hours">0j 0m</strong>
+                            <small>Total durasi kerja diakui</small>
                         </div>
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Jam Reguler Valid</span>
-                            <strong class="kpi-value" id="kpi-total-verified-hours">0j 0m</strong>
-                            <span class="kpi-hint">Tervalidasi &amp; diakui</span>
+                        <div class="metric-card">
+                            <span>Lembur Diakui</span>
+                            <strong id="kpi-total-overtime-hours">0j 0m</strong>
+                            <small>Dari SPL disetujui</small>
                         </div>
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Jam Lembur Diakui</span>
-                            <strong class="kpi-value" id="kpi-total-overtime-hours">0j 0m</strong>
-                            <span class="kpi-hint">Dari SPL disetujui</span>
+                        <div class="metric-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Keterlambatan</span>
+                                <span class="metric-badge warning" id="kpi-total-late-count">0x</span>
+                            </div>
+                            <strong id="kpi-total-late-minutes">0 m</strong>
+                            <small>Total menit keterlambatan</small>
                         </div>
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Keterlambatan</span>
-                            <strong class="kpi-value" id="kpi-total-late-count">0x</strong>
-                            <span class="kpi-hint" id="kpi-total-late-minutes">Total: 0 menit</span>
-                        </div>
-                        <div class="kpi-card panel">
-                            <span class="kpi-title">Total Tunjangan</span>
-                            <strong class="kpi-value" id="kpi-total-allowance">Rp 0</strong>
-                            <span class="kpi-hint" id="kpi-allowance-split">Makan: Rp 0 | Trs: Rp 0</span>
+                        <div class="metric-card">
+                            <span>Total Tunjangan</span>
+                            <strong class="metric-highlight" id="kpi-total-allowance">Rp 0</strong>
+                            <small id="kpi-allowance-split">Makan: Rp 0 · Trs: Rp 0</small>
                         </div>
                     </div>
 
                     <!-- Navigation Tabs -->
-                    <div class="report-tabs-bar" style="display: flex; gap: 8px; border-bottom: 1px solid var(--border, #e2e8f0); margin-bottom: 16px;">
-                        <button type="button" class="tab-button active" data-report-tab="summary">Rekapitulasi Karyawan</button>
-                        <button type="button" class="tab-button" data-report-tab="details">Detail Kehadiran Sesi</button>
-                        <button type="button" class="tab-button" data-report-tab="overtime">Rekap Lembur</button>
+                    <div class="report-tabs-bar" role="tablist">
+                        <button type="button" class="tab-button active" data-report-tab="summary" role="tab" aria-selected="true">
+                            <svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>
+                            <span>Rekapitulasi Karyawan</span>
+                        </button>
+                        <button type="button" class="tab-button" data-report-tab="details" role="tab" aria-selected="false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+                            <span>Detail Kehadiran Sesi</span>
+                        </button>
+                        <button type="button" class="tab-button" data-report-tab="overtime" role="tab" aria-selected="false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+                            <span>Rekap Lembur</span>
+                        </button>
                     </div>
 
                     <!-- Tab 1: Summary Table -->
                     <div class="report-tab-panel active" id="tab-panel-summary">
-                        <div class="table-card panel" style="overflow-x: auto;">
+                        <div class="panel table-card report-table-scroll">
                             <table class="data-table" id="report-summary-table">
                                 <thead>
                                     <tr>
@@ -724,7 +737,7 @@
 
                     <!-- Tab 2: Details Table -->
                     <div class="report-tab-panel" id="tab-panel-details" hidden>
-                        <div class="table-card panel" style="overflow-x: auto;">
+                        <div class="panel table-card report-table-scroll">
                             <table class="data-table" id="report-details-table">
                                 <thead>
                                     <tr>
@@ -746,9 +759,9 @@
                                 </tbody>
                             </table>
                         </div>
-                        <div class="pagination-bar" id="report-details-pagination" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 4px;" hidden>
-                            <span class="pagination-info" id="report-details-pagination-info" style="font-size: 13px; color: var(--text-muted);"></span>
-                            <div class="pagination-buttons" style="display: flex; gap: 8px;">
+                        <div class="table-pagination" id="report-details-pagination" hidden>
+                            <span id="report-details-pagination-info"></span>
+                            <div style="display: flex; gap: 8px;">
                                 <button type="button" class="secondary-button" id="report-details-prev-btn" disabled>Sebelumnya</button>
                                 <button type="button" class="secondary-button" id="report-details-next-btn" disabled>Selanjutnya</button>
                             </div>
@@ -757,7 +770,7 @@
 
                     <!-- Tab 3: Overtime Table -->
                     <div class="report-tab-panel" id="tab-panel-overtime" hidden>
-                        <div class="table-card panel" style="overflow-x: auto;">
+                        <div class="panel table-card report-table-scroll">
                             <table class="data-table" id="report-overtime-table">
                                 <thead>
                                     <tr>

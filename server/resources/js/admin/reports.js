@@ -48,6 +48,72 @@ function getPastDays(days) {
     };
 }
 
+function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    try {
+        const d = new Date(`${dateStr}T00:00:00+07:00`);
+        return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+    } catch {
+        return dateStr;
+    }
+}
+
+function getAvatarHtml(name, avatarUrl) {
+    const initial = (name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+    return avatarUrl
+        ? `<img src="${esc(avatarUrl)}" alt="${esc(name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;">`
+        : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;">${esc(initial)}</span>`;
+}
+
+function getStatusBadge(state) {
+    const map = {
+        COMPLETE: { label: 'Hadir Lengkap', cls: 'success' },
+        PRESENT_LATE_PERMITTED: { label: 'Terlambat Berizin', cls: 'success' },
+        PRESENT_LATE: { label: 'Terlambat', cls: 'warning' },
+        IN_PROGRESS: { label: 'Sedang Berjalan', cls: 'blue' },
+        NEEDS_REVIEW: { label: 'Butuh Review', cls: 'danger' },
+        SCHEDULED: { label: 'Terjadwal', cls: 'neutral' },
+        NOT_CHECKED_IN: { label: 'Belum Masuk', cls: 'neutral' },
+        ABSENT: { label: 'Tidak Hadir', cls: 'danger' },
+    };
+    const s = map[state] || { label: state, cls: 'neutral' };
+    return `<span class="status ${s.cls}">${esc(s.label)}</span>`;
+}
+
+function getOvertimeBadge(status) {
+    const map = {
+        APPROVED: { label: 'Disetujui', cls: 'success' },
+        REJECTED: { label: 'Ditolak', cls: 'danger' },
+        PENDING_APPROVAL: { label: 'Menunggu Persetujuan', cls: 'warning' },
+        CANCELLED: { label: 'Dibatalkan', cls: 'neutral' },
+    };
+    const s = map[status] || { label: status, cls: 'neutral' };
+    return `<span class="status ${s.cls}">${esc(s.label)}</span>`;
+}
+
+function getEmptyStateHtml(colspan, message, submessage = 'Coba ubah rentang tanggal atau filter yang dipilih.') {
+    return `<tr>
+        <td colspan="${colspan}" style="text-align: center; padding: 48px 16px;">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;">
+                <svg class="icon" style="width: 38px; height: 38px; color: var(--muted); opacity: 0.6;"><use href="#i-inbox"/></svg>
+                <strong style="color: var(--ink); font-size: 15px;">${esc(message)}</strong>
+                <span style="color: var(--muted); font-size: 13px;">${esc(submessage)}</span>
+            </div>
+        </td>
+    </tr>`;
+}
+
+function getLoadingStateHtml(colspan, message = 'Memuat data laporan...') {
+    return `<tr>
+        <td colspan="${colspan}" style="text-align: center; padding: 40px 16px;">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 14px; font-weight: 500;">
+                <svg class="icon" style="width: 20px; height: 20px; animation: spin 1s linear infinite;"><use href="#i-clock"/></svg>
+                <span>${esc(message)}</span>
+            </div>
+        </td>
+    </tr>`;
+}
+
 export async function showReports() {
     if (!initialized) {
         initReportsUi();
@@ -154,7 +220,11 @@ function initReportsUi() {
             if (activeTab === target) return;
 
             activeTab = target;
-            $$('[data-report-tab]').forEach((b) => b.classList.toggle('active', b === tabBtn));
+            $$('[data-report-tab]').forEach((b) => {
+                const isCurrent = b === tabBtn;
+                b.classList.toggle('active', isCurrent);
+                b.setAttribute('aria-selected', String(isCurrent));
+            });
 
             $('#tab-panel-summary').hidden = activeTab !== 'summary';
             $('#tab-panel-details').hidden = activeTab !== 'details';
@@ -237,7 +307,7 @@ function filterEmployeeDropdown() {
 
     let html = '<option value="">Semua karyawan</option>';
     list.forEach((e) => {
-        html += `<option value="${e.id}">${esc(e.code)} - ${esc(e.name)}</option>`;
+        html += `<option value="${e.id}">${esc(e.code)} · ${esc(e.name)}</option>`;
     });
     empSelect.innerHTML = html;
     if (currentVal && list.some((e) => String(e.id) === String(currentVal))) {
@@ -260,7 +330,7 @@ async function loadCurrentTab() {
 async function loadSummaryTab() {
     const tbody = $('#report-summary-tbody');
     if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekapitulasi kehadiran...</td></tr>';
+        tbody.innerHTML = getLoadingStateHtml(10, 'Memuat rekapitulasi kehadiran...');
     }
 
     try {
@@ -277,7 +347,7 @@ async function loadSummaryTab() {
         renderSummaryTable(data.rows, data.kpi);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 24px; color: var(--danger, #dc2626);">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         toast('Gagal memuat rekapitulasi: ' + e.message);
     }
@@ -290,14 +360,14 @@ function renderPeriodStatus(status, generatedAt) {
     if (badge) {
         if (status === 'FINALIZED') {
             badge.className = 'report-status-badge final';
-            badge.textContent = 'REKAP RESMI (FINAL)';
+            badge.textContent = 'Rekap Resmi (Final)';
         } else {
             badge.className = 'report-status-badge provisional';
-            badge.textContent = 'DRAFT (PROVISIONAL)';
+            badge.textContent = 'Draft (Provisional)';
         }
     }
     if (metaGen && generatedAt) {
-        metaGen.textContent = `Waktu penarikan: ${generatedAt}`;
+        metaGen.textContent = `Penarikan: ${generatedAt}`;
     }
 }
 
@@ -305,15 +375,32 @@ function renderKpi(kpi) {
     if (!kpi) return;
     const formatRp = (num) => 'Rp ' + Number(num || 0).toLocaleString('id-ID');
 
-    $('#kpi-total-employees').textContent = Number(kpi.total_employees || 0).toLocaleString('id-ID');
-    $('#kpi-total-attended-days').textContent = Number(kpi.total_attended_days || 0).toLocaleString('id-ID');
-    $('#kpi-attendance-rate').textContent = `Tingkat kehadiran: ${kpi.attendance_rate || 0}%`;
-    $('#kpi-total-verified-hours').textContent = kpi.total_verified_hours_formatted || '0j 0m';
-    $('#kpi-total-overtime-hours').textContent = kpi.total_overtime_hours_formatted || '0j 0m';
-    $('#kpi-total-late-count').textContent = `${Number(kpi.total_late_count || 0)}x`;
-    $('#kpi-total-late-minutes').textContent = `Total: ${Number(kpi.total_late_minutes || 0).toLocaleString('id-ID')} menit`;
-    $('#kpi-total-allowance').textContent = formatRp(kpi.total_allowance_amount);
-    $('#kpi-allowance-split').textContent = `Makan: ${formatRp(kpi.total_meal_allowance)} | Trs: ${formatRp(kpi.total_transport_allowance)}`;
+    const totalEmpEl = $('#kpi-total-employees');
+    if (totalEmpEl) totalEmpEl.textContent = Number(kpi.total_employees || 0).toLocaleString('id-ID');
+
+    const attendedDaysEl = $('#kpi-total-attended-days');
+    if (attendedDaysEl) attendedDaysEl.textContent = Number(kpi.total_attended_days || 0).toLocaleString('id-ID');
+
+    const rateEl = $('#kpi-attendance-rate');
+    if (rateEl) rateEl.textContent = `${kpi.attendance_rate || 0}% hadir`;
+
+    const verifiedEl = $('#kpi-total-verified-hours');
+    if (verifiedEl) verifiedEl.textContent = kpi.total_verified_hours_formatted || '0j 0m';
+
+    const otEl = $('#kpi-total-overtime-hours');
+    if (otEl) otEl.textContent = kpi.total_overtime_hours_formatted || '0j 0m';
+
+    const lateCountEl = $('#kpi-total-late-count');
+    if (lateCountEl) lateCountEl.textContent = `${Number(kpi.total_late_count || 0)}x`;
+
+    const lateMinEl = $('#kpi-total-late-minutes');
+    if (lateMinEl) lateMinEl.textContent = `${Number(kpi.total_late_minutes || 0).toLocaleString('id-ID')} m`;
+
+    const allowanceEl = $('#kpi-total-allowance');
+    if (allowanceEl) allowanceEl.textContent = formatRp(kpi.total_allowance_amount);
+
+    const splitEl = $('#kpi-allowance-split');
+    if (splitEl) splitEl.textContent = `Makan: ${formatRp(kpi.total_meal_allowance)} · Trs: ${formatRp(kpi.total_transport_allowance)}`;
 }
 
 function renderSummaryTable(rows, kpi) {
@@ -321,7 +408,7 @@ function renderSummaryTable(rows, kpi) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 32px; color: var(--text-muted);">Tidak ada data karyawan untuk periode dan filter ini.</td></tr>';
+        tbody.innerHTML = getEmptyStateHtml(10, 'Tidak ada data rekapitulasi kehadiran.');
         return;
     }
 
@@ -330,54 +417,75 @@ function renderSummaryTable(rows, kpi) {
     let html = '';
     rows.forEach((r) => {
         const emp = r.employee;
+        const avatar = getAvatarHtml(emp.name, emp.avatar_url);
         const lateHtml = r.late_count > 0
-            ? `<span style="color: var(--warning, #b45309); font-weight: 600;">${r.late_count}x</span> <span style="font-size: 11px; color: var(--text-muted);">(${r.late_minutes}m)</span>`
-            : '<span style="color: var(--success, #15803d);">-</span>';
+            ? `<span class="status warning" style="min-height:22px;padding:2px 8px;font-size:11.5px;">${r.late_count}x (${r.late_minutes}m)</span>`
+            : '<span style="color: var(--muted);">—</span>';
+
+        const otHtml = r.overtime_minutes > 0
+            ? `<span class="status success" style="min-height:22px;padding:2px 8px;font-size:11.5px;">+${esc(r.overtime_hours_formatted)}</span>`
+            : '<span style="color: var(--muted);">—</span>';
+
+        const leaveHtml = r.leave_days > 0
+            ? `<span style="font-weight: 600;">${r.leave_days} h</span>`
+            : '<span style="color: var(--muted);">—</span>';
+
+        const reviewHtml = r.review_count > 0
+            ? `<span class="status danger" style="min-height:22px;padding:2px 8px;font-size:11.5px;">${r.review_count}</span>`
+            : '<span style="color: var(--muted);">—</span>';
 
         html += `<tr>
             <td data-label="Karyawan">
-                <div style="font-weight: 600; color: var(--ink);">${esc(emp.name)}</div>
-                <div style="font-size: 12px; color: var(--text-muted);"><code>${esc(emp.code)}</code> &bull; ${esc(emp.position)}</div>
+                <div style="display:flex;align-items:center;">
+                    ${avatar}
+                    <div>
+                        <div style="font-weight: 700; color: var(--ink); line-height: 1.3;">${esc(emp.name)}</div>
+                        <small style="color: var(--muted); font-size: 12px;"><code>${esc(emp.code)}</code> · ${esc(emp.position || emp.department)}</small>
+                    </div>
+                </div>
             </td>
             <td data-label="Departemen">${esc(emp.department)}</td>
-            <td data-label="Hari Hadir / Jadwal" style="text-align: center;">
-                <strong>${r.attended_days}</strong> / ${r.scheduled_days} h
+            <td data-label="Hari Hadir / Jadwal" class="number-cell" style="text-align: center;">
+                <b>${r.attended_days}</b> <small style="color: var(--muted);">/ ${r.scheduled_days} h</small>
             </td>
-            <td data-label="Sesi Hadir" style="text-align: center;">
-                ${r.attended_sessions} / ${r.scheduled_sessions}
+            <td data-label="Sesi Hadir" class="number-cell" style="text-align: center;">
+                ${r.attended_sessions} <small style="color: var(--muted);">/ ${r.scheduled_sessions}</small>
             </td>
-            <td data-label="Jam Reguler" style="text-align: center;">
-                <strong>${esc(r.verified_hours_formatted)}</strong>
+            <td data-label="Jam Reguler" class="number-cell" style="text-align: center;">
+                <b style="color: var(--primary);">${esc(r.verified_hours_formatted)}</b>
             </td>
             <td data-label="Terlambat" style="text-align: center;">
                 ${lateHtml}
             </td>
             <td data-label="Lembur Diakui" style="text-align: center;">
-                ${esc(r.overtime_hours_formatted)}
+                ${otHtml}
             </td>
-            <td data-label="Cuti" style="text-align: center;">
-                ${r.leave_days > 0 ? `${r.leave_days} h` : '-'}
+            <td data-label="Cuti" class="number-cell" style="text-align: center;">
+                ${leaveHtml}
             </td>
             <td data-label="Review" style="text-align: center;">
-                ${r.review_count > 0 ? `<span style="color: var(--danger, #dc2626); font-weight: 600;">${r.review_count}</span>` : '-'}
+                ${reviewHtml}
             </td>
-            <td data-label="Total Tunjangan" style="text-align: right; font-weight: 600;">
+            <td data-label="Total Tunjangan" class="number-cell" style="text-align: right; font-weight: 700; color: var(--ink);">
                 ${formatRp(r.total_allowance)}
             </td>
         </tr>`;
     });
 
     if (kpi) {
-        html += `<tr style="background: var(--surface-soft, #f8fafc); font-weight: 700; border-top: 2px solid var(--border, #cbd5e1);">
-            <td colspan="2" style="text-align: left;">TOTAL KESELURUHAN</td>
-            <td style="text-align: center;">${kpi.total_attended_days} h</td>
-            <td style="text-align: center;">${kpi.total_attended_sessions} / ${kpi.total_scheduled_sessions}</td>
-            <td style="text-align: center;">${esc(kpi.total_verified_hours_formatted)}</td>
-            <td style="text-align: center;">${kpi.total_late_count}x (${kpi.total_late_minutes}m)</td>
-            <td style="text-align: center;">${esc(kpi.total_overtime_hours_formatted)}</td>
-            <td style="text-align: center;">${kpi.total_leave_days} h</td>
-            <td style="text-align: center;">${kpi.total_review_count}</td>
-            <td style="text-align: right; color: var(--primary);">${formatRp(kpi.total_allowance_amount)}</td>
+        html += `<tr class="report-total-row">
+            <td colspan="2" style="text-align: left; padding: 14px 16px;">
+                <strong>TOTAL KESELURUHAN</strong>
+                <small style="display: block; color: var(--muted); font-weight: 400; margin-top: 2px;">Akumulasi ${kpi.total_employees} karyawan</small>
+            </td>
+            <td class="number-cell" style="text-align: center;"><b>${kpi.total_attended_days} h</b></td>
+            <td class="number-cell" style="text-align: center;"><b>${kpi.total_attended_sessions}</b> <small style="color: var(--muted);">/ ${kpi.total_scheduled_sessions}</small></td>
+            <td class="number-cell" style="text-align: center; color: var(--primary);"><b>${esc(kpi.total_verified_hours_formatted)}</b></td>
+            <td style="text-align: center;">${kpi.total_late_count}x <small style="color: var(--muted);">(${kpi.total_late_minutes}m)</small></td>
+            <td style="text-align: center; color: var(--primary);"><b>${esc(kpi.total_overtime_hours_formatted)}</b></td>
+            <td class="number-cell" style="text-align: center;"><b>${kpi.total_leave_days} h</b></td>
+            <td style="text-align: center;">${kpi.total_review_count > 0 ? `<span class="status danger">${kpi.total_review_count}</span>` : '—'}</td>
+            <td class="number-cell" style="text-align: right; color: var(--primary); font-size: 14px;"><b>${formatRp(kpi.total_allowance_amount)}</b></td>
         </tr>`;
     }
 
@@ -388,7 +496,7 @@ async function loadDetailsTab() {
     const tbody = $('#report-details-tbody');
     const pagination = $('#report-details-pagination');
     if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rincian sesi kehadiran...</td></tr>';
+        tbody.innerHTML = getLoadingStateHtml(11, 'Memuat rincian sesi kehadiran...');
     }
 
     try {
@@ -406,7 +514,7 @@ async function loadDetailsTab() {
         renderPagination(res.meta);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--danger, #dc2626);">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         if (pagination) pagination.hidden = true;
         toast('Gagal memuat detail sesi: ' + e.message);
@@ -418,7 +526,7 @@ function renderDetailsTable(rows) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 32px; color: var(--text-muted);">Tidak ada rekaman sesi untuk periode dan filter ini.</td></tr>';
+        tbody.innerHTML = getEmptyStateHtml(11, 'Tidak ada rekaman sesi untuk periode dan filter ini.');
         return;
     }
 
@@ -430,28 +538,52 @@ function renderDetailsTable(rows) {
         const att = r.attendance;
         const sh = r.shift;
         const al = r.allowance;
+        const avatar = getAvatarHtml(emp.name, emp.avatar_url);
 
         const lateStr = att.is_late
-            ? `<span style="color: var(--warning, #b45309); font-weight: 600;">${att.late_minutes} m</span>`
-            : '-';
+            ? `<span class="status warning" style="min-height:22px;padding:2px 6px;font-size:11px;">+${att.late_minutes} m</span>`
+            : '<span style="color: var(--muted);">—</span>';
 
         html += `<tr>
-            <td data-label="Tanggal" style="white-space: nowrap;"><code>${esc(r.work_date)}</code></td>
-            <td data-label="Karyawan">
-                <div style="font-weight: 600;">${esc(emp.name)}</div>
-                <div style="font-size: 12px; color: var(--text-muted);"><code>${esc(emp.code)}</code> &bull; ${esc(emp.department)}</div>
+            <td data-label="Tanggal" style="white-space: nowrap;">
+                <b style="color: var(--ink);">${formatDate(r.work_date)}</b>
+                <small style="display: block; color: var(--muted); font-size: 11px;"><code>${esc(r.work_date)}</code></small>
             </td>
-            <td data-label="Shift / Sesi">${esc(sh.name)} Sesi ${sh.seq}</td>
-            <td data-label="Jadwal Shift" style="text-align: center; white-space: nowrap;">${esc(sh.schedule_clock)}</td>
-            <td data-label="Jam Masuk" style="text-align: center; white-space: nowrap;">${esc(att.check_in_clock)}</td>
-            <td data-label="Jam Pulang" style="text-align: center; white-space: nowrap;">${esc(att.check_out_clock)}</td>
+            <td data-label="Karyawan">
+                <div style="display:flex;align-items:center;">
+                    ${avatar}
+                    <div>
+                        <div style="font-weight: 700; color: var(--ink);">${esc(emp.name)}</div>
+                        <small style="color: var(--muted); font-size: 12px;"><code>${esc(emp.code)}</code> · ${esc(emp.department)}</small>
+                    </div>
+                </div>
+            </td>
+            <td data-label="Shift / Sesi">
+                <b>${esc(sh.name)}</b>
+                <small style="display: block; color: var(--muted); font-size: 11.5px;">Sesi ${sh.seq}</small>
+            </td>
+            <td data-label="Jadwal Shift" class="number-cell" style="text-align: center; white-space: nowrap;">
+                <code>${esc(sh.schedule_clock)}</code>
+            </td>
+            <td data-label="Jam Masuk" class="number-cell" style="text-align: center; white-space: nowrap;">
+                ${att.check_in_clock !== '-' ? `<b>${esc(att.check_in_clock)}</b>` : '<span style="color: var(--muted);">—</span>'}
+            </td>
+            <td data-label="Jam Pulang" class="number-cell" style="text-align: center; white-space: nowrap;">
+                ${att.check_out_clock !== '-' ? `<b>${esc(att.check_out_clock)}</b>` : '<span style="color: var(--muted);">—</span>'}
+            </td>
             <td data-label="Status" style="text-align: center;">
-                <span style="font-size: 12px; font-weight: 600;">${esc(att.state_label)}</span>
+                ${getStatusBadge(att.state)}
             </td>
             <td data-label="Terlambat" style="text-align: center;">${lateStr}</td>
-            <td data-label="Jam Valid" style="text-align: center;">${esc(att.verified_hours_formatted)}</td>
-            <td data-label="Lembur" style="text-align: center;">${r.overtime_minutes > 0 ? `${r.overtime_minutes} m` : '-'}</td>
-            <td data-label="Tunjangan" style="text-align: right;">${al.total_amount > 0 ? formatRp(al.total_amount) : '-'}</td>
+            <td data-label="Jam Valid" class="number-cell" style="text-align: center;">
+                <b>${esc(att.verified_hours_formatted)}</b>
+            </td>
+            <td data-label="Lembur" class="number-cell" style="text-align: center;">
+                ${r.overtime_minutes > 0 ? `<span class="status success" style="min-height:22px;padding:2px 6px;font-size:11px;">+${r.overtime_minutes} m</span>` : '<span style="color: var(--muted);">—</span>'}
+            </td>
+            <td data-label="Tunjangan" class="number-cell" style="text-align: right; font-weight: 600;">
+                ${al.total_amount > 0 ? formatRp(al.total_amount) : '<span style="color: var(--muted);">—</span>'}
+            </td>
         </tr>`;
     });
 
@@ -472,7 +604,7 @@ function renderPagination(meta) {
     }
 
     bar.hidden = false;
-    info.textContent = `Menampilkan ${meta.from || 0} - ${meta.to || 0} dari ${meta.total} rekaman (Halaman ${meta.current_page} dari ${meta.last_page})`;
+    info.textContent = `Menampilkan ${meta.from || 0} · ${meta.to || 0} dari ${meta.total} rekaman (Halaman ${meta.current_page} dari ${meta.last_page})`;
     prevBtn.disabled = meta.current_page <= 1;
     nextBtn.disabled = meta.current_page >= meta.last_page;
 }
@@ -480,7 +612,7 @@ function renderPagination(meta) {
 async function loadOvertimeTab() {
     const tbody = $('#report-overtime-tbody');
     if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekap lembur...</td></tr>';
+        tbody.innerHTML = getLoadingStateHtml(9, 'Memuat rekap lembur...');
     }
 
     try {
@@ -495,7 +627,7 @@ async function loadOvertimeTab() {
         renderOvertimeTable(res.data);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--danger, #dc2626);">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         toast('Gagal memuat rekap lembur: ' + e.message);
     }
@@ -506,31 +638,47 @@ function renderOvertimeTable(rows) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 32px; color: var(--text-muted);">Tidak ada perintah lembur untuk periode dan filter ini.</td></tr>';
+        tbody.innerHTML = getEmptyStateHtml(9, 'Tidak ada data perintah lembur (SPL).');
         return;
     }
 
     let html = '';
     rows.forEach((r) => {
-        const statusMap = {
-            APPROVED: '<span style="color: var(--success, #15803d); font-weight: 600;">Disetujui</span>',
-            REJECTED: '<span style="color: var(--danger, #dc2626); font-weight: 600;">Ditolak</span>',
-            CANCELLED: '<span style="color: var(--muted); font-weight: 600;">Dibatalkan</span>',
-            PENDING_APPROVAL: '<span style="color: var(--warning, #b45309); font-weight: 600;">Menunggu Persetujuan</span>',
-        };
+        const empName = r.employee_name || (r.employee?.name ?? '-');
+        const empCode = r.employee?.code ?? '';
+        const deptName = r.department_name || (r.employee?.department ?? '-');
+        const avatar = getAvatarHtml(empName, r.employee?.avatar_url);
 
         html += `<tr>
-            <td data-label="No. SPL"><code>${esc(r.order_number)}</code></td>
-            <td data-label="Tanggal"><code>${esc(r.work_date)}</code></td>
-            <td data-label="Karyawan">
-                <div style="font-weight: 600;">${esc(r.employee_name)}</div>
+            <td data-label="No. SPL">
+                <code style="font-weight: 700; color: var(--primary);">${esc(r.order_number)}</code>
             </td>
-            <td data-label="Departemen">${esc(r.department_name || '-')}</td>
-            <td data-label="Uraian Tugas Lembur">${esc(r.title)}</td>
-            <td data-label="Jam Pelaksanaan" style="text-align: center;">${esc(r.local_start || '-')} - ${esc(r.local_end || '-')}</td>
-            <td data-label="Durasi Rencana" style="text-align: center;">${r.planned_minutes || 0} m</td>
-            <td data-label="Durasi Diakui" style="text-align: center; font-weight: 600;">${r.verified_minutes || 0} m</td>
-            <td data-label="Status" style="text-align: center;">${statusMap[r.status] || esc(r.status)}</td>
+            <td data-label="Tanggal" style="white-space: nowrap;">
+                <b>${formatDate(r.work_date)}</b>
+                <small style="display: block; color: var(--muted); font-size: 11px;"><code>${esc(r.work_date)}</code></small>
+            </td>
+            <td data-label="Karyawan">
+                <div style="display:flex;align-items:center;">
+                    ${avatar}
+                    <div>
+                        <div style="font-weight: 700; color: var(--ink);">${esc(empName)}</div>
+                        <small style="color: var(--muted); font-size: 12px;">${empCode ? `<code>${esc(empCode)}</code> · ` : ''}${esc(deptName)}</small>
+                    </div>
+                </div>
+            </td>
+            <td data-label="Departemen">${esc(deptName)}</td>
+            <td data-label="Uraian Tugas Lembur">
+                <b style="color: var(--ink);">${esc(r.title)}</b>
+                ${r.session_name ? `<small style="display: block; color: var(--muted);">${esc(r.session_name)}</small>` : ''}
+            </td>
+            <td data-label="Jam Pelaksanaan" class="number-cell" style="text-align: center; white-space: nowrap;">
+                <code>${esc(r.local_start || '—')} · ${esc(r.local_end || '—')}</code>
+            </td>
+            <td data-label="Durasi Rencana" class="number-cell" style="text-align: center;">${r.planned_minutes || 0} m</td>
+            <td data-label="Durasi Diakui" class="number-cell" style="text-align: center; font-weight: 700; color: var(--primary);">
+                +${r.verified_minutes || 0} m
+            </td>
+            <td data-label="Status" style="text-align: center;">${getOvertimeBadge(r.status)}</td>
         </tr>`;
     });
 
