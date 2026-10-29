@@ -6,6 +6,13 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Perapihan Kartu Kontak Bantuan pada Halaman Login
+
+- Merapikan blok kontak bantuan (`.auth-contact`) di bawah tombol Masuk pada halaman login web admin (`server/resources/views/auth/layout.blade.php`).
+- Menambahkan label eksplisit dan terstruktur: **Email:**, **No. Telp:**, dan **Alamat:** dengan ikon bantuan SVG (`Bantuan & Kontak Pengelola`).
+- Mengubah tata letak dari teks bertumpuk vertikal menjadi layout kartu horizontal kompak (`display: flex; flex-wrap: wrap; gap: 6px 14px;`) berlatar soft (`var(--surface-soft)`), sehingga tidak memanjang ke bawah dan proporsional terhadap kartu login.
+- Menyelaraskan pratinjau login di menu Pengaturan Website (`server/resources/js/admin/settings.js`, `server/resources/css/app.css`) agar menampilkan format label yang sama.
+
 ## Perubahan terbaru — Kompresi Foto Presensi Dua Arah & Watermark Visual
 
 - **Tier 1 — Kompresi & Resize Otomatis pada Perangkat Mobile:**

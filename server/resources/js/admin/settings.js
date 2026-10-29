@@ -216,10 +216,20 @@ function updateSitePreview() {
     logo.src = logoUrl ?? '';
     $('#site-preview-globe').hidden = Boolean(logoUrl);
 
-    const contact = [form.contact_email.value.trim(), form.contact_phone.value.trim(), form.contact_address.value.trim()].filter(Boolean);
-    $('#site-preview-contact').replaceChildren(...contact.map((value) => {
-        const line = document.createElement('span');
-        line.textContent = value;
+    const contactItems = [];
+    if (form.contact_email.value.trim()) {
+        contactItems.push({ label: 'Email:', val: form.contact_email.value.trim() });
+    }
+    if (form.contact_phone.value.trim()) {
+        contactItems.push({ label: 'No. Telp:', val: form.contact_phone.value.trim() });
+    }
+    if (form.contact_address.value.trim()) {
+        contactItems.push({ label: 'Alamat:', val: form.contact_address.value.trim() });
+    }
+    $('#site-preview-contact').replaceChildren(...contactItems.map((item) => {
+        const line = document.createElement('div');
+        line.className = 'site-preview-contact-item';
+        line.innerHTML = `<span class="auth-contact-label">${item.label}</span> <span>${esc(item.val)}</span>`;
         return line;
     }));
 }
