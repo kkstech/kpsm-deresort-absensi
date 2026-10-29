@@ -99,12 +99,8 @@
                 <section class="view active" data-view-panel="dashboard">
                     <div class="dashboard-hero-banner">
                         <div class="hero-main">
-                            <div class="hero-badge">
-                                <span class="live-pulse-dot"></span>
-                                <span>Operasional Resort Aktif</span>
-                            </div>
                             <h1 class="hero-greeting" id="dashboard-greeting">Selamat Datang, {{ $me->name }}</h1>
-                            <p class="hero-subtitle" id="dashboard-finding">Ringkasan kehadiran dan aktivitas operasional kerja resort hari ini.</p>
+                            <p class="hero-subtitle" id="dashboard-finding">Ringkasan kehadiran dan operasional shift resort hari ini.</p>
                         </div>
                         <div class="hero-actions">
                             <span class="hero-date-badge" id="dashboard-today-date">
@@ -115,16 +111,15 @@
                                 <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
                                 <span>Jadwal Shift</span>
                             </button>
-                            <button type="button" class="primary-button hero-btn" data-view-link="attendance" style="display:inline-flex;align-items:center;gap:6px;">
+                            <button type="button" class="primary-button hero-btn" data-view-link="attendance">
                                 <span>Monitoring Absensi</span>
-                                <svg class="icon" aria-hidden="true" style="width:16px;height:16px;"><use href="#i-arrow-right"/></svg>
                             </button>
                         </div>
                     </div>
 
                     <div class="dashboard-filter-card panel">
                         <div class="preset-chips-wrap">
-                            <span class="preset-label">Periode Cepat:</span>
+                            <span class="preset-label">Periode:</span>
                             <div class="preset-buttons" id="dashboard-preset-chips">
                                 <button type="button" class="preset-chip active" data-preset="today">Hari Ini</button>
                                 <button type="button" class="preset-chip" data-preset="yesterday">Kemarin</button>
@@ -145,8 +140,8 @@
                     <p class="form-error" id="dashboard-error" role="alert" hidden></p>
 
                     <section class="dashboard-metrics-grid" aria-label="Ringkasan kehadiran" aria-live="polite">
-                        <!-- Card 1: Tingkat Kehadiran (Emerald) -->
-                        <div class="dashboard-metric-card theme-emerald">
+                        <!-- Card 1: Tingkat Kehadiran -->
+                        <div class="dashboard-metric-card">
                             <div class="metric-header">
                                 <span class="metric-title">Tingkat Kehadiran</span>
                                 <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
@@ -161,8 +156,8 @@
                             <small class="metric-subtext" id="metric-sessions-ratio">0 dari 0 sesi check-in</small>
                         </div>
 
-                        <!-- Card 2: Karyawan Bertugas (Ocean Blue) -->
-                        <div class="dashboard-metric-card theme-ocean">
+                        <!-- Card 2: Karyawan Bertugas -->
+                        <div class="dashboard-metric-card">
                             <div class="metric-header">
                                 <span class="metric-title">Karyawan Bertugas</span>
                                 <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg></span>
@@ -177,8 +172,8 @@
                             <small class="metric-subtext" id="metric-sessions">0 sesi terjadwal</small>
                         </div>
 
-                        <!-- Card 3: Perlu Review & Tindakan (Rose Alert) -->
-                        <div class="dashboard-metric-card theme-rose" id="metric-card-review">
+                        <!-- Card 3: Perlu Review & Tindakan -->
+                        <div class="dashboard-metric-card" id="metric-card-review">
                             <div class="metric-header">
                                 <span class="metric-title">Perlu Perhatian</span>
                                 <span class="metric-icon-badge alert"><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg></span>
@@ -193,8 +188,8 @@
                             <small class="metric-subtext">Sesi absensi butuh tindakan verifikasi</small>
                         </div>
 
-                        <!-- Card 4: Total Jam Kerja (Indigo) -->
-                        <div class="dashboard-metric-card theme-indigo">
+                        <!-- Card 4: Total Jam Kerja -->
+                        <div class="dashboard-metric-card">
                             <div class="metric-header">
                                 <span class="metric-title">Total Jam Produktif</span>
                                 <span class="metric-icon-badge"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg></span>
@@ -242,7 +237,7 @@
                                     <h2>Aktivitas Absensi Terkini</h2>
                                     <p>Event check-in dan check-out terbaru yang tercatat sistem.</p>
                                 </div>
-                                <button type="button" class="text-button" data-view-link="attendance" style="display:inline-flex;align-items:center;gap:6px;"><span>Buka monitoring</span> <svg class="icon" aria-hidden="true" style="width:14px;height:14px;"><use href="#i-arrow-right"/></svg></button>
+                                <button type="button" class="text-button" data-view-link="attendance">Buka monitoring</button>
                             </div>
                             <div id="dashboard-activity" aria-live="polite"><p class="list-empty">Memuat data…</p></div>
                         </div>
@@ -263,11 +258,11 @@
 
                             <div class="panel dashboard-shortcuts-panel">
                                 <div class="panel-heading">
-                                    <h3>Pintasan Operasional</h3>
+                                    <h3>Akses Cepat Pengelolaan</h3>
                                 </div>
                                 <div class="shortcuts-grid">
                                     <button type="button" class="shortcut-tile" data-view-link="schedule">
-                                        <span class="shortcut-icon" style="background:#eaf1ff;color:#2563eb;">
+                                        <span class="shortcut-icon">
                                             <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
                                         </span>
                                         <div class="shortcut-text">
@@ -276,7 +271,7 @@
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="employees">
-                                        <span class="shortcut-icon" style="background:#e6f6ee;color:#059669;">
+                                        <span class="shortcut-icon">
                                             <svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>
                                         </span>
                                         <div class="shortcut-text">
@@ -285,7 +280,7 @@
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="allowances">
-                                        <span class="shortcut-icon" style="background:#fef3e2;color:#d97706;">
+                                        <span class="shortcut-icon">
                                             <svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg>
                                         </span>
                                         <div class="shortcut-text">
@@ -294,7 +289,7 @@
                                         </div>
                                     </button>
                                     <button type="button" class="shortcut-tile" data-view-link="leaves">
-                                        <span class="shortcut-icon" style="background:#f5eefb;color:#7c3aed;">
+                                        <span class="shortcut-icon">
                                             <svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg>
                                         </span>
                                         <div class="shortcut-text">
@@ -911,8 +906,8 @@
                 <div class="schedule-modal-top-grid">
                     <label>Karyawan<select id="schedule-employee" required></select></label>
                     <label>Tanggal kerja<input type="date" id="schedule-date" required></label>
-                    <label>Jenis jadwal<select id="schedule-mode"><option value="template">Template shift</option><option value="custom">Split khusus</option></select></label>
-                    <label id="schedule-template-wrap">Template shift<select id="schedule-template" required></select></label>
+                    <label>Jenis shift<select id="schedule-mode"><option value="template">Shift reguler</option><option value="custom">Split khusus</option></select></label>
+                    <label id="schedule-template-wrap">Shift reguler<select id="schedule-template" required></select></label>
                 </div>
                 <div id="schedule-custom-wrap" class="schedule-custom-wrap" hidden>
                     <label>Nama jadwal<input id="schedule-name" maxlength="100" value="Shift khusus"></label>
@@ -991,9 +986,9 @@
 
                 <div class="bulk-section">
                     <div class="bulk-section-header">
-                        <strong>3. Template Shift &amp; Aturan</strong>
+                        <strong>3. Shift Reguler &amp; Aturan</strong>
                     </div>
-                    <label>Template shift<select id="bulk-template-select" required></select></label>
+                    <label>Shift reguler<select id="bulk-template-select" required></select></label>
                     <label class="check-field bulk-check-field">
                         <input type="checkbox" id="bulk-overwrite-checkbox">
                         <span>Timpa jadwal draft yang sudah ada pada tanggal yang sama</span>

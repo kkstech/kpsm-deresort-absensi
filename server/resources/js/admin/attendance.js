@@ -73,9 +73,9 @@ function renderReviewBox(reviewItems) {
     if (!reviewItems || !reviewItems.length) {
         box.innerHTML = `
             <div class="review-empty-state">
-                <span class="review-empty-icon">${icon('check', 20)}</span>
-                <strong>Semua Sesi Beres!</strong>
-                <small>Tidak ada sesi yang memerlukan review saat ini.</small>
+                <span class="review-empty-icon">${icon('check', 18)}</span>
+                <strong>Tidak ada sesi tertunda</strong>
+                <small>Seluruh absensi telah tercatat sesuai ketentuan operasional.</small>
             </div>
         `;
         return;
@@ -85,7 +85,7 @@ function renderReviewBox(reviewItems) {
         return `
             <div class="review-alert-item">
                 <div class="review-item-main">
-                    <span class="review-badge-pill" style="display:inline-flex;align-items:center;gap:4px;">${icon('alert-circle', 12)}<span>Perlu Tindakan</span></span>
+                    <span class="review-badge-pill" style="display:inline-flex;align-items:center;gap:4px;">${icon('alert', 12)}<span>Perlu Verifikasi</span></span>
                     <strong class="review-emp-name">${esc(item.employee.name)}</strong>
                     <span class="review-shift-info">${esc(item.shift.name)} · ${formatDate(item.work_date)}</span>
                     <small class="review-reason-text">${esc(reason)}</small>
@@ -141,8 +141,8 @@ async function loadDashboard(filters = filterValues(dashboardForm)) {
         $('#metric-minutes').textContent = formatMinutes(summary.verified_minutes);
 
         $('#dashboard-finding').textContent = summary.review_sessions
-            ? `${summary.review_sessions} sesi atau event absensi memerlukan tinjauan segera.`
-            : 'Seluruh sesi absensi terverifikasi rapi dan kondusif.';
+            ? `${summary.review_sessions} sesi absensi memerlukan tindakan peninjauan.`
+            : 'Seluruh sesi absensi tercatat tertib dan terverifikasi.';
 
         // 2. Status Breakdown Bar
         const total = Number(summary.scheduled_sessions || 0);

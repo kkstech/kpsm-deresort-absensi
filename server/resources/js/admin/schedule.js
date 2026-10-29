@@ -440,7 +440,7 @@ async function submitBulkSchedule(event) {
 
     const shift_template_id = Number($('#bulk-template-select').value);
     if (!shift_template_id) {
-        bulkError.textContent = 'Pilih template shift.';
+        bulkError.textContent = 'Pilih shift reguler.';
         bulkError.hidden = false;
         return;
     }
