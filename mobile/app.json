@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deresort Attendance",
     "slug": "deresort-attendance",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,6 +22,12 @@
           "locationWhenInUsePermission": "Lokasi dipakai untuk memvalidasi absensi pada sesi yang mewajibkannya."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Kamera dipakai untuk mengambil foto selfie saat presensi kehadiran."
+        }
+      ],
       "expo-secure-store",
       "expo-sqlite",
       "expo-status-bar",
@@ -30,6 +36,7 @@
     ],
     "android": {
       "package": "id.deresort.attendance",
+      "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -37,7 +44,8 @@
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA"
       ]
     },
     "ios": {
