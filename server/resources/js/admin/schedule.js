@@ -55,11 +55,37 @@ function fetchRange() {
     return [start, addDays(start, 41)];
 }
 
-async function load() {
+const scheduleCache = new Map();
+export function clearScheduleCache() {
+    scheduleCache.clear();
+}
+
+async function load(forceRefresh = false) {
     const [from, to] = fetchRange().map(keyOf);
+    const emp = personFilter();
+    const cacheKey = `${from}_${to}_${emp || 'all'}`;
     const errorBox = $('#schedule-load-error');
+
+    if (!forceRefresh && scheduleCache.has(cacheKey)) {
+        const cached = scheduleCache.get(cacheKey);
+        if (Date.now() - cached.time < 60000) {
+            entries = cached.data;
+            errorBox.hidden = true;
+            render();
+            return;
+        }
+    }
+
+    const calBody = $('#calendar-body');
+    if (!entries.length && calBody) {
+        calBody.innerHTML = '<div style="padding:24px 16px;text-align:center;"><div class="skeleton skeleton-text" style="height:120px;border-radius:10px;"></div></div>';
+    }
+
     try {
-        entries = (await api('schedule', { query: { from, to } })).data;
+        const query = { from, to, ...(emp ? { employee_id: emp } : {}) };
+        const res = await api('schedule', { query });
+        entries = res.data ?? [];
+        scheduleCache.set(cacheKey, { data: entries, time: Date.now() });
         errorBox.hidden = true;
     } catch (error) {
         entries = [];
@@ -326,13 +352,15 @@ async function saveSchedule() {
     toast(editingSchedule ? 'Sesi jadwal diperbarui.' : `Jadwal ${nameOf(body.employee_id)} disimpan sebagai draft.`);
     state.anchor = parseKey(body.work_date);
     state.selected = { date: body.work_date, emp: state.view === 'week' ? body.employee_id : personFilter() };
-    load();
+    clearScheduleCache();
+    load(true);
 }
 
 async function runAction(fn) {
     try {
         toast(await fn());
-        load();
+        clearScheduleCache();
+        load(true);
     } catch (error) {
         toast(error.message);
     }
@@ -474,7 +502,8 @@ async function submitBulkSchedule(event) {
         } else {
             toast('Tidak ada tanggal yang cocok dengan hari yang dipilih.');
         }
-        load();
+        clearScheduleCache();
+        load(true);
     } catch (error) {
         bulkError.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
         bulkError.hidden = false;
@@ -840,7 +869,8 @@ $('#schedule-swap-form').addEventListener('submit', async (event) => {
         await api('schedule/swap', { method: 'POST', body: { ...payload, preview_token: swapPreview.preview_token, reason: $('#schedule-swap-reason').value.trim() } });
         swapModal.close();
         toast('Rantai jadwal ditukar dan dicatat.');
-        load();
+        clearScheduleCache();
+        load(true);
     } catch (reason) {
         error.textContent = reason.message;
         error.hidden = false;

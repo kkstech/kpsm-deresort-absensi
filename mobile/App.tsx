@@ -229,9 +229,9 @@ function Pill({ children, tone = 'success' }: { children: React.ReactNode; tone?
   );
 }
 
-function TextField({ label, value, onChangeText, placeholder, multiline = false, keyboardType, secureTextEntry = false, autoCapitalize = 'sentences' }: {
+function TextField({ label, value, onChangeText, placeholder, multiline = false, keyboardType, secureTextEntry = false, autoCapitalize = 'sentences', autoCorrect = true }: {
   label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; autoCorrect?: boolean;
 }) {
   const [hidePassword, setHidePassword] = useState(secureTextEntry);
 
@@ -249,6 +249,7 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
           keyboardType={keyboardType}
           secureTextEntry={secureTextEntry ? hidePassword : false}
           autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
           style={[styles.input, secureTextEntry && styles.inputWithIcon, multiline && styles.multiline]}
         />
         {secureTextEntry && (
@@ -2035,6 +2036,10 @@ function Main() {
           <View>
             <Text style={styles.overline}>{localDate(new Date()).toLocaleUpperCase('id-ID')}</Text>
             <Text style={styles.heading}>Halo, {profile?.employee?.name?.split(' ')[0] ?? profile?.name?.split(' ')[0] ?? 'Karyawan'}</Text>
+            <Text style={styles.heroSubHeading}>
+              {nameOrString(profile?.employee?.position, profile?.role === 'super_admin' ? 'Super Admin' : profile?.role === 'admin' ? 'Administrator' : 'Karyawan')}
+              {profile?.employee?.department ? ` · ${nameOrString(profile.employee.department)}` : ''}
+            </Text>
           </View>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{(profile?.employee?.name ?? profile?.name ?? 'K').split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</Text>
@@ -2068,7 +2073,7 @@ function Main() {
           </View>
           <Text style={styles.heroTitle}>{activeAssignment?.template_name ?? 'Belum ada jadwal'}</Text>
           <Text style={styles.heroTime}>{activeAssignment ? `${activeAssignment.sessions.length} sesi · ${Math.floor(activeAssignment.scheduled_minutes / 60)} jam` : 'Jadwal dari HR tampil di sini'}</Text>
-          <Text style={styles.heroMeta}>{nameOrString(profile?.employee?.department, 'Absensi')}{activeSession?.session.attendance_policy?.location_required ? ' · validasi lokasi aktif' : ''}</Text>
+          <Text style={styles.heroMeta}>{nameOrString(profile?.employee?.position ? `${nameOrString(profile.employee.position)} · ${nameOrString(profile.employee.department)}` : profile?.employee?.department, 'Absensi')}{activeSession?.session.attendance_policy?.location_required ? ' · validasi lokasi aktif' : ''}</Text>
           {activeIntent && (
             <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, pressed && styles.pressed]}>
               <Text style={styles.attendanceButtonText}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
@@ -2302,7 +2307,9 @@ function Main() {
                       <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{col.name}</Text>
                       {selected && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
                     </View>
-                    <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(col.department, col.code)}</Text>
+                    <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
+                      {col.position ? `${nameOrString(col.position)} · ${nameOrString(col.department)}` : nameOrString(col.department, col.code)}
+                    </Text>
                   </Pressable>
                 );
               })}
@@ -3088,6 +3095,16 @@ function Main() {
 
           <View style={styles.profileMetaBox}>
             <View style={styles.profileMetaRow}>
+              <Ionicons name="briefcase-outline" size={15} color={colors.muted} />
+              <Text style={styles.profileMetaLabel}>Jabatan</Text>
+              <Text style={styles.profileMetaValue}>{nameOrString(employee?.position, isAdminOrSupervisor ? 'Pengelola' : 'Belum diatur')}</Text>
+            </View>
+            <View style={styles.profileMetaRow}>
+              <Ionicons name="business-outline" size={15} color={colors.muted} />
+              <Text style={styles.profileMetaLabel}>Departemen</Text>
+              <Text style={styles.profileMetaValue}>{nameOrString(employee?.department, isAdminOrSupervisor ? 'Departemen Manajemen' : 'Belum diatur')}</Text>
+            </View>
+            <View style={styles.profileMetaRow}>
               <Ionicons name="mail-outline" size={15} color={colors.muted} />
               <Text style={styles.profileMetaLabel}>Email Pribadi</Text>
               <Text style={styles.profileMetaValue}>{employee?.email ?? profile?.email ?? '-'}</Text>
@@ -3155,9 +3172,9 @@ function Main() {
             <Text style={styles.loginHeading}>Masuk ke akun</Text>
             <Text style={styles.intro}>Gunakan username (kode karyawan) dan password akun untuk mengakses jadwal dan absensi.</Text>
             <View style={styles.formCard}>
-              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" />
-              <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="characters" />
-              <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" />
+              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" autoCorrect={false} />
+              <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="none" autoCorrect={false} />
+              <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" autoCorrect={false} />
               {!!error && (
                 <View style={styles.sessionNoticeBox}>
                   <Ionicons name="alert-circle" size={18} color="#991B1B" style={{ marginRight: 8, marginTop: 1 }} />
@@ -3302,7 +3319,9 @@ function Main() {
                   return (
                     <Pressable key={emp.id} onPress={() => selectDirectSourceEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
                       <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(emp.department)}</Text>
+                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
+                        {emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -3334,7 +3353,9 @@ function Main() {
                   return (
                     <Pressable key={emp.id} onPress={() => selectDirectTargetEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
                       <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>{nameOrString(emp.department)}</Text>
+                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
+                        {emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -3560,6 +3581,7 @@ const styles = StyleSheet.create({
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   overline: { color: colors.muted, fontSize: 13, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },
   heading: { color: colors.ink, fontSize: 32, fontWeight: '800', letterSpacing: -0.8 },
+  heroSubHeading: { color: colors.primary, fontSize: 13.5, fontWeight: '700', marginTop: 4 },
   loginHeading: { color: colors.ink, fontSize: 34, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
   intro: { color: colors.muted, fontSize: 14.5, lineHeight: 22, marginBottom: 20 },
   avatar: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D2EEE8' },

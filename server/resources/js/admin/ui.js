@@ -19,6 +19,8 @@ const ICONS = {
     coins: '<ellipse cx="12" cy="7" rx="9" ry="3"/><path d="M3 7v6c0 1.66 4.03 3 9 3s9-1.34 9-3V7M3 13v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6"/>',
     umbrella: '<path d="M23 12a11.05 11.05 0 0 0-22 0zm-5 7a3 3 0 0 1-6 0v-7"/>',
     smartphone: '<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+    camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+    briefcase: '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
     'arrow-right': '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
     check: '<polyline points="20 6 9 17 4 12"/>',
     x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
@@ -176,11 +178,16 @@ let current = null;
 function fieldHtml(f, value) {
     const id = `ff-${f.name}`;
     const req = f.required ? ' required' : '';
+    const reqMark = f.required ? '<span class="req-star" aria-label="wajib">*</span>' : '';
     const hint = f.hint ? `<small class="field-hint">${esc(f.hint)}</small>` : '';
     const err = `<small class="field-error" data-error-for="${esc(f.name)}" hidden></small>`;
     const spanAttr = f.fullWidth ? ' data-span="full"' : '';
+    const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
+
     if (f.type === 'section') {
+        const iconHtml = f.icon ? `<div class="form-section-icon">${icon(f.icon, 15)}</div>` : '';
         return `<div class="form-section-divider" data-field="${esc(f.name)}" data-span="full">
+            ${iconHtml}
             <div class="form-section-title-wrap">
                 <span class="form-section-title">${esc(f.label)}</span>
                 ${f.hint ? `<span class="form-section-hint">${esc(f.hint)}</span>` : ''}
@@ -188,18 +195,44 @@ function fieldHtml(f, value) {
         </div>`;
     }
     if (f.type === 'checkbox') {
-        return `<label class="check-field" data-field="${esc(f.name)}"${spanAttr}><input type="checkbox" id="${id}" name="${esc(f.name)}"${value ? ' checked' : ''}><span>${esc(f.label)}</span>${hint}${err}</label>`;
+        return `<div class="check-field-toggle-card" data-field="${esc(f.name)}"${spanAttr}>
+            <label class="check-field" for="${id}">
+                <input type="checkbox" id="${id}" name="${esc(f.name)}"${value ? ' checked' : ''}>
+                <span class="check-field-content">
+                    <span class="check-field-title">${esc(f.label)}</span>
+                    ${f.hint ? `<small class="check-field-hint">${esc(f.hint)}</small>` : ''}
+                </span>
+            </label>
+            ${err}
+        </div>`;
     }
     if (f.type === 'currency') {
         const rawVal = value !== '' && value != null ? String(value).replace(/[^0-9]/g, '') : '';
         const displayVal = rawVal ? `Rp ${Number(rawVal).toLocaleString('id-ID')}` : '';
         const placeholder = f.placeholder ?? 'Rp 0';
-        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="text" inputmode="numeric" id="${id}" name="${esc(f.name)}" value="${esc(displayVal)}" class="currency-input"${req} placeholder="${esc(placeholder)}">${hint}${err}</label>`;
+        return `<label data-field="${esc(f.name)}"${spanAttr}>
+            <span class="field-label-text">${esc(f.label)}${reqMark}</span>
+            <input type="text" inputmode="numeric" id="${id}" name="${esc(f.name)}" value="${esc(displayVal)}" class="currency-input"${req} placeholder="${esc(placeholder)}">
+            ${hint}${err}
+        </label>`;
+    }
+    if (f.type === 'textarea') {
+        const rows = f.rows ?? 3;
+        const placeholder = f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : '';
+        return `<label data-field="${esc(f.name)}"${spanAttr}>
+            <span class="field-label-text">${esc(f.label)}${reqMark}</span>
+            <textarea id="${id}" name="${esc(f.name)}" rows="${rows}"${req}${attrs}${placeholder}>${esc(value)}</textarea>
+            ${hint}${err}
+        </label>`;
     }
     if (f.type === 'select') {
         const options = (f.blank !== undefined ? [{ value: '', label: f.blank }] : []).concat(f.options)
             .map((o) => `<option value="${esc(o.value)}"${String(o.value) === String(value ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`).join('');
-        return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<select id="${id}" name="${esc(f.name)}"${req}>${options}</select>${hint}${err}</label>`;
+        return `<label data-field="${esc(f.name)}"${spanAttr}>
+            <span class="field-label-text">${esc(f.label)}${reqMark}</span>
+            <select id="${id}" name="${esc(f.name)}"${req}>${options}</select>
+            ${hint}${err}
+        </label>`;
     }
     if (f.type === 'sessions') {
         return `<div class="sessions-wrapper" data-field="${esc(f.name)}"${spanAttr}>
@@ -220,27 +253,38 @@ function fieldHtml(f, value) {
         return `
             <div class="avatar-field-card" data-field="${esc(f.name)}"${spanAttr}>
                 <div class="avatar-card-preview-wrap">
-                    <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" style="width:64px;height:64px;border-radius:14px;object-fit:cover;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);background:#fff;" ${value ? '' : 'hidden'}>
-                    <div class="avatar-no-preview" style="width:64px;height:64px;border-radius:14px;background:#e2ece4;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);display:${value ? 'none' : 'grid'};place-items:center;color:var(--primary);flex-shrink:0;">
+                    <img class="avatar-live-preview" src="${previewSrc}" alt="Avatar Preview" ${value ? '' : 'hidden'}>
+                    <div class="avatar-no-preview" style="display:${value ? 'none' : 'grid'};">
                         ${icon('user', 28)}
                     </div>
                 </div>
                 <div class="avatar-card-content">
                     <div class="avatar-card-meta">
-                        <strong class="avatar-card-label">${esc(f.label)}</strong>
-                        <span class="avatar-preview-text" style="font-size:12px;font-weight:600;color:var(--primary);margin:2px 0;">${value ? 'Foto profil aktif' : 'Belum ada foto'}</span>
-                        <small class="avatar-card-hint" style="color:var(--muted);font-size:11.5px;">${esc(f.hint ?? 'Format JPG, PNG, atau WEBP. Maks 5MB.')}</small>
+                        <div class="avatar-card-title-row">
+                            <strong class="avatar-card-label">${esc(f.label)}</strong>
+                            <span class="avatar-status-pill ${value ? 'active' : ''}">${value ? 'Foto Profil Aktif' : 'Belum Ada Foto'}</span>
+                        </div>
+                        <p class="avatar-preview-text">${value ? 'Foto profil karyawan terpasang di sistem' : 'Unggah foto resmi untuk identifikasi dan presensi'}</p>
+                        <small class="avatar-card-hint">${esc(f.hint ?? 'Format JPG, PNG, atau WEBP. Maksimal 5MB.')}</small>
                     </div>
-                    <div class="avatar-input-wrapper">
-                        <input type="file" id="${id}" name="${esc(f.name)}"${req}${accept} class="avatar-file-input">
+                    <div class="avatar-card-action">
+                        <label class="avatar-upload-btn" for="${id}">
+                            ${icon('camera', 15)}
+                            <span>${value ? 'Ganti Foto' : 'Pilih Foto'}</span>
+                        </label>
+                        <input type="file" id="${id}" name="${esc(f.name)}"${req}${accept} class="avatar-file-input-hidden">
                     </div>
                 </div>
                 ${err}
             </div>
         `;
     }
-    const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
-    return `<label data-field="${esc(f.name)}"${spanAttr}>${esc(f.label)}<input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}>${hint}${err}</label>`;
+    const placeholder = f.placeholder ? ` placeholder="${esc(f.placeholder)}"` : '';
+    return `<label data-field="${esc(f.name)}"${spanAttr}>
+        <span class="field-label-text">${esc(f.label)}${reqMark}</span>
+        <input type="${f.type ?? 'text'}" id="${id}" name="${esc(f.name)}" value="${esc(value)}"${req}${attrs}${placeholder}>
+        ${hint}${err}
+    </label>`;
 }
 
 function sessionRow(s = {}, index = 0) {
@@ -402,11 +446,25 @@ fieldsBox.addEventListener('change', (event) => {
         const liveImg = container?.querySelector('.avatar-live-preview');
         const noPreview = container?.querySelector('.avatar-no-preview');
         const previewText = container?.querySelector('.avatar-preview-text');
+        const statusPill = container?.querySelector('.avatar-status-pill');
+        const btnSpan = container?.querySelector('.avatar-upload-btn span');
         if (liveImg) {
             liveImg.src = URL.createObjectURL(file);
             liveImg.hidden = false;
-            if (noPreview) noPreview.hidden = true;
-            if (previewText) previewText.textContent = `Foto baru terpilih: ${file.name}`;
+            if (noPreview) noPreview.style.display = 'none';
+            if (previewText) previewText.textContent = `Foto terpilih: ${file.name}`;
+            if (statusPill) {
+                statusPill.textContent = 'Foto Terpilih';
+                statusPill.classList.add('active');
+            }
+            if (btnSpan) btnSpan.textContent = 'Ganti Foto';
+        }
+    }
+    if (event.target.name === 'make_account' && event.target.checked) {
+        const emailInput = $('[name="email"]', fieldsBox);
+        const accountEmailInput = $('[name="account_email"]', fieldsBox);
+        if (emailInput && accountEmailInput && !accountEmailInput.value && emailInput.value) {
+            accountEmailInput.value = emailInput.value;
         }
     }
     if (current) syncVisibility();

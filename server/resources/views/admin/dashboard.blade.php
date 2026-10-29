@@ -307,11 +307,23 @@
                 <section class="view schedule-view" data-view-panel="schedule">
                     <div class="page-heading">
                         <div><p>Perencanaan shift</p><h1>Jadwal &amp; Shift</h1><span>Pilih tampilan mingguan atau bulanan. Pilih karyawan untuk melihat jadwalnya saja.</span></div>
-                        <div class="heading-actions" data-requires="admin">
-                            <button type="button" class="secondary-button" id="schedule-copy">Salin ke minggu depan</button>
-                            <button type="button" class="secondary-button" id="schedule-publish">Terbitkan draft</button>
-                            <button type="button" class="secondary-button" id="schedule-bulk-btn">+ Penugasan Massal</button>
-                            <button type="button" class="primary-button" data-open-modal="schedule-modal">+ Buat jadwal</button>
+                        <div class="heading-actions schedule-heading-grid" data-requires="admin">
+                            <button type="button" class="primary-button" data-open-modal="schedule-modal">
+                                <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
+                                <span>Buat Jadwal</span>
+                            </button>
+                            <button type="button" class="secondary-button" id="schedule-bulk-btn">
+                                <svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>
+                                <span>Penugasan Massal</span>
+                            </button>
+                            <button type="button" class="secondary-button" id="schedule-publish">
+                                <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+                                <span>Terbitkan Draft</span>
+                            </button>
+                            <button type="button" class="secondary-button" id="schedule-copy">
+                                <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
+                                <span>Salin Minggu Depan</span>
+                            </button>
                         </div>
                     </div>
                     <p class="form-error" id="schedule-load-error" role="alert" hidden></p>
@@ -1286,12 +1298,46 @@
     </dialog>
     <dialog class="app-dialog" id="form-modal" aria-labelledby="form-modal-title">
         <form method="dialog" id="form-modal-form" novalidate>
-            <div class="modal-heading"><div><h2 id="form-modal-title"></h2><p id="form-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
-            <div class="modal-body"><div id="form-modal-fields" class="form-fields"></div><p class="form-error" id="form-modal-error" role="alert" hidden></p></div>
-            <div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button" id="form-modal-submit">Simpan</button></div>
+            <div class="modal-heading">
+                <div>
+                    <h2 id="form-modal-title"></h2>
+                    <p id="form-modal-hint"></p>
+                </div>
+                <button type="button" class="icon-button modal-close-btn" data-close-modal aria-label="Tutup dialog">
+                    <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="form-modal-fields" class="form-fields"></div>
+                <p class="form-error" id="form-modal-error" role="alert" hidden></p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="submit" class="primary-button" id="form-modal-submit">Simpan</button>
+            </div>
         </form>
     </dialog>
-    <dialog class="app-dialog" id="workflow-modal" aria-labelledby="workflow-modal-title"><form id="workflow-modal-form"><div class="modal-heading"><div><h2 id="workflow-modal-title"></h2><p id="workflow-modal-hint"></p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div><div class="modal-body"><div id="workflow-modal-fields" class="form-fields"></div><p class="form-error" id="workflow-modal-error" role="alert" hidden></p></div><div class="modal-actions"><button type="button" class="secondary-button" data-close-modal>Batal</button><button type="submit" class="primary-button" id="workflow-modal-submit">Simpan</button></div></form></dialog>
+    <dialog class="app-dialog" id="workflow-modal" aria-labelledby="workflow-modal-title">
+        <form id="workflow-modal-form">
+            <div class="modal-heading">
+                <div>
+                    <h2 id="workflow-modal-title"></h2>
+                    <p id="workflow-modal-hint"></p>
+                </div>
+                <button type="button" class="icon-button modal-close-btn" data-close-modal aria-label="Tutup dialog">
+                    <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="workflow-modal-fields" class="form-fields"></div>
+                <p class="form-error" id="workflow-modal-error" role="alert" hidden></p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="secondary-button" data-close-modal>Batal</button>
+                <button type="submit" class="primary-button" id="workflow-modal-submit">Simpan</button>
+            </div>
+        </form>
+    </dialog>
     <dialog class="app-dialog confirm-dialog" id="confirm-modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
         <form method="dialog">
             <div class="modal-heading"><div><h2 id="confirm-modal-title">Konfirmasi</h2></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>

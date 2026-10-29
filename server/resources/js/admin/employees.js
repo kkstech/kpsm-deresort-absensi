@@ -28,26 +28,26 @@ async function fields(withAccount, employee) {
     const list = [
         { name: 'avatar', label: 'Foto profil', type: 'file', accept: 'image/*', hint: 'Format JPG, PNG, atau WEBP. Maksimal 5MB.', fullWidth: true },
 
-        { name: 'sec_personal', label: 'Data Pribadi & Kontak', type: 'section' },
-        { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120 },
-        { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, hint: 'Contoh: FO-001' },
-        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off' },
-        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Akun login app: ${employee.user.email}` : 'Email korespondensi karyawan.' },
+        { name: 'sec_personal', label: '1. Data Pribadi & Kontak', hint: 'Identitas utama dan kontak aktif karyawan', icon: 'user', type: 'section' },
+        { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120, placeholder: 'Contoh: Nadia Anjani' },
+        { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, hint: 'Contoh: FO-001', placeholder: 'FO-001' },
+        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off', placeholder: '0812xxxxxxxx' },
+        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Akun login app: ${employee.user.email}` : 'Digunakan untuk kontak & pengiriman info ke karyawan.', placeholder: 'karyawan@deresort.id' },
 
-        { name: 'sec_job', label: 'Kepegawaian & Penempatan', type: 'section' },
+        { name: 'sec_job', label: '2. Kepegawaian & Penempatan', hint: 'Pengaturan unit kerja, jabatan, dan kelompok tunjangan', icon: 'contract', type: 'section' },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
-        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Dasar tunjangan makan & transport.' },
+        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Dasar penghitungan tunjangan makan & transport.' },
         { name: 'work_location_id', label: 'Lokasi penempatan kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
         { name: 'status', label: 'Status karyawan', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
         { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: !employee },
     ];
     if (withAccount) {
         list.push(
-            { name: 'sec_account', label: 'Akun Mobile App', type: 'section' },
-            { name: 'make_account', label: 'Buat akun mobile app sekarang', type: 'checkbox', fullWidth: true },
-            { name: 'account_email', label: 'Email login app', type: 'email', showIf: (v) => v.make_account },
-            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter.', showIf: (v) => v.make_account },
+            { name: 'sec_account', label: '3. Akses Mobile App', hint: 'Buat kredensial login aplikasi mobile karyawan secara instan', icon: 'key', type: 'section' },
+            { name: 'make_account', label: 'Buat akun mobile app sekarang', hint: 'Karyawan dapat langsung masuk ke aplikasi dan mencatat presensi', type: 'checkbox', fullWidth: true },
+            { name: 'account_email', label: 'Email login app', type: 'email', hint: 'Email login aplikasi (otomatis terisi dari email pribadi)', showIf: (v) => v.make_account, placeholder: 'karyawan@deresort.id' },
+            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter.', showIf: (v) => v.make_account, placeholder: '••••••••' },
         );
     }
     return list;
@@ -166,13 +166,13 @@ async function openEmployee(employee) {
 async function openEmployment(employee) {
     const current = employee.employment ?? {};
     openForm({
-        title: `Status kerja · ${employee.name}`,
-        hint: 'Riwayat tidak menghapus tanggal atau akun lama. Kontrak yang berakhir memberi pengingat dan tidak menonaktifkan akun.',
+        title: `Status Kerja · ${employee.name}`,
+        hint: 'Riwayat penempatan kerja dan masa berlaku kontrak karyawan.',
         fields: [
             { name: 'type', label: 'Jenis karyawan', type: 'select', required: true, options: [{ value: 'permanent', label: 'Tetap' }, { value: 'contract', label: 'Kontrak' }], default: current.type === 'contract' ? 'contract' : 'permanent' },
             { name: 'starts_on', label: 'Berlaku mulai', type: 'date', required: true },
             { name: 'ends_on', label: 'Kontrak berakhir', type: 'date', required: true, showIf: (value) => value.type === 'contract' },
-            { name: 'reason', label: 'Alasan perubahan', required: true, maxlength: 1000 },
+            { name: 'reason', label: 'Alasan perubahan', type: 'textarea', required: true, maxlength: 1000, placeholder: 'Keterangan perpanjangan kontrak atau pengangkatan karyawan...' },
         ],
         values: { starts_on: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()), ends_on: current.ends_on ?? '' },
         onSubmit: async (body) => {
@@ -187,12 +187,12 @@ async function openLevel(employee) {
     const levels = await lookup('employee-levels');
     const history = (await api(`employees/${employee.id}/levels`)).data;
     openForm({
-        title: `Level · ${employee.name}`,
-        hint: 'Level dan tanggal berlakunya disimpan ke riwayat karyawan.',
+        title: `Level Tunjangan · ${employee.name}`,
+        hint: 'Perubahan level tunjangan dicatat otomatis ke riwayat penempatan.',
         fields: [
             { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, required: true, blank: 'Pilih level', options: opts(levels, (x) => `${x.name} (${x.code})`) },
             { name: 'effective_from', label: 'Berlaku mulai', type: 'date', required: true },
-            { name: 'reason', label: 'Alasan perubahan', required: true, maxlength: 1000 },
+            { name: 'reason', label: 'Alasan perubahan', type: 'textarea', required: true, maxlength: 1000, placeholder: 'Tuliskan alasan penyesuaian level tunjangan...' },
         ],
         values: { level_id: employee.level?.id ?? history.at(-1)?.level_id, effective_from: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()) },
         onSubmit: async (body) => {

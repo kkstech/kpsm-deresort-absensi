@@ -16,7 +16,7 @@
             <p class="form-error" role="alert">{{ $errors->first() }}</p>
         @endif
         <label>Username
-            <input name="username" type="text" value="{{ old('username') }}" autocomplete="username" placeholder="Username atau email" required autofocus>
+            <input name="username" type="text" value="{{ old('username') }}" autocomplete="username" placeholder="Username atau email" required autofocus autocapitalize="none" autocorrect="off" spellcheck="false">
         </label>
         <label>Password
             <div class="password-wrapper">
