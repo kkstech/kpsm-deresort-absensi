@@ -30,9 +30,9 @@ async function fields(withAccount, employee) {
 
         { name: 'sec_personal', label: '1. Data Pribadi & Kontak', hint: 'Identitas utama dan kontak aktif karyawan', icon: 'user', type: 'section' },
         { name: 'name', label: 'Nama lengkap', required: true, maxlength: 120, placeholder: 'Contoh: Nadia Anjani' },
-        { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, hint: 'Contoh: FO-001', placeholder: 'FO-001' },
-        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off', placeholder: '0812xxxxxxxx' },
-        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, hint: employee?.user ? `Akun login app: ${employee.user.email}` : 'Digunakan untuk kontak & pengiriman info ke karyawan.', placeholder: 'karyawan@deresort.id' },
+        { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, placeholder: 'Contoh: FO-001' },
+        { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off', placeholder: 'Contoh: 081234567890' },
+        { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, placeholder: 'Contoh: karyawan@deresort.id' },
 
         { name: 'sec_job', label: '2. Kepegawaian & Penempatan', hint: 'Pengaturan unit kerja, jabatan, dan kelompok tunjangan', icon: 'contract', type: 'section' },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
