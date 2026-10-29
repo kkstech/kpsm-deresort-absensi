@@ -159,7 +159,7 @@ function renderTable() {
 
         const initial = (row.employee?.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
         const avatar = row.employee?.avatar_url
-            ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:32px;height:32px;border-radius:6px;object-fit:cover;margin-right:10px;flex-shrink:0;">`
+            ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:32px;height:32px;border-radius:6px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:32px;height:32px;border-radius:6px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);',textContent:'${esc(initial)}'}))">`
             : `<span class="avatar" style="width:32px;height:32px;border-radius:6px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);">${esc(initial)}</span>`;
 
         const rowTotal = Number(row.meal_amount ?? 0) + Number(row.transport_amount ?? 0);

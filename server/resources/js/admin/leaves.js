@@ -192,7 +192,7 @@ function renderRequestsTable() {
 
         const initial = (item.employee?.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
         const avatar = item.employee?.avatar_url
-            ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;">`
+            ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);',textContent:'${esc(initial)}'}))">`
             : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);">${esc(initial)}</span>`;
 
         const typeTone = item.type === 'regular' ? 'blue' : 'neutral';
@@ -306,7 +306,7 @@ function renderBalancesTable() {
     const bodyHtml = rows.map((item) => {
         const initial = (item.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
         const avatar = item.avatar_url
-            ? `<img src="${esc(item.avatar_url)}" alt="${esc(item.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;">`
+            ? `<img src="${esc(item.avatar_url)}" alt="${esc(item.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);',textContent:'${esc(initial)}'}))">`
             : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);">${esc(initial)}</span>`;
 
         const regAvail = item.regular.available;

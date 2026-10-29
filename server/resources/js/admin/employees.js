@@ -85,7 +85,7 @@ function render() {
             { label: 'Karyawan', cell: (e) => {
                 const initial = (e.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
                 const avatar = e.avatar_url
-                    ? `<img src="${esc(e.avatar_url)}" alt="${esc(e.name)}" class="avatar" style="width:36px;height:36px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;">`
+                    ? `<img src="${esc(e.avatar_url)}" alt="${esc(e.name)}" class="avatar" style="width:36px;height:36px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:36px;height:36px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;',textContent:'${esc(initial)}'}))">`
                     : `<span class="avatar" style="width:36px;height:36px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;">${esc(initial)}</span>`;
                 return `<div style="display:flex;align-items:center;">${avatar}<div><b>${esc(e.name)}</b><small style="display:block;">${esc(e.code)}</small></div></div>`;
             } },

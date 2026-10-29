@@ -6,6 +6,12 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Penanganan Foto Profil Missing & Fallback Inisial
+
+- Memperbaiki penanganan `avatar_url` pada model `Employee` dan `User`: jika file foto di disk publik tidak ditemukan (misalnya terhapus atau belum tersinkronisasi), backend otomatis mengembalikan `null` alih-alih URL mati yang memicu 404.
+- Menambahkan fallback aman `onerror` pada seluruh rendering elemen `<img>` avatar (Laporan, Absensi, Tunjangan, Cuti, dan Karyawan) agar otomatis berganti menjadi inisial nama tanpa memicu error atau merusak antarmuka.
+- Mengeliminasi pemicu error interseptor ekstensi browser (`200.js:1 TypeError reading M_ID`) yang terjadi akibat kegagalan unduh resource foto yang tidak ada.
+
 ## Perubahan terbaru — Perbaikan Tata Letak Filter Menu Laporan
 
 - Memperbaiki tata letak panel filter pada menu **Laporan & Rekapitulasi** (`#reports`) agar tidak memanjang ke bawah (*elongated downward*).

@@ -61,7 +61,7 @@ function formatDate(dateStr) {
 function getAvatarHtml(name, avatarUrl) {
     const initial = (name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
     return avatarUrl
-        ? `<img src="${esc(avatarUrl)}" alt="${esc(name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;">`
+        ? `<img src="${esc(avatarUrl)}" alt="${esc(name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;',textContent:'${esc(initial)}'}))">`
         : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;">${esc(initial)}</span>`;
 }
 

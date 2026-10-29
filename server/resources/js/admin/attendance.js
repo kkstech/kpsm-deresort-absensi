@@ -273,7 +273,7 @@ function renderMonitoring({ data, meta }) {
 
             const initial = (row.employee.name || 'K').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
             const avatar = row.employee.avatar_url
-                ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;">`
+                ? `<img src="${esc(row.employee.avatar_url)}" alt="${esc(row.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:10px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;',textContent:'${esc(initial)}'}))">`
                 : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:10px;flex-shrink:0;font-size:11px;background:#e2ece4;color:var(--primary);font-weight:700;">${esc(initial)}</span>`;
 
             return `<tr>
@@ -428,7 +428,7 @@ function renderQueueItem(item, kind) {
     const canDecide = late ? (role === 'super_admin' || role === 'admin' || (role === 'supervisor' && item.requester_id !== Number(document.body.dataset.userId))) : isAdmin;
     const initialLetter = esc(item.employee.name.charAt(0).toUpperCase());
     const avatarHtml = item.employee?.avatar_url
-        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar workflow-avatar">`
+        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar workflow-avatar" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar workflow-avatar',textContent:'${initialLetter}'}))">`
         : `<span class="avatar workflow-avatar">${initialLetter}</span>`;
 
     return `<article class="workflow-card">
@@ -476,7 +476,7 @@ function renderOvertimeItem(item) {
     const initialLetter = esc(item.employee?.name?.charAt(0).toUpperCase() ?? '?');
     const isSuperOrAdmin = role === 'super_admin' || role === 'admin';
     const avatarHtml = item.employee?.avatar_url
-        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name ?? '')}" class="avatar workflow-avatar">`
+        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name ?? '')}" class="avatar workflow-avatar" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar workflow-avatar',textContent:'${initialLetter}'}))">`
         : `<span class="avatar workflow-avatar">${initialLetter}</span>`;
 
     let statusBadge = '<span class="status warning">Menunggu Admin</span>';
