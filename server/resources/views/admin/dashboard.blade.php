@@ -622,21 +622,21 @@
                                 </div>
                             </div>
                             <div class="report-filter-fields">
-                                <label class="report-field">
+                                <label class="report-field report-field-date">
                                     <span>Dari Tanggal</span>
                                     <input type="date" name="from" id="report-from" required>
                                 </label>
-                                <label class="report-field">
+                                <label class="report-field report-field-date">
                                     <span>Sampai Tanggal</span>
                                     <input type="date" name="to" id="report-to" required>
                                 </label>
-                                <label class="report-field">
+                                <label class="report-field report-field-select">
                                     <span>Departemen</span>
                                     <select name="department_id" id="report-dept">
                                         <option value="">Semua departemen</option>
                                     </select>
                                 </label>
-                                <label class="report-field">
+                                <label class="report-field report-field-select">
                                     <span>Karyawan</span>
                                     <select name="employee_id" id="report-employee">
                                         <option value="">Semua karyawan</option>

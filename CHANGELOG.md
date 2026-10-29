@@ -6,6 +6,14 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Perbaikan Tata Letak Filter Menu Laporan
+
+- Memperbaiki tata letak panel filter pada menu **Laporan & Rekapitulasi** (`#reports`) agar tidak memanjang ke bawah (*elongated downward*).
+- Mengganti deklarasi CSS grid yang memicu konflik browser dengan flexbox horizontal yang responsif (`display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;`).
+- Menata kolom input (Dari Tanggal, Sampai Tanggal, Departemen, Karyawan, Pencarian Nama/NIK, serta tombol Terapkan & Reset) agar sejajar secara horizontal dalam satu baris kompak pada layar desktop.
+- Mengoptimalkan tinggi kontrol input (38px) dan merapikan baris preset cepat serta status badge dengan garis pemisah tipis (*dashed separator*).
+- Menyediakan responsivitas yang rapi untuk tablet (2 baris) dan mobile (grid 2 kolom untuk tanggal, 1 kolom untuk dropdown/pencarian, dan tombol aksi berdampingan).
+
 ## Perubahan terbaru — Perapihan UI Halaman Laporan (UI/UX Pro Max & Anti-Slop)
 
 - Merapikan seluruh komponen visual halaman **Laporan & Rekapitulasi** (`#reports`) agar konsisten dengan tema resort dan bebas dari inline style / AI slop.

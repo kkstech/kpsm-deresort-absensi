@@ -2646,7 +2646,7 @@ main:focus { outline: none; }
 }
 
 .report-filter-panel {
-    padding: 18px 20px;
+    padding: 14px 18px;
     margin-bottom: 20px;
 }
 
@@ -2654,21 +2654,25 @@ main:focus { outline: none; }
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--line);
     flex-wrap: wrap;
 }
 
 .report-presets-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
 .report-filter-label {
-    font-size: 13px;
+    font-size: 11.5px;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--muted);
 }
 
@@ -2688,7 +2692,7 @@ main:focus { outline: none; }
 .report-status-badge {
     display: inline-flex;
     align-items: center;
-    padding: 4px 12px;
+    padding: 3px 10px;
     border-radius: 9999px;
     font-size: 11px;
     font-weight: 800;
@@ -2710,40 +2714,45 @@ main:focus { outline: none; }
 }
 
 .report-meta-text {
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--muted);
 }
 
 .report-filter-fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)) auto;
-    gap: 12px;
+    display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
+    gap: 10px;
 }
 
 .report-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
+    flex: 1 1 140px;
 }
 
-.report-field span {
-    font-size: 12px;
+.report-field > span {
+    font-size: 11px;
     font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--muted);
+    white-space: nowrap;
 }
 
 .report-field input,
 .report-field select {
     width: 100%;
-    min-height: 42px;
-    height: 42px;
-    padding: 0 12px;
-    border: 1px solid var(--line);
+    min-height: 38px;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #b9c4bc;
     border-radius: 8px;
-    font-size: 13.5px;
+    font-size: 13px;
     color: var(--ink);
     background: #fff;
+    box-sizing: border-box;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2754,17 +2763,36 @@ main:focus { outline: none; }
     outline: none;
 }
 
+.report-field-date {
+    flex: 0 1 140px;
+    min-width: 130px;
+}
+
+.report-field-select {
+    flex: 1 1 150px;
+    min-width: 135px;
+}
+
+.report-field-search {
+    flex: 1.5 1 180px;
+    min-width: 160px;
+}
+
 .report-filter-actions {
     display: flex;
-    gap: 8px;
-    min-height: 42px;
-    height: 42px;
+    gap: 6px;
+    align-items: flex-end;
+    flex: 0 0 auto;
+    height: 38px;
+    min-height: 38px;
 }
 
 .report-filter-actions button {
-    min-height: 42px;
-    height: 42px;
-    padding: 0 18px;
+    min-height: 38px;
+    height: 38px;
+    padding: 0 15px;
+    font-size: 13px;
+    font-weight: 600;
     white-space: nowrap;
 }
 
@@ -2795,11 +2823,23 @@ main:focus { outline: none; }
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .report-filter-fields {
+        display: grid;
         grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    .report-field-date {
+        grid-column: span 1;
+        width: 100%;
+    }
+    .report-field-select,
+    .report-field-search {
+        grid-column: 1 / -1;
+        width: 100%;
     }
     .report-filter-actions {
         grid-column: 1 / -1;
         width: 100%;
+        display: flex;
     }
     .report-filter-actions button {
         flex: 1;
@@ -2810,8 +2850,21 @@ main:focus { outline: none; }
     .report-metric-grid {
         grid-template-columns: 1fr;
     }
+    .report-filter-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .report-preset-chips {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
     .report-filter-fields {
         grid-template-columns: 1fr;
+    }
+    .report-field-date {
+        grid-column: 1 / -1;
     }
 }
 
