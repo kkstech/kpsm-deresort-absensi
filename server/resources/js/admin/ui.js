@@ -460,13 +460,6 @@ fieldsBox.addEventListener('change', (event) => {
             if (btnSpan) btnSpan.textContent = 'Ganti Foto';
         }
     }
-    if (event.target.name === 'make_account' && event.target.checked) {
-        const emailInput = $('[name="email"]', fieldsBox);
-        const accountEmailInput = $('[name="account_email"]', fieldsBox);
-        if (emailInput && accountEmailInput && !accountEmailInput.value && emailInput.value) {
-            accountEmailInput.value = emailInput.value;
-        }
-    }
     if (current) syncVisibility();
 });
 fieldsBox.addEventListener('click', (event) => {

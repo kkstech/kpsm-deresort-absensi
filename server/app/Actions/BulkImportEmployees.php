@@ -276,8 +276,8 @@ class BulkImportEmployees
 
             // 12. Password
             $password = trim((string) ($row['password'] ?? '')) ?: 'password123';
-            if ($makeAccount && mb_strlen($password) < 8) {
-                $errors[] = 'Password akun minimal 8 karakter.';
+            if ($makeAccount && mb_strlen($password) < 1) {
+                $errors[] = 'Password akun tidak boleh kosong.';
             }
 
             $isValid = empty($errors);

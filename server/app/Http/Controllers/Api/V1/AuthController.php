@@ -105,7 +105,7 @@ class AuthController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'current_password' => ['required_with:password', 'nullable', 'string'],
-            'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'password' => ['nullable', 'string', 'confirmed'],
         ]);
 
         if (! empty($data['password'])) {

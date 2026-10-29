@@ -103,16 +103,26 @@ class EmployeeController extends Controller
         $data = $this->validated($request);
         $account = $request->validate([
             'account_email' => ['nullable', 'email', 'max:255'],
-            'account_password' => ['nullable', 'string', 'min:8', 'max:255'],
+            'account_password' => ['nullable', 'string', 'max:255'],
         ]);
 
         $employee = DB::transaction(function () use ($data, $account, $request) {
-            $accountEmail = ! empty($account['account_email']) ? Str::lower($account['account_email']) : (! empty($data['email']) && ! empty($account['account_password']) ? Str::lower($data['email']) : null);
-            if ($accountEmail) {
-                $existingUser = User::query()->where('email', $accountEmail)->first();
+            $accountEmail = ! empty($account['account_email'])
+                ? Str::lower($account['account_email'])
+                : (! empty($data['email']) ? Str::lower($data['email']) : null);
+
+            $hasAccountRequest = ! empty($account['account_email']) || ! empty($account['account_password']);
+
+            if ($hasAccountRequest) {
+                $targetEmail = $accountEmail ?: Str::lower($data['code']).'@deresort.local';
+                $existingUser = User::query()
+                    ->where('email', $targetEmail)
+                    ->orWhere('username', Str::lower($data['code']))
+                    ->first();
+
                 if ($existingUser) {
                     if ($existingUser->employee()->exists()) {
-                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun dengan email tersebut sudah terhubung ke karyawan lain.', 422);
+                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun dengan username atau email ini sudah terhubung ke karyawan lain.', 422);
                     }
                     if (! empty($account['account_password'])) {
                         $existingUser->update([
@@ -130,7 +140,7 @@ class EmployeeController extends Controller
                 } elseif (! empty($account['account_password'])) {
                     $data['user_id'] = User::query()->create([
                         'name' => $data['name'],
-                        'email' => $accountEmail,
+                        'email' => $targetEmail,
                         'username' => Str::lower($data['code']),
                         'phone' => $data['phone'] ?? null,
                         'avatar_path' => $data['avatar_path'] ?? null,
@@ -297,8 +307,8 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $user = $employee->user;
         $data = $request->validate([
-            'email' => [$user ? 'nullable' : 'required', 'email', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
         DB::transaction(function () use ($employee, $user, $data) {
@@ -321,11 +331,16 @@ class EmployeeController extends Controller
                 $user->update($userUpdates);
                 $user->tokens()->delete();
             } else {
-                $loginEmail = isset($data['email']) ? Str::lower($data['email']) : ($employee->email ? Str::lower($employee->email) : null);
-                $existingUser = User::query()->where('email', $loginEmail)->first();
+                $loginEmail = ! empty($data['email'])
+                    ? Str::lower($data['email'])
+                    : ($employee->email ? Str::lower($employee->email) : Str::lower($employee->code).'@deresort.local');
+                $existingUser = User::query()
+                    ->where('email', $loginEmail)
+                    ->orWhere('username', Str::lower($employee->code))
+                    ->first();
                 if ($existingUser) {
                     if ($existingUser->employee()->where('id', '!=', $employee->id)->exists()) {
-                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun user dengan email ini sudah terhubung ke karyawan lain.', 422);
+                        throw new BusinessRuleException('ACCOUNT_ALREADY_LINKED', 'Akun user dengan email atau username ini sudah terhubung ke karyawan lain.', 422);
                     }
                     $existingUserUpdates = [
                         'password' => $data['password'],

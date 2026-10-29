@@ -45,6 +45,21 @@ class MasterCrudTest extends TestCase
             ->assertStatus(422)->assertJsonPath('code', 'VALIDATION_ERROR')->assertJsonStructure(['details' => ['code']]);
     }
 
+    public function test_admin_creates_employee_with_weak_password_and_no_email(): void
+    {
+        $payload = $this->employeePayload([
+            'code' => 'FO-999',
+            'account_password' => '1234',
+        ]);
+        unset($payload['email']);
+
+        $this->asAdmin()->postJson('/admin/api/employees', $payload)->assertCreated();
+        $employee = Employee::query()->where('code', 'FO-999')->firstOrFail();
+        $this->assertNotNull($employee->user_id);
+        $this->assertSame('fo-999', $employee->user->username);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('1234', $employee->user->password));
+    }
+
     public function test_department_change_records_placement_and_deactivate_revokes_access(): void
     {
         $this->asAdmin()->postJson('/admin/api/employees', $this->employeePayload([

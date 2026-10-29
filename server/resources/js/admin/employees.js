@@ -44,10 +44,9 @@ async function fields(withAccount, employee) {
     ];
     if (withAccount) {
         list.push(
-            { name: 'sec_account', label: '3. Akses Mobile App', hint: 'Buat kredensial login aplikasi mobile karyawan secara instan', icon: 'key', type: 'section' },
-            { name: 'make_account', label: 'Buat akun mobile app sekarang', hint: 'Karyawan dapat langsung masuk ke aplikasi dan mencatat presensi', type: 'checkbox', fullWidth: true },
-            { name: 'account_email', label: 'Email login app', type: 'email', hint: 'Email login aplikasi (otomatis terisi dari email pribadi)', showIf: (v) => v.make_account, placeholder: 'karyawan@deresort.id' },
-            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Minimal 8 karakter.', showIf: (v) => v.make_account, placeholder: '••••••••' },
+            { name: 'sec_account', label: '3. Akses Mobile App', hint: 'Buat kredensial login aplikasi mobile karyawan (login memakai username / NIK)', icon: 'key', type: 'section' },
+            { name: 'make_account', label: 'Buat akun mobile app sekarang', hint: 'Karyawan dapat langsung masuk ke aplikasi menggunakan username (NIK) dan password ini', type: 'checkbox', fullWidth: true },
+            { name: 'account_password', label: 'Password awal', type: 'password', autocomplete: 'new-password', hint: 'Bisa menggunakan kombinasi angka atau password sederhana.', showIf: (v) => v.make_account, placeholder: 'Contoh: 123456' },
         );
     }
     return list;
@@ -207,14 +206,12 @@ async function openLevel(employee) {
 async function openAccount(employee) {
     if (employee.user) {
         openForm({
-            title: `Ganti password · ${employee.name}`,
-            hint: 'Semua perangkat karyawan ini akan keluar dan harus login ulang.',
+            title: `Ganti Password · ${employee.name}`,
+            hint: `Akun: ${employee.user.username || employee.code}. Perangkat karyawan akan diminta login ulang dengan password baru.`,
             submitLabel: 'Ganti password',
             fields: [
-                { name: 'email', label: 'Email login app', type: 'email', required: true },
-                { name: 'password', label: 'Password baru', type: 'password', required: true, autocomplete: 'new-password', hint: 'Minimal 8 karakter.' },
+                { name: 'password', label: 'Password baru', type: 'password', required: true, autocomplete: 'new-password', hint: 'Bisa menggunakan angka atau password sederhana.', placeholder: 'Password baru' },
             ],
-            values: { email: employee.user.email },
             onSubmit: async (body) => {
                 await api(`employees/${employee.id}/account`, { method: 'POST', body });
                 toast('Password akun berhasil diperbarui.');
@@ -230,8 +227,8 @@ async function openAccount(employee) {
     openForm({
         title: `Hubungkan Akun App · ${employee.name}`,
         hint: hasUnlinked
-            ? 'Anda bisa menautkan akun user/admin yang sudah ada, atau membuatkan akun baru.'
-            : 'Karyawan login di mobile app menggunakan akun ini.',
+            ? 'Anda bisa menautkan akun user/admin yang sudah ada, atau membuatkan password login baru.'
+            : `Karyawan akan login di mobile app menggunakan username (${employee.code}) dan password ini.`,
         submitLabel: 'Simpan Akun',
         fields: hasUnlinked ? [
             {
@@ -240,10 +237,10 @@ async function openAccount(employee) {
                 type: 'select',
                 required: true,
                 options: [
+                    { value: 'create', label: `Buat password login mobile baru (Username: ${employee.code})` },
                     { value: 'link', label: 'Tautkan dengan user yang sudah ada (Admin / Supervisor / User)' },
-                    { value: 'create', label: 'Buat akun login baru' },
                 ],
-                default: 'link',
+                default: 'create',
             },
             {
                 name: 'user_id',
@@ -255,31 +252,25 @@ async function openAccount(employee) {
                 showIf: (v) => v.mode === 'link',
             },
             {
-                name: 'email',
-                label: 'Email login app',
-                type: 'email',
-                showIf: (v) => v.mode === 'create',
-            },
-            {
                 name: 'password',
                 label: 'Password awal',
                 type: 'password',
                 autocomplete: 'new-password',
-                hint: 'Minimal 8 karakter. Berikan ke karyawan.',
+                hint: 'Bisa menggunakan kombinasi angka atau password sederhana. Berikan ke karyawan.',
+                placeholder: 'Contoh: 123456',
                 showIf: (v) => v.mode === 'create',
             },
         ] : [
-            { name: 'email', label: 'Email login app', type: 'email', required: true },
-            { name: 'password', label: 'Password awal', type: 'password', required: true, autocomplete: 'new-password', hint: 'Minimal 8 karakter. Berikan ke karyawan.' },
+            { name: 'password', label: 'Password awal', type: 'password', required: true, autocomplete: 'new-password', hint: 'Bisa menggunakan kombinasi angka atau password sederhana. Berikan ke karyawan.', placeholder: 'Contoh: 123456' },
         ],
-        values: { email: employee.email ?? '' },
+        values: {},
         onSubmit: async (body) => {
             if (hasUnlinked && body.mode === 'link') {
                 if (!body.user_id) throw new Error('Pilih akun user yang ingin ditautkan.');
                 await api(`employees/${employee.id}/link-user`, { method: 'POST', body: { user_id: body.user_id } });
                 toast('Akun user berhasil ditautkan ke karyawan.');
             } else {
-                await api(`employees/${employee.id}/account`, { method: 'POST', body: { email: body.email, password: body.password } });
+                await api(`employees/${employee.id}/account`, { method: 'POST', body: { password: body.password } });
                 toast('Akun baru berhasil dibuat.');
             }
             load();
