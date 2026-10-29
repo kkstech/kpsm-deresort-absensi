@@ -229,9 +229,10 @@ function Pill({ children, tone = 'success' }: { children: React.ReactNode; tone?
   );
 }
 
-function TextField({ label, value, onChangeText, placeholder, multiline = false, keyboardType, secureTextEntry = false, autoCapitalize = 'sentences', autoCorrect = true }: {
+function TextField({ label, value, onChangeText, placeholder, multiline = false, keyboardType, secureTextEntry = false, autoCapitalize = 'sentences', autoCorrect = true, autoComplete, textContentType }: {
   label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; autoCorrect?: boolean;
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'numbers-and-punctuation' | 'phone-pad' | 'url'; secureTextEntry?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters'; autoCorrect?: boolean;
+  autoComplete?: any; textContentType?: any;
 }) {
   const [hidePassword, setHidePassword] = useState(secureTextEntry);
 
@@ -250,6 +251,8 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
           secureTextEntry={secureTextEntry ? hidePassword : false}
           autoCapitalize={autoCapitalize}
           autoCorrect={autoCorrect}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
           style={[styles.input, secureTextEntry && styles.inputWithIcon, multiline && styles.multiline]}
         />
         {secureTextEntry && (
@@ -3172,8 +3175,8 @@ function Main() {
             <Text style={styles.loginHeading}>Masuk ke akun</Text>
             <Text style={styles.intro}>Gunakan username (kode karyawan) dan password akun untuk mengakses jadwal dan absensi.</Text>
             <View style={styles.formCard}>
-              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" autoCorrect={false} />
-              <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="none" autoCorrect={false} />
+              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
+              <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="username" textContentType="username" />
               <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" autoCorrect={false} />
               {!!error && (
                 <View style={styles.sessionNoticeBox}>

@@ -15,8 +15,8 @@
         @if ($errors->any())
             <p class="form-error" role="alert">{{ $errors->first() }}</p>
         @endif
-        <label>Username
-            <input name="username" type="text" value="{{ old('username') }}" autocomplete="username" placeholder="Username atau email" required autofocus autocapitalize="none" autocorrect="off" spellcheck="false">
+        <label>Username (Kode Karyawan)
+            <input name="username" type="text" value="{{ old('username') }}" autocomplete="username" placeholder="Username, kode karyawan, atau email" required autofocus autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email">
         </label>
         <label>Password
             <div class="password-wrapper">

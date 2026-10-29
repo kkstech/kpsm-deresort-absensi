@@ -6,6 +6,12 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Perbaikan Field Username / Kode Karyawan Non-Kapital pada Login
+
+- Memperbaiki field input **Username (Kode Karyawan)** pada aplikasi mobile (`mobile/App.tsx`) dan web admin (`server/resources/views/auth/login.blade.php`) agar keyboard virtual tidak otomatis mengaktifkan huruf kapital pada karakter pertama.
+- Mengonfigurasi `keyboardType="email-address"`, `autoComplete="username"`, `textContentType="username"`, `autoCapitalize="none"`, dan `autoCorrect={false}` pada input mobile.
+- Menambahkan `inputmode="email"`, `autocapitalize="none"`, `autocorrect="off"`, dan menyelaraskan label `Username (Kode Karyawan)` pada form login web admin.
+
 ## Perubahan terbaru — Penanganan Foto Profil Missing & Fallback Inisial
 
 - Memperbaiki penanganan `avatar_url` pada model `Employee` dan `User`: jika file foto di disk publik tidak ditemukan (misalnya terhapus atau belum tersinkronisasi), backend otomatis mengembalikan `null` alih-alih URL mati yang memicu 404.
