@@ -6,6 +6,12 @@ Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lan
 
 Tanggal: 29 Oktober 2026.
 
+## Perubahan terbaru — Penataan Grid 2x2 Tombol Aksi Jadwal & Shift
+
+- Memperbaiki tata letak 4 tombol aksi pada menu **Jadwal & Shift** (`#schedule`) dari vertikal 1 kolom menjadi rapi 2 kolom x 2 baris (Baris 1: *Buat Jadwal* & *Penugasan Massal*, Baris 2: *Terbitkan Draft* & *Salin Minggu Depan*).
+- Menyelesaikan konflik spesifisitas CSS antara `.schedule-heading-grid` dan `.heading-actions`.
+- Mempertahankan ikon jam `<svg>` pada tombol `#schedule-copy` saat teks tombol berganti dinamis antara tampilan mingguan dan bulanan.
+
 ## Perubahan terbaru — Menu Laporan dan Ekspor (XLSX & PDF)
 
 - Menyediakan antarmuka interaktif **Menu Laporan** pada web admin (`#reports`) dengan filter rentang tanggal, preset cepat (Hari Ini, 7 Hari Terakhir, Bulan Ini, Bulan Lalu), filter departemen, karyawan, dan pencarian nama/NIK.

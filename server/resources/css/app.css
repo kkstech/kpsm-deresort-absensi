@@ -200,33 +200,65 @@ main:focus { outline: none; }
 }
 
 /* 2 Kolom 2 Baris Tombol Aksi Jadwal & Shift */
-.schedule-heading-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(160px, 1fr));
-    gap: 8px 10px;
-    align-items: stretch;
-}
-.schedule-heading-grid button {
-    width: 100%;
-    min-height: 38px;
-    height: 38px;
-    padding: 0 14px;
-    font-size: 13px;
-    white-space: nowrap;
-    display: inline-flex;
+.schedule-view .page-heading {
     align-items: center;
-    justify-content: center;
-    gap: 6px;
 }
-.schedule-heading-grid button .icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
+
+.schedule-heading-grid,
+.heading-actions.schedule-heading-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(160px, auto)) !important;
+    grid-template-rows: repeat(2, auto) !important;
+    gap: 8px 10px !important;
+    align-items: stretch !important;
+    width: auto !important;
+    flex-shrink: 0 !important;
 }
+
+.schedule-heading-grid > button,
+.heading-actions.schedule-heading-grid > button {
+    width: 100% !important;
+    flex: none !important;
+    min-height: 40px !important;
+    height: 40px !important;
+    padding: 0 16px !important;
+    font-size: 13.5px !important;
+    font-weight: 600 !important;
+    white-space: nowrap !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 7px !important;
+    box-sizing: border-box !important;
+}
+
+.schedule-heading-grid > button .icon,
+.heading-actions.schedule-heading-grid > button .icon {
+    width: 16px !important;
+    height: 16px !important;
+    flex-shrink: 0 !important;
+}
+
 @media (max-width: 640px) {
-    .schedule-heading-grid {
-        width: 100%;
-        grid-template-columns: 1fr;
+    .schedule-heading-grid,
+    .heading-actions.schedule-heading-grid {
+        width: 100% !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+    }
+    .schedule-heading-grid > button,
+    .heading-actions.schedule-heading-grid > button {
+        padding: 0 10px !important;
+        font-size: 12px !important;
+        min-height: 38px !important;
+        height: 38px !important;
+    }
+}
+
+@media (max-width: 420px) {
+    .schedule-heading-grid,
+    .heading-actions.schedule-heading-grid {
+        grid-template-columns: 1fr !important;
     }
 }
 

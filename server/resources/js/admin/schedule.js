@@ -117,7 +117,7 @@ function renderToolbar() {
     const copy = $('#schedule-copy');
     if (copy) {
         copy.hidden = false;
-        copy.textContent = state.view === 'week' ? 'Salin ke minggu depan' : 'Salin ke bulan depan';
+        copy.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>${state.view === 'week' ? 'Salin ke minggu depan' : 'Salin ke bulan depan'}</span>`;
     }
 }
 
