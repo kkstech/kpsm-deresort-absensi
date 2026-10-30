@@ -641,18 +641,21 @@ main:focus { outline: none; }
     gap: 4px;
     margin-bottom: 0;
     padding: 8px;
+    overflow: visible;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 12px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+.settings-section-picker { display: none; }
+
 .settings-vertical-tabs button {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
-    min-height: 42px;
+    min-height: 44px;
     padding: 10px 14px;
     border: 1px solid transparent;
     border-radius: 8px;
@@ -1468,6 +1471,15 @@ main:focus { outline: none; }
         min-width: 0 !important;
         width: 100% !important;
     }
+    .monitoring-data-table .monitoring-session-col {
+        width: 100%;
+        max-width: none;
+    }
+    .monitoring-session-name {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+    }
 }
 
 .heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -1487,6 +1499,19 @@ main:focus { outline: none; }
 #dashboard-activity, #monitoring-table { padding: 0 20px; }
 .attendance-data-table { min-width: 680px; }
 .monitoring-data-table { min-width: 1040px; }
+.monitoring-data-table .monitoring-session-col {
+    width: 6.5rem;
+    max-width: 6.5rem;
+}
+.monitoring-session-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+}
 .data-table td small { line-height: 1.45; }
 .number-cell { font-variant-numeric: tabular-nums; text-align: right; }
 .table-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 20px 16px; color: var(--muted); font-size: 12px; }
@@ -1832,16 +1857,27 @@ main:focus { outline: none; }
     .settings-nav-aside {
         position: static;
     }
+    .settings-section-picker { display: none; }
     .settings-vertical-tabs {
-        flex-direction: row;
-        overflow-x: auto;
-        padding: 6px;
-        gap: 6px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 8px;
+        overflow: visible;
     }
     .settings-vertical-tabs button {
-        flex: 0 0 auto;
-        width: auto;
-        white-space: nowrap;
+        width: 100%;
+        min-height: 44px;
+        padding: 10px 12px;
+        white-space: normal;
+    }
+    .settings-content-panel .panel-heading {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+    .settings-content-panel .panel-heading > div {
+        min-width: 0;
+        flex: 1 1 12rem;
     }
 }
 
@@ -1859,7 +1895,37 @@ main:focus { outline: none; }
     .site-settings-form { padding: 16px; }
     .site-settings-layout { grid-template-columns: minmax(0, 1fr); }
     .site-preview { position: static; }
+    .site-preview-card { min-height: 0; padding: 20px 16px; }
+    .site-settings-section { padding: 16px; }
     .site-settings-actions > button { width: 100%; min-height: 44px; }
+    .settings-section-picker {
+        display: grid;
+        gap: 6px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--surface);
+    }
+    .settings-section-picker span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+    }
+    .settings-section-picker select {
+        width: 100%;
+        min-height: 44px;
+        padding: 0 12px;
+        border: 1px solid #b9c4bc;
+        border-radius: 8px;
+        color: var(--ink);
+        background: #fff;
+    }
+    .settings-vertical-tabs { display: none; }
+    .settings-content-panel .panel-heading {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    #settings-add { width: 100%; }
     .heading-actions { width: 100%; justify-content: stretch; }
     .heading-actions > button { flex: 1 1 100%; }
     .workflow-grid { grid-template-columns: minmax(0, 1fr); }

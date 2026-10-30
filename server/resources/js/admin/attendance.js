@@ -263,7 +263,7 @@ function renderMonitoring({ data, meta }) {
             </div>
         `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" style="min-width:110px;">Tanggal</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:140px;">Sesi</th><th scope="col" style="min-width:120px;">Jadwal</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" style="min-width:110px;">Tanggal</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" class="monitoring-session-col">Sesi</th><th scope="col" style="min-width:120px;">Jadwal</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
@@ -297,9 +297,9 @@ function renderMonitoring({ data, meta }) {
                         </div>
                     </div>
                 </td>
-                <td data-label="Sesi">
-                    <span class="status neutral" style="font-size:11px;font-weight:600;padding:2px 8px;">${esc(row.shift.name)}</span>
-                    <small style="color:var(--muted);margin-top:2px;display:block;">Sesi ${row.shift.seq}</small>
+                <td data-label="Sesi" class="monitoring-session-col">
+                    <span class="monitoring-session-name" title="${esc(row.shift.name)}">${esc(row.shift.name)}</span>
+                    <small>Sesi ${row.shift.seq}</small>
                 </td>
                 <td data-label="Jadwal"><span style="font-family:monospace;font-weight:600;font-size:12.5px;">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</span></td>
                 <td data-label="Masuk">

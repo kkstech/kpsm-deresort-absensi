@@ -1063,6 +1063,21 @@
                     <div class="page-heading"><div><h1>Pengaturan</h1><span>Data dasar yang dipakai jadwal dan absensi.</span></div></div>
                     <div class="settings-view-layout">
                         <aside class="settings-nav-aside" aria-label="Kategori pengaturan">
+                            <label class="settings-section-picker">
+                                <span>Bagian</span>
+                                <select id="settings-section-select">
+                                    <option value="general">Umum</option>
+                                    <option value="templates">Template shift</option>
+                                    <option value="policies">Aturan kehadiran</option>
+                                    <option value="departments">Departemen</option>
+                                    <option value="positions">Jabatan</option>
+                                    <option value="locations">Lokasi kerja</option>
+                                    <option value="levels">Level karyawan</option>
+                                    <option value="allowances">Tarif tunjangan</option>
+                                    <option value="allowance-overrides">Pengecualian individu</option>
+                                    <option value="users">Akun admin</option>
+                                </select>
+                            </label>
                             <div class="tabs settings-vertical-tabs" role="tablist" aria-orientation="vertical" aria-label="Bagian pengaturan">
                                 <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Umum</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>

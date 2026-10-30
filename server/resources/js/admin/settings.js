@@ -285,12 +285,36 @@ async function loadGeneral() {
     }
 }
 
+function syncSettingsPicker() {
+    const select = $('#settings-section-select');
+    if (!select) return;
+    const buttons = $$('[data-settings-tab]');
+    const values = buttons.map((button) => button.dataset.settingsTab);
+    if (select.options.length !== values.length || [...select.options].some((option, index) => option.value !== values[index])) {
+        select.replaceChildren(...buttons.map((button) => {
+            const option = document.createElement('option');
+            option.value = button.dataset.settingsTab;
+            option.textContent = button.querySelector('span')?.textContent.trim() || button.dataset.settingsTab;
+            return option;
+        }));
+    }
+    if (values.includes(active)) select.value = active;
+}
+
+function activateSettingsTab(tabName) {
+    active = validSettingsTab(tabName) ? tabName : 'general';
+    try { localStorage.setItem('deresort_settings_tab', active); } catch (_) {}
+    history.replaceState(null, '', active !== 'general' ? `#settings/${active}` : '#settings');
+    load();
+}
+
 async function load() {
     if (!validSettingsTab(active)) {
         active = 'general';
         try { localStorage.setItem('deresort_settings_tab', 'general'); } catch (_) {}
     }
     $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === active)));
+    syncSettingsPicker();
     if (active === 'general') return loadGeneral();
     const tab = tabs[active];
     const endpoint = tab.endpoint ?? active;
@@ -482,18 +506,11 @@ table.addEventListener('click', async (event) => {
 
 $('#settings-add').addEventListener('click', () => openItem(null));
 $$('[data-settings-tab]').forEach((button) => button.addEventListener('click', () => {
-    active = button.dataset.settingsTab;
-    try {
-        localStorage.setItem('deresort_settings_tab', active);
-    } catch (_) {}
-    if (active && active !== 'general') {
-        history.replaceState(null, '', `#settings/${active}`);
-    } else {
-        history.replaceState(null, '', '#settings');
-    }
-    $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b === button)));
-    load();
+    activateSettingsTab(button.dataset.settingsTab);
 }));
+$('#settings-section-select')?.addEventListener('change', (event) => {
+    activateSettingsTab(event.target.value);
+});
 
 export async function showSettings() {
     active = getInitialSettingsTab();
