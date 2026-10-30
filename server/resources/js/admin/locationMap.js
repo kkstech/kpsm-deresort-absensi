@@ -27,6 +27,18 @@ function writePoint(formRoot, lat, lng) {
     if (lngEl) lngEl.value = lng.toFixed(6);
 }
 
+function boundsAround(lat, lng, radius) {
+    const latPad = radius / 111320;
+    const lngPad = radius / (111320 * Math.max(Math.abs(Math.cos((lat * Math.PI) / 180)), 0.01));
+    return L.latLngBounds([lat - latPad, lng - lngPad], [lat + latPad, lng + lngPad]);
+}
+
+function ensureView(lat, lng, zoom) {
+    if (typeof map.getZoom() !== 'number') {
+        map.setView([lat, lng], zoom);
+    }
+}
+
 function draw(formRoot, { fit = false } = {}) {
     if (!map) return;
     const { lat, lng, radius } = readPoint(formRoot);
@@ -35,9 +47,12 @@ function draw(formRoot, { fit = false } = {}) {
         circle?.remove();
         marker = null;
         circle = null;
+        ensureView(FALLBACK.lat, FALLBACK.lng, FALLBACK.zoom);
         map.setView([FALLBACK.lat, FALLBACK.lng], FALLBACK.zoom);
         return;
     }
+
+    ensureView(lat, lng, 16);
 
     if (!marker) {
         marker = L.circleMarker([lat, lng], DOT).addTo(map);
@@ -52,12 +67,18 @@ function draw(formRoot, { fit = false } = {}) {
             circle.setLatLng([lat, lng]);
             circle.setRadius(radius);
         }
-        if (fit) map.fitBounds(circle.getBounds(), { padding: [28, 28], maxZoom: 17 });
+        if (fit) map.fitBounds(boundsAround(lat, lng, radius), { padding: [28, 28], maxZoom: 17 });
     } else {
         circle?.remove();
         circle = null;
         if (fit) map.setView([lat, lng], 16);
     }
+}
+
+function layoutMap(formRoot) {
+    if (!map) return;
+    map.invalidateSize();
+    draw(formRoot, { fit: true });
 }
 
 export function destroyLocationMap() {
@@ -78,25 +99,37 @@ export function syncLocationMap(formRoot) {
     const mapEl = wrap.querySelector('[data-osm-map]');
     if (!mapEl) return;
 
+    if (map && map.getContainer() !== mapEl) {
+        destroyLocationMap();
+    }
+
+    if (mapEl.clientWidth < 8) {
+        requestAnimationFrame(() => {
+            if (mapEl.isConnected && mapEl.clientWidth >= 8) syncLocationMap(formRoot);
+        });
+        return;
+    }
+
     if (!map) {
         map = L.map(mapEl, { scrollWheelZoom: true });
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         }).addTo(map);
+        map.setView([FALLBACK.lat, FALLBACK.lng], FALLBACK.zoom);
         map.on('click', (event) => {
             writePoint(formRoot, event.latlng.lat, event.latlng.lng);
             const radiusEl = formRoot.querySelector('[name="radius_meters"]');
             if (radiusEl && !radiusEl.value) radiusEl.value = '100';
             draw(formRoot, { fit: true });
         });
-        draw(formRoot, { fit: true });
-        requestAnimationFrame(() => map?.invalidateSize());
+        layoutMap(formRoot);
+        requestAnimationFrame(() => layoutMap(formRoot));
         return;
     }
 
-    draw(formRoot);
     map.invalidateSize();
+    draw(formRoot);
 }
 
 export function refreshLocationMap(formRoot, { fit = false } = {}) {

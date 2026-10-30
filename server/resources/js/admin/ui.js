@@ -432,9 +432,8 @@ export function openForm({ title, hint = '', fields, values = {}, submitLabel = 
     fieldsBox.innerHTML = fields.map((f) => fieldHtml(f, values[f.name] ?? f.default ?? '')).join('');
     const rows = $('.session-rows', fieldsBox);
     if (rows) rows.innerHTML = (values.sessions?.length ? values.sessions : [{}]).map((s, idx) => sessionRow(s, idx)).join('');
-    syncVisibility();
     modal.showModal();
-    syncLocationMap(fieldsBox);
+    syncVisibility();
     $('input, select', fieldsBox)?.focus();
 }
 
