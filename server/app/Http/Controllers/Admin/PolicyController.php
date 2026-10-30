@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\RefreshOpenPolicySnapshots;
 use App\Http\Controllers\Controller;
 use App\Models\AttendancePolicy;
 use App\Support\Audit;
@@ -25,6 +26,7 @@ class PolicyController extends Controller
         Gate::authorize('admin');
         $policy = AttendancePolicy::query()->create($this->validated($request));
         Audit::log('policies.created', $policy);
+        app(RefreshOpenPolicySnapshots::class)->forPolicy($policy);
 
         return response()->json(['data' => $policy], 201);
     }
@@ -35,6 +37,7 @@ class PolicyController extends Controller
         $before = $policy->attributesToArray();
         $policy->update($this->validated($request, $policy));
         Audit::log('policies.updated', $policy, $before);
+        app(RefreshOpenPolicySnapshots::class)->forPolicy($policy);
 
         return response()->json(['data' => $policy]);
     }
@@ -45,6 +48,7 @@ class PolicyController extends Controller
         $before = $policy->attributesToArray();
         $policy->delete();
         Audit::log('policies.deleted', $policy, $before, []);
+        app(RefreshOpenPolicySnapshots::class)->forPolicy($policy);
 
         return response()->json(['ok' => true]);
     }

@@ -42,6 +42,22 @@ class AttendancePolicy extends Model
         ];
     }
 
+    /** Aturan + titik lokasi yang berlaku hari ini, untuk sesi yang belum ada absensi. */
+    public static function snapshotFor(Employee $employee, string $date): array
+    {
+        $policy = static::resolveFor($employee, $date);
+        $location = $employee->workLocation()->first();
+        $policy['location'] = $policy['use_location_check'] && $location?->mode === 'radius' ? [
+            'mode' => 'radius',
+            'latitude' => (float) $location->latitude,
+            'longitude' => (float) $location->longitude,
+            'radius_meters' => $location->radius_meters,
+            'max_accuracy_meters' => $location->max_accuracy_meters,
+        ] : null;
+
+        return $policy;
+    }
+
     protected function casts(): array
     {
         return [

@@ -5,6 +5,7 @@ namespace App\Actions;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
+use App\Models\AttendancePolicy;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\LatePermission;
@@ -53,6 +54,11 @@ class RecordAttendance
         }
         $effective = $offline ? $deviceAt : $now;
         $record = AttendanceRecord::query()->where('shift_session_id', $session->id)->lockForUpdate()->first();
+        if (! $record) {
+            $employee->loadMissing('workLocation');
+            $session->policy_snapshot = AttendancePolicy::snapshotFor($employee, $session->assignment->work_date);
+            $session->save();
+        }
         [$distance, $locationProblem] = $this->checkLocation($session, $input['location'] ?? null);
 
         $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)

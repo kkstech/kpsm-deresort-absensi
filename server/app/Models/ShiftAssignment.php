@@ -70,7 +70,14 @@ class ShiftAssignment extends Model
             'editable' => in_array($this->status, ['DRAFT', 'PUBLISHED'], true) && $this->sessions->first()?->start_at->gt($now),
             'sessions_editable' => in_array($this->status, ['DRAFT', 'PUBLISHED', 'IN_PROGRESS'], true)
                 && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
-            'sessions' => $this->sessions->map(fn (ShiftSession $s) => [
+            'sessions' => $this->sessions->map(function (ShiftSession $s) {
+                $snapshot = $s->policy_snapshot;
+                if (! $s->attendanceRecord) {
+                    $this->loadMissing('employee.workLocation');
+                    $snapshot = AttendancePolicy::snapshotFor($this->employee, $this->work_date);
+                }
+
+                return [
                 'id' => $s->id,
                 'seq' => $s->seq,
                 'start_at' => WorkTime::iso($s->start_at),
@@ -84,10 +91,10 @@ class ShiftAssignment extends Model
                 'unpaid_break_minutes' => $s->unpaid_break_minutes,
                 'scheduled_minutes' => $s->scheduledMinutes(),
                 'attendance_policy' => [
-                    'location_required' => (bool) ($s->policy_snapshot['use_location_check'] ?? false),
-                    'max_accuracy_meters' => $s->policy_snapshot['location']['max_accuracy_meters'] ?? null,
-                    'late_permission_proof_required' => (bool) ($s->policy_snapshot['late_permission_proof_required'] ?? false),
-                    'correction_proof_required' => (bool) ($s->policy_snapshot['correction_proof_required'] ?? false),
+                    'location_required' => (bool) ($snapshot['use_location_check'] ?? false),
+                    'max_accuracy_meters' => $snapshot['location']['max_accuracy_meters'] ?? null,
+                    'late_permission_proof_required' => (bool) ($snapshot['late_permission_proof_required'] ?? false),
+                    'correction_proof_required' => (bool) ($snapshot['correction_proof_required'] ?? false),
                 ],
                 'attendance_window' => [
                     'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(config('attendance.checkin_early_minutes'))),
@@ -95,7 +102,8 @@ class ShiftAssignment extends Model
                     'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
                     'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
                 ],
-            ])->all(),
+                ];
+            })->all(),
         ];
     }
 

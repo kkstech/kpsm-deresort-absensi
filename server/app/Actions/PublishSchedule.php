@@ -358,15 +358,7 @@ class PublishSchedule
 
     private function buildSessions(Employee $employee, string $workDate, ShiftTemplate $template): array
     {
-        $policy = AttendancePolicy::resolveFor($employee, $workDate);
-        $location = $employee->workLocation;
-        $policy['location'] = $policy['use_location_check'] && $location?->mode === 'radius' ? [
-            'mode' => 'radius',
-            'latitude' => (float) $location->latitude,
-            'longitude' => (float) $location->longitude,
-            'radius_meters' => $location->radius_meters,
-            'max_accuracy_meters' => $location->max_accuracy_meters,
-        ] : null;
+        $policy = AttendancePolicy::snapshotFor($employee, $workDate);
 
         $sessions = $template->sessions->map(fn ($s) => [
             'seq' => $s->seq,
@@ -383,12 +375,7 @@ class PublishSchedule
 
     private function customSessions(Employee $employee, string $workDate, array $input): array
     {
-        $policy = AttendancePolicy::resolveFor($employee, $workDate);
-        $location = $employee->workLocation;
-        $policy['location'] = $policy['use_location_check'] && $location?->mode === 'radius' ? [
-            'mode' => 'radius', 'latitude' => (float) $location->latitude, 'longitude' => (float) $location->longitude,
-            'radius_meters' => $location->radius_meters, 'max_accuracy_meters' => $location->max_accuracy_meters,
-        ] : null;
+        $policy = AttendancePolicy::snapshotFor($employee, $workDate);
 
         $sessions = array_map(function (array $row) use ($workDate, $policy) {
             return [

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\RefreshOpenPolicySnapshots;
 use App\Http\Controllers\Controller;
 use App\Models\WorkLocation;
 use App\Support\Audit;
@@ -31,6 +32,7 @@ class LocationController extends Controller
         $before = $location->attributesToArray();
         $location->update($this->validated($request));
         Audit::log('locations.updated', $location, $before);
+        app(RefreshOpenPolicySnapshots::class)->forLocation($location);
 
         return response()->json(['data' => $location]);
     }

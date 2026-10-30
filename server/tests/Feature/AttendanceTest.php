@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\PublishSchedule;
 use App\Actions\RecordAttendance;
+use App\Actions\RefreshOpenPolicySnapshots;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
@@ -394,8 +395,42 @@ class AttendanceTest extends TestCase
         ]);
         $result = app(RecordAttendance::class)->handle($this->employee, $input, $this->device->id);
 
+        $this->assertSame('REJECTED', $result['data']['status']);
+        $this->assertSame('OUTSIDE_RADIUS', $result['data']['reason_code']);
+    }
+
+    public function test_open_session_uses_updated_max_accuracy_from_website(): void
+    {
+        $location = WorkLocation::query()->create([
+            'name' => 'Lobi', 'mode' => 'radius', 'latitude' => -6.2, 'longitude' => 106.8,
+            'radius_meters' => 100, 'max_accuracy_meters' => 10,
+        ]);
+        $this->employee->update(['work_location_id' => $location->id]);
+        AttendancePolicy::query()->where('scope_type', 'global')->update(['use_location_check' => true]);
+
+        $template = ShiftTemplate::query()->with('sessions')->where('name', 'Reguler')->firstOrFail();
+        $admin = User::factory()->role('admin')->create();
+        $assignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-27', $template, $admin);
+        app(PublishSchedule::class)->publish('2026-10-27', '2026-10-27', [$this->employee->id]);
+        $session = $assignment->sessions()->firstOrFail();
+        $this->assertSame(10, $session->policy_snapshot['location']['max_accuracy_meters']);
+
+        $location->update(['max_accuracy_meters' => 50]);
+        app(RefreshOpenPolicySnapshots::class)->forLocation($location->fresh());
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/attendance/me?from=2026-10-27&to=2026-10-27')
+            ->assertOk()
+            ->assertJsonPath('data.0.sessions.0.attendance_policy.max_accuracy_meters', 50);
+
+        $this->travelTo('2026-10-27 01:10:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', [
+            'shift_session_id' => $session->id,
+            'location' => ['latitude' => -6.2, 'longitude' => 106.8, 'accuracy_meters' => 25],
+        ]), $this->device->id);
+
         $this->assertSame('ACCEPTED', $result['data']['status']);
-        $this->assertSame(-6.2, (float) AttendanceEvent::query()->where('event_uuid', $input['event_uuid'])->value('latitude'));
+        $this->assertSame(50, $session->fresh()->policy_snapshot['location']['max_accuracy_meters']);
     }
 
     public function test_revoked_device_cannot_use_mobile_api(): void

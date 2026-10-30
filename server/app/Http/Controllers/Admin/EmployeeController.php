@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Actions\BulkImportEmployees;
+use App\Actions\RefreshOpenPolicySnapshots;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\EmploymentTerm;
@@ -223,6 +224,7 @@ class EmployeeController extends Controller
             }
             Audit::log('employees.updated', $employee, $before);
         });
+        app(RefreshOpenPolicySnapshots::class)->forEmployees([$employee->id]);
 
         return response()->json(['data' => $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active'])]);
     }
