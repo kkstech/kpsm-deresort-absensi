@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class SiteSetting extends Model
@@ -14,6 +15,7 @@ class SiteSetting extends Model
         'contact_address',
         'logo_path',
         'favicon_path',
+        'checkin_early_minutes',
     ];
 
     protected $appends = ['logo_url', 'favicon_url'];
@@ -21,6 +23,11 @@ class SiteSetting extends Model
     public static function current(): self
     {
         return static::query()->findOrFail(1);
+    }
+
+    public static function checkInEarlyMinutes(): int
+    {
+        return Cache::rememberForever('attendance.checkin_early_minutes', fn (): int => (int) (static::current()->checkin_early_minutes ?? config('attendance.checkin_early_minutes')));
     }
 
     public function getLogoUrlAttribute(): ?string
@@ -31,5 +38,10 @@ class SiteSetting extends Model
     public function getFaviconUrlAttribute(): ?string
     {
         return $this->favicon_path ? Storage::disk('public')->url($this->favicon_path) : null;
+    }
+
+    protected function casts(): array
+    {
+        return ['checkin_early_minutes' => 'integer'];
     }
 }

@@ -99,7 +99,7 @@ class ShiftAssignment extends Model
                         'correction_proof_required' => (bool) ($snapshot['correction_proof_required'] ?? false),
                     ],
                     'attendance_window' => [
-                        'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(config('attendance.checkin_early_minutes'))),
+                        'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(SiteSetting::checkInEarlyMinutes())),
                         'check_in_closes_at' => WorkTime::iso($s->end_at),
                         'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
                         'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),

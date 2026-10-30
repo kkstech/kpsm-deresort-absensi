@@ -53,7 +53,8 @@ class AttendanceController extends Controller
 
         $photo = $request->file('photo') ?? ($input['photo_base64'] ?? null);
         if ($photo) {
-            $photoPath = $this->photoService->processAndStore($employee, $photo);
+            $photoTimestamp = isset($input['photo_captured_at']) ? CarbonImmutable::parse($input['photo_captured_at']) : null;
+            $photoPath = $this->photoService->processAndStore($employee, $photo, $photoTimestamp);
             if ($photoPath) {
                 $input['photo_path'] = $photoPath;
             }
@@ -138,7 +139,8 @@ class AttendanceController extends Controller
             try {
                 $input = $validator->validated();
                 if (! empty($input['photo_base64'])) {
-                    $photoPath = $this->photoService->processAndStore($employee, $input['photo_base64']);
+                    $photoTimestamp = isset($input['photo_captured_at']) ? CarbonImmutable::parse($input['photo_captured_at']) : null;
+                    $photoPath = $this->photoService->processAndStore($employee, $input['photo_base64'], $photoTimestamp);
                     if ($photoPath) {
                         $input['photo_path'] = $photoPath;
                     }
@@ -190,6 +192,7 @@ class AttendanceController extends Controller
             'device_timezone' => ['nullable', 'string', 'max:64'],
             'captured_offline' => ['sometimes', 'boolean'],
             'device_at' => ['nullable', 'required_if:captured_offline,true', 'date'],
+            'photo_captured_at' => ['nullable', 'date'],
             'local_sequence' => ['nullable', 'integer', 'min:0'],
             'location' => ['nullable', 'array:latitude,longitude,accuracy_meters,is_mocked'],
             'location.latitude' => ['required_with:location', 'numeric', 'between:-90,90'],

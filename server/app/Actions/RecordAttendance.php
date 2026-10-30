@@ -10,6 +10,7 @@ use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\LatePermission;
 use App\Models\ShiftSession;
+use App\Models\SiteSetting;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
@@ -114,7 +115,7 @@ class RecordAttendance
     private function scheduleProblem(ShiftSession $session, string $type, CarbonImmutable $at, ?AttendanceRecord $record): ?string
     {
         $assignment = $session->assignment;
-        $early = config('attendance.checkin_early_minutes');
+        $early = SiteSetting::checkInEarlyMinutes();
         $late = config('attendance.checkout_late_minutes');
         $checkoutDeadline = $session->end_at->addMinutes($late);
         if ((int) $assignment->rules_version >= 2) {

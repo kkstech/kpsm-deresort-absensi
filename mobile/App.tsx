@@ -761,7 +761,7 @@ function Main() {
   const [password, setPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [intent, setIntent] = useState<ActionIntent | null>(null);
-  const [attendancePhoto, setAttendancePhoto] = useState<{ uri: string; base64?: string } | null>(null);
+  const [attendancePhoto, setAttendancePhoto] = useState<{ uri: string; base64?: string; capturedAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Leave / Late / Correction Form state
@@ -1234,6 +1234,7 @@ function Main() {
         quality: 0.7,
       });
       if (!result.canceled && result.assets && result.assets[0]) {
+        const capturedAt = new Date().toISOString();
         const manipResult = await ImageManipulator.manipulateAsync(
           result.assets[0].uri,
           [{ resize: { width: 640 } }],
@@ -1242,6 +1243,7 @@ function Main() {
         setAttendancePhoto({
           uri: manipResult.uri,
           base64: manipResult.base64 ?? undefined,
+          capturedAt,
         });
       }
     } catch (e) {
@@ -1266,6 +1268,7 @@ function Main() {
       const payload = {
         event_uuid: eventUuid, shift_session_id: intent.session.id, event_type: intent.eventType, device_id: deviceId,
         device_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta', captured_offline: false, ...(location ? { location } : {}),
+        photo_captured_at: attendancePhoto.capturedAt,
         ...(attendancePhoto?.base64 ? { photo_base64: attendancePhoto.base64 } : {}),
       };
       if (!online) {

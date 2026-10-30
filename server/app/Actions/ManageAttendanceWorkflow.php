@@ -9,6 +9,7 @@ use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\LatePermission;
 use App\Models\ShiftSession;
+use App\Models\SiteSetting;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\WorkTime;
@@ -433,7 +434,7 @@ class ManageAttendanceWorkflow
 
     private function assertSessionTimes(ShiftSession $session, ?CarbonImmutable $checkIn, ?CarbonImmutable $checkOut): void
     {
-        if ($checkIn && ($checkIn->lt($session->start_at->subMinutes(config('attendance.checkin_early_minutes'))) || $checkIn->gte($session->end_at))) {
+        if ($checkIn && ($checkIn->lt($session->start_at->subMinutes(SiteSetting::checkInEarlyMinutes())) || $checkIn->gte($session->end_at))) {
             throw new BusinessRuleException('OUTSIDE_WINDOW', 'Waktu check-in berada di luar jendela sesi.', 422);
         }
         if ($checkOut && (! $checkIn || $checkOut->lte($checkIn) || $checkOut->gt($session->end_at->addMinutes(config('attendance.checkout_late_minutes'))))) {

@@ -4,6 +4,8 @@ import { $, $$, confirmDialog, esc, errorInto, icon, loadingInto, openForm, rend
 const table = $('#settings-table');
 const siteForm = $('#site-settings-form');
 const siteError = $('#site-settings-error');
+const attendanceWindowForm = $('#attendance-window-settings-form');
+const attendanceWindowError = $('#attendance-window-settings-error');
 const opts = (list, label = (x) => x.code ? `${x.name} (${x.code})` : x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
 const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}${s.start_day_offset ? ' (+1)' : ''}–${hhmm(s.local_end)}${s.day_offset ? ` (+${s.day_offset})` : ''}`).join(', ');
@@ -21,6 +23,7 @@ const nameOnly = (singular) => ({
 });
 
 const tabs = {
+    attendance: { title: 'Jendela presensi', hint: 'Atur seberapa awal karyawan dapat melakukan check-in.', singular: 'pengaturan' },
     templates: {
         title: 'Template shift', hint: 'Jadwal baru menyalin jam dari template. Jadwal lama tidak berubah.', singular: 'template',
         columns: [
@@ -276,6 +279,7 @@ async function loadGeneral() {
     $('#settings-add').hidden = true;
     table.hidden = true;
     siteForm.hidden = false;
+    attendanceWindowForm.hidden = true;
     siteError.textContent = 'Memuat pengaturan…';
     siteError.hidden = false;
     try {
@@ -284,6 +288,26 @@ async function loadGeneral() {
     } catch (error) {
         siteError.textContent = error.message;
         siteError.hidden = false;
+    }
+}
+
+async function loadAttendanceSettings() {
+    $('#settings-title').textContent = 'Jendela presensi';
+    $('#settings-hint').textContent = 'Batas berlaku untuk seluruh sesi dan diperbarui langsung setelah disimpan.';
+    $('#settings-add').hidden = true;
+    siteForm.hidden = true;
+    attendanceWindowForm.hidden = false;
+    table.hidden = true;
+    attendanceWindowError.hidden = true;
+    $('#attendance-window-settings-save').disabled = true;
+    try {
+        const { data } = await api('attendance-settings');
+        attendanceWindowForm.elements.checkin_early_minutes.value = data.checkin_early_minutes;
+    } catch (error) {
+        attendanceWindowError.textContent = error.message;
+        attendanceWindowError.hidden = false;
+    } finally {
+        $('#attendance-window-settings-save').disabled = false;
     }
 }
 
@@ -318,6 +342,7 @@ async function load() {
     $$('[data-settings-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.settingsTab === active)));
     syncSettingsPicker();
     if (active === 'general') return loadGeneral();
+    if (active === 'attendance') return loadAttendanceSettings();
     const tab = tabs[active];
     const endpoint = tab.endpoint ?? active;
     $('#settings-title').textContent = tab.title;
@@ -325,6 +350,7 @@ async function load() {
     $('#settings-add').textContent = `+ Tambah ${tab.singular}`;
     $('#settings-add').hidden = !isAdmin;
     siteForm.hidden = true;
+    attendanceWindowForm.hidden = true;
     table.hidden = false;
     loadingInto(table);
     try {
@@ -562,6 +588,31 @@ siteForm.addEventListener('submit', async (event) => {
         });
         const details = Object.values(error.details ?? {}).flat();
         if (details.length) siteError.textContent = details.join(' ');
+    } finally {
+        submit.disabled = false;
+    }
+});
+
+attendanceWindowForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    attendanceWindowError.hidden = true;
+    const fieldError = $('#attendance-window-checkin-early-minutes-error');
+    fieldError.hidden = true;
+    const submit = $('#attendance-window-settings-save');
+    submit.disabled = true;
+    try {
+        const { data } = await api('attendance-settings', {
+            method: 'PUT',
+            body: { checkin_early_minutes: Number(attendanceWindowForm.elements.checkin_early_minutes.value) },
+        });
+        attendanceWindowForm.elements.checkin_early_minutes.value = data.checkin_early_minutes;
+        toast('Pengaturan jendela check-in disimpan.');
+    } catch (error) {
+        const message = error.details?.checkin_early_minutes?.[0] ?? error.message;
+        fieldError.textContent = message;
+        fieldError.hidden = false;
+        attendanceWindowError.textContent = message;
+        attendanceWindowError.hidden = false;
     } finally {
         submit.disabled = false;
     }

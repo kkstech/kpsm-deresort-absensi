@@ -1069,6 +1069,7 @@
                                     <option value="general">Umum</option>
                                     <option value="templates">Template shift</option>
                                     <option value="policies">Aturan kehadiran</option>
+                                    <option value="attendance">Jendela presensi</option>
                                     <option value="departments">Departemen</option>
                                     <option value="positions">Jabatan</option>
                                     <option value="locations">Lokasi kerja</option>
@@ -1082,6 +1083,7 @@
                                 <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Umum</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Aturan kehadiran</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="attendance" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Jendela presensi</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg><span>Departemen</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="positions" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-briefcase"/></svg><span>Jabatan</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="locations" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-map-pin"/></svg><span>Lokasi kerja</span></button>
@@ -1126,6 +1128,22 @@
                                     </aside>
                                 </div>
                                 <div class="site-settings-actions"><button type="submit" class="primary-button" id="site-settings-save">Simpan perubahan</button></div>
+                            </form>
+                            <form id="attendance-window-settings-form" class="site-settings-form" hidden>
+                                <p class="form-error" id="attendance-window-settings-error" role="alert" hidden></p>
+                                <div class="site-settings-layout">
+                                    <div class="site-settings-fields">
+                                        <section class="site-settings-section">
+                                            <h3>Check-in lebih awal</h3>
+                                            <label>Jendela sebelum jam mulai sesi
+                                                <input name="checkin_early_minutes" type="number" min="0" max="720" step="1" required>
+                                                <small class="field-hint">Menit sebelum jadwal. Contoh: 60 berarti satu jam lebih awal; 0 berarti check-in dibuka tepat pada jam mulai.</small>
+                                                <small class="field-error" id="attendance-window-checkin-early-minutes-error" hidden></small>
+                                            </label>
+                                        </section>
+                                    </div>
+                                </div>
+                                <div class="site-settings-actions"><button type="submit" class="primary-button" id="attendance-window-settings-save">Simpan perubahan</button></div>
                             </form>
                             <div id="settings-table" aria-live="polite"></div>
                         </div>

@@ -109,7 +109,7 @@ class AttendancePhotoService
         $textColor = imagecolorallocate($image, 255, 255, 255);
         $subColor = imagecolorallocate($image, 218, 235, 224);
 
-        $dt = ($timestamp ?? now())->timezone(config('app.timezone', 'Asia/Jakarta'));
+        $dt = ($timestamp ?? now())->timezone(config('attendance.timezone', 'Asia/Jakarta'));
         $timeStr = $dt->translatedFormat('d M Y, H:i:s').' WIB';
         $empStr = $employee->name.($employee->code ? ' · '.$employee->code : '');
 
