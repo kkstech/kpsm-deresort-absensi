@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet,
+  ActivityIndicator, Alert, Animated, Easing, Image, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet,
   Switch, Text as NativeText, TextInput, type TextProps, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -820,7 +820,22 @@ function Main() {
   const [directPreview, setDirectPreview] = useState<SwapPreviewResult | null>(null);
   const [directPreviewBusy, setDirectPreviewBusy] = useState(false);
   const [directCommitBusy, setDirectCommitBusy] = useState(false);
+  const [directSchedulesBusy, setDirectSchedulesBusy] = useState(false);
   const [directError, setDirectError] = useState('');
+  const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showFeedback = useCallback((tone: 'success' | 'error', message: string) => {
+    setFeedback({ tone, message });
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = setTimeout(() => {
+      setFeedback(null);
+    }, tone === 'error' ? 4500 : 3200);
+  }, []);
+
+  useEffect(() => () => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+  }, []);
 
   // Decision Modal state (for HRD to reject or review approval)
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
@@ -1255,14 +1270,28 @@ function Main() {
       };
       if (!online) {
         await enqueueEvent(payload, 'pending');
+        showFeedback('success', 'Presensi disimpan di perangkat dan akan dikirim saat online.');
         Alert.alert('Disimpan di perangkat', 'Event akan dikirim dengan UUID yang sama saat koneksi kembali. Absensi offline dapat memerlukan verifikasi HR.');
       } else {
         try {
           const result = await request<{ data: { status: string; reason_code?: string } }>(baseUrl, 'attendance/events', token, { method: 'POST', body: payload });
-          if (result.data.status === 'REJECTED') Alert.alert('Absensi ditolak server', humanizeReason(result.data.reason_code));
+          if (result.data.status === 'REJECTED') {
+            const msg = humanizeReason(result.data.reason_code);
+            showFeedback('error', msg);
+            Alert.alert('Absensi ditolak server', msg);
+          } else if (result.data.status === 'REVIEW_REQUIRED') {
+            const msg = `Presensi dicatat dan menunggu verifikasi HR (${humanizeReason(result.data.reason_code)}).`;
+            showFeedback('success', msg);
+            Alert.alert('Presensi menunggu tinjauan', msg);
+          } else {
+            const labelAct = intent.eventType === 'CHECK_IN' ? 'Check-In' : 'Check-Out';
+            showFeedback('success', `${labelAct} berhasil dicatat.`);
+            Alert.alert(`${labelAct} berhasil`, `Presensi ${labelAct.toLowerCase()} Anda sudah tercatat di server.`);
+          }
         } catch (failure) {
           if (!(failure instanceof ApiError) || failure.status !== 0) throw failure;
           await enqueueEvent(payload, 'uncertain');
+          showFeedback('error', 'Koneksi terputus saat mengirim. Tanda terima sedang diperiksa.');
           Alert.alert('Status belum pasti', 'Kami mengecek tanda terima server. Event tidak akan dikirim ulang dengan waktu server baru.');
         }
       }
@@ -1271,7 +1300,9 @@ function Main() {
       if (online) await loadData();
       setOutbox(await outboxRows());
     } catch (failure) {
-      Alert.alert('Absensi belum dicatat', failure instanceof Error ? failure.message : 'Coba kembali.');
+      const msg = failure instanceof Error ? failure.message : 'Coba kembali.';
+      showFeedback('error', msg);
+      Alert.alert('Absensi belum dicatat', msg);
     } finally { setBusy(false); }
   }
 
@@ -1332,10 +1363,13 @@ function Main() {
       setTargetEmpSchedules([]);
       setReason('');
       setSwapStep(1);
+      showFeedback('success', 'Pengajuan tukar shift berhasil dikirim.');
       Alert.alert('Pengajuan terkirim', 'Pengajuan tukar shift berhasil dikirim dan menunggu persetujuan HRD.');
       await loadData();
     } catch (failure) {
-      Alert.alert('Pengajuan belum terkirim', failure instanceof Error ? failure.message : 'Periksa data lalu coba lagi.');
+      const msg = failure instanceof Error ? failure.message : 'Periksa data lalu coba lagi.';
+      showFeedback('error', msg);
+      Alert.alert('Pengajuan belum terkirim', msg);
     } finally { setBusy(false); }
   }
 
@@ -1385,21 +1419,30 @@ function Main() {
         }
       }
       setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setRequestedIn(''); setRequestedOut(''); setProof(null);
+      showFeedback('success', 'Pengajuan berhasil dikirim.');
       Alert.alert('Pengajuan dikirim', 'Status dapat dilihat di daftar pengajuan.');
       await loadData();
     } catch (failure) {
-      Alert.alert('Pengajuan belum terkirim', failure instanceof Error ? failure.message : 'Periksa data lalu coba lagi.');
+      const msg = failure instanceof Error ? failure.message : 'Periksa data lalu coba lagi.';
+      showFeedback('error', msg);
+      Alert.alert('Pengajuan belum terkirim', msg);
     } finally { setBusy(false); }
   }
 
   async function cancelRequest(path: string, label: string) {
     if (!token) return;
+    setBusy(true);
     try {
       await request(baseUrl, path, token, { method: 'POST' });
       await loadData();
+      showFeedback('success', `${label} berhasil dibatalkan.`);
       Alert.alert('Pengajuan dibatalkan', `${label} berhasil dibatalkan.`);
     } catch (failure) {
-      Alert.alert(`Tidak dapat membatalkan ${label.toLowerCase()}`, failure instanceof Error ? failure.message : 'Coba kembali.');
+      const msg = failure instanceof Error ? failure.message : 'Coba kembali.';
+      showFeedback('error', msg);
+      Alert.alert(`Tidak dapat membatalkan ${label.toLowerCase()}`, msg);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1424,10 +1467,13 @@ function Main() {
       });
       setOtTitle('');
       setOtNotes('');
+      showFeedback('success', 'Pengajuan lembur berhasil dikirim.');
       Alert.alert('Pengajuan lembur terkirim', 'Menunggu tinjauan dan persetujuan dari atasan / HRD.');
       await loadData();
     } catch (failure) {
-      Alert.alert('Pengajuan lembur gagal', failure instanceof Error ? failure.message : 'Periksa formulir lalu coba lagi.');
+      const msg = failure instanceof Error ? failure.message : 'Periksa formulir lalu coba lagi.';
+      showFeedback('error', msg);
+      Alert.alert('Pengajuan lembur gagal', msg);
     } finally {
       setBusy(false);
     }
@@ -1438,13 +1484,16 @@ function Main() {
     setBusy(true);
     try {
       await submitOvertimeConsent(baseUrl, token, orderId, accepted);
+      showFeedback('success', accepted ? 'Perintah lembur disetujui.' : 'Penolakan lembur dikirim.');
       Alert.alert(
         accepted ? 'Lembur Disetujui' : 'Lembur Ditolak',
         accepted ? 'Persetujuan lembur Anda telah dicatat di sistem.' : 'Penolakan lembur telah dikirimkan ke HRD.'
       );
       await loadData();
     } catch (failure) {
-      Alert.alert('Gagal memproses SPL', failure instanceof Error ? failure.message : 'Terjadi kendala.');
+      const msg = failure instanceof Error ? failure.message : 'Terjadi kendala.';
+      showFeedback('error', msg);
+      Alert.alert('Gagal memproses SPL', msg);
     } finally {
       setBusy(false);
     }
@@ -1461,10 +1510,13 @@ function Main() {
           setBusy(true);
           try {
             await cancelOvertime(baseUrl, token, orderId);
+            showFeedback('success', 'Pengajuan lembur berhasil dibatalkan.');
             Alert.alert('Pengajuan Dibatalkan', 'Pengajuan lembur berhasil dibatalkan.');
             await loadData();
           } catch (failure) {
-            Alert.alert('Gagal membatalkan', failure instanceof Error ? failure.message : 'Coba kembali.');
+            const msg = failure instanceof Error ? failure.message : 'Coba kembali.';
+            showFeedback('error', msg);
+            Alert.alert('Gagal membatalkan', msg);
           } finally {
             setBusy(false);
           }
@@ -1488,13 +1540,16 @@ function Main() {
       });
       setDecisionModalOpen(false);
       setDecisionItem(null);
+      showFeedback('success', decision === 'APPROVED' ? 'Pertukaran shift disetujui dan diterapkan.' : 'Pengajuan tukar shift ditolak.');
       Alert.alert(
         decision === 'APPROVED' ? 'Tukar shift disetujui' : 'Pengajuan ditolak',
         decision === 'APPROVED' ? 'Jadwal shift karyawan telah berhasil ditukar dan dicatat di sistem.' : 'Pengajuan telah ditandai ditolak.'
       );
       await loadData();
     } catch (failure) {
-      Alert.alert('Tidak dapat memproses pengajuan', failure instanceof Error ? failure.message : 'Terjadi kendala.');
+      const msg = failure instanceof Error ? failure.message : 'Terjadi kendala.';
+      showFeedback('error', msg);
+      Alert.alert('Tidak dapat memproses pengajuan', msg);
     } finally {
       setDecisionBusy(false);
     }
@@ -1550,6 +1605,7 @@ function Main() {
     setDirectSourceEmpId(empId);
     setDirectSourceAssId(null);
     setDirectPreview(null);
+    setDirectSchedulesBusy(true);
     try {
       if (token) {
         const res = await request<{ data: ShiftExchangeSchedule[] }>(baseUrl, `shift-exchanges/employee-schedules?employee_id=${empId}`, token);
@@ -1557,6 +1613,8 @@ function Main() {
       }
     } catch {
       setDirectSourceSchedules([]);
+    } finally {
+      setDirectSchedulesBusy(false);
     }
   }
 
@@ -1564,6 +1622,7 @@ function Main() {
     setDirectTargetEmpId(empId);
     setDirectTargetAssId(null);
     setDirectPreview(null);
+    setDirectSchedulesBusy(true);
     try {
       if (token) {
         const res = await request<{ data: ShiftExchangeSchedule[] }>(baseUrl, `shift-exchanges/employee-schedules?employee_id=${empId}`, token);
@@ -1571,6 +1630,8 @@ function Main() {
       }
     } catch {
       setDirectTargetSchedules([]);
+    } finally {
+      setDirectSchedulesBusy(false);
     }
   }
 
@@ -1664,10 +1725,13 @@ function Main() {
         },
       });
       setDirectSwapOpen(false);
+      showFeedback('success', 'Pertukaran jadwal shift berhasil diterapkan.');
       Alert.alert('Tukar shift berhasil', 'Pertukaran jadwal shift telah berhasil diterapkan ke sistem.');
       await loadData();
     } catch (failure) {
-      setDirectError(failure instanceof Error ? failure.message : 'Gagal menerapkan pertukaran shift.');
+      const msg = failure instanceof Error ? failure.message : 'Gagal menerapkan pertukaran shift.';
+      setDirectError(msg);
+      showFeedback('error', msg);
     } finally {
       setDirectCommitBusy(false);
     }
@@ -1681,6 +1745,7 @@ function Main() {
     }
     const payload = JSON.parse(row.payload) as { shift_session_id: number; event_type: 'CHECK_IN' | 'CHECK_OUT'; device_at?: string };
     const eventTime = payload.device_at ?? row.created_at;
+    setBusy(true);
     try {
       await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: {
         shift_session_id: payload.shift_session_id,
@@ -1689,9 +1754,16 @@ function Main() {
       } });
       await updateOutbox(row.event_uuid, 'correction_submitted', 'Koreksi sudah diajukan ke HR.');
       setOutbox(await outboxRows());
+      showFeedback('success', 'Koreksi absensi berhasil diajukan ke HR.');
       Alert.alert('Koreksi diajukan', 'HR akan memeriksa waktu dari perangkat sebagai permintaan.');
       await loadData();
-    } catch (failure) { Alert.alert('Koreksi belum terkirim', failure instanceof Error ? failure.message : 'Coba lagi.'); }
+    } catch (failure) {
+      const msg = failure instanceof Error ? failure.message : 'Coba lagi.';
+      showFeedback('error', msg);
+      Alert.alert('Koreksi belum terkirim', msg);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function openEditProfile() {
@@ -1750,9 +1822,12 @@ function Main() {
       setProfile(normalized);
       await saveCache('profile', normalized);
       setEditProfileOpen(false);
+      showFeedback('success', res.message || 'Profil berhasil diperbarui.');
       Alert.alert('Sukses', res.message || 'Profil berhasil diperbarui.');
     } catch (err) {
-      setEditProfileError(err instanceof Error ? err.message : 'Gagal memperbarui profil.');
+      const msg = err instanceof Error ? err.message : 'Gagal memperbarui profil.';
+      setEditProfileError(msg);
+      showFeedback('error', msg);
     } finally {
       setEditProfileBusy(false);
     }
@@ -1790,9 +1865,12 @@ function Main() {
         setProfile(normalized);
         await saveCache('profile', normalized);
       }
+      showFeedback('success', res.message || 'Foto profil berhasil diperbarui.');
       Alert.alert('Sukses', res.message || 'Foto profil berhasil diperbarui.');
     } catch (err) {
-      Alert.alert('Gagal Mengunggah Foto', err instanceof Error ? err.message : 'Terjadi kesalahan.');
+      const msg = err instanceof Error ? err.message : 'Terjadi kesalahan.';
+      showFeedback('error', msg);
+      Alert.alert('Gagal Mengunggah Foto', msg);
     } finally {
       setAvatarUploading(false);
     }
@@ -1860,9 +1938,12 @@ function Main() {
             const normalized = normalizeProfile(res.user);
             setProfile(normalized);
             await saveCache('profile', normalized);
+            showFeedback('success', res.message || 'Foto profil berhasil dihapus.');
             Alert.alert('Sukses', res.message || 'Foto profil berhasil dihapus.');
           } catch (err) {
-            Alert.alert('Gagal', err instanceof Error ? err.message : 'Terjadi kesalahan.');
+            const msg = err instanceof Error ? err.message : 'Terjadi kesalahan.';
+            showFeedback('error', msg);
+            Alert.alert('Gagal', msg);
           } finally {
             setAvatarUploading(false);
           }
@@ -1973,8 +2054,11 @@ function Main() {
           <Text style={styles.cardCopy}>{row.message ?? localDate(row.created_at)}</Text>
         </View>
         {row.status === 'needs_correction' && isAdminOrSupervisor && (
-          <Pressable style={styles.smallButton} onPress={() => submitOutboxCorrection(row)}>
-            <Text style={styles.smallButtonText}>Koreksi (Admin)</Text>
+          <Pressable disabled={busy} style={[styles.smallButton, busy && styles.disabled]} onPress={() => submitOutboxCorrection(row)}>
+            <View style={styles.btnContentRow}>
+              {busy && <ActivityIndicator size="small" color={colors.primary} />}
+              <Text style={styles.smallButtonText}>{busy ? 'Mengirim…' : 'Koreksi (Admin)'}</Text>
+            </View>
           </Pressable>
         )}
       </View>
@@ -2170,7 +2254,12 @@ function Main() {
           <Text style={styles.sectionTitle}>Rangkaian sesi</Text>
           <Text style={styles.sectionMeta}>{sessions.length} sesi</Text>
         </View>
-        {sessions.length ? sessions.map(({ assignment, session }) => renderAttendance(assignment, session)) : (
+        {loading && !sessions.length ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.cardCopy}>Memuat jadwal dan presensi hari ini…</Text>
+          </View>
+        ) : sessions.length ? sessions.map(({ assignment, session }) => renderAttendance(assignment, session)) : (
           <View style={styles.emptyCard}><Text style={styles.cardTitle}>Belum ada jadwal hari ini</Text><Text style={styles.cardCopy}>Jadwal yang diterbitkan HR akan muncul setelah disinkronkan.</Text></View>
         )}
 
@@ -2244,7 +2333,12 @@ function Main() {
 
         <Text style={styles.intro}>Satu siklus kerja mengikuti tanggal awal, termasuk shift malam dan split shift.</Text>
 
-        {upcoming.length ? upcoming.map((assignment) => (
+        {loading && !upcoming.length ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.cardCopy}>Memuat daftar jadwal kerja…</Text>
+          </View>
+        ) : upcoming.length ? upcoming.map((assignment) => (
           <View style={styles.assignmentCard} key={assignment.id}>
             <View style={styles.assignmentHeading}>
               <View style={styles.flex}>
@@ -2387,7 +2481,10 @@ function Main() {
               <View style={{ marginTop: 14 }}>
                 <Text style={styles.fieldLabel}>Pilih Jadwal Rekan untuk Ditukar Balik:</Text>
                 {loadingTargetSchedules ? (
-                  <Text style={styles.fieldHint}>Memuat jadwal rekan…</Text>
+                  <View style={styles.inlineLoadingRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.fieldHint}>Memuat jadwal rekan…</Text>
+                  </View>
                 ) : !swapTargetEmpId ? (
                   <Text style={styles.fieldHint}>Pilih rekan kerja di atas terlebih dahulu.</Text>
                 ) : targetEmpSchedules.length === 0 ? (
@@ -2502,7 +2599,10 @@ function Main() {
                 onPress={submitRequest}
                 style={[styles.wizardNextBtn, busy && styles.disabled]}
               >
-                <Text style={styles.wizardNextText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+                <View style={styles.btnContentRow}>
+                  {busy && <ActivityIndicator size="small" color="#fff" />}
+                  <Text style={styles.wizardNextText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+                </View>
               </Pressable>
             </View>
           </View>
@@ -2612,7 +2712,10 @@ function Main() {
           onPress={submitRequest}
           style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}
         >
-          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan Lembur'}</Text>
+          <View style={styles.btnContentRow}>
+            {busy && <ActivityIndicator size="small" color={colors.primary} />}
+            <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan Lembur'}</Text>
+          </View>
         </Pressable>
       </View>
     );
@@ -2781,7 +2884,10 @@ function Main() {
 
         <TextField label="Alasan / Penjelasan" value={reason} onChangeText={setReason} placeholder="Jelaskan keperluan pengajuan" multiline />
         <Pressable disabled={busy} onPress={submitRequest} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}>
-          <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+          <View style={styles.btnContentRow}>
+            {busy && <ActivityIndicator size="small" color={colors.primary} />}
+            <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+          </View>
         </Pressable>
       </View>
     );
@@ -3069,6 +3175,7 @@ function Main() {
                 </Pill>
                 {item.status === 'PENDING' && (
                   <Pressable
+                    disabled={busy}
                     onPress={() => item.group === 'Lembur'
                       ? cancelOvertimeItem(item.id)
                       : cancelRequest(
@@ -3079,9 +3186,12 @@ function Main() {
                           item.group
                         )
                     }
-                    style={styles.smallButton}
+                    style={[styles.smallButton, busy && styles.disabled]}
                   >
-                    <Text style={styles.smallButtonText}>Batalkan</Text>
+                    <View style={styles.btnContentRow}>
+                      {busy && <ActivityIndicator size="small" color={colors.primary} />}
+                      <Text style={styles.smallButtonText}>{busy ? 'Memproses…' : 'Batalkan'}</Text>
+                    </View>
                   </Pressable>
                 )}
               </View>
@@ -3146,13 +3256,17 @@ function Main() {
           </View>
 
           <View style={styles.avatarActionsRow}>
-            <Pressable disabled={avatarUploading} onPress={handleChooseAvatar} style={styles.avatarActionBtn}>
-              <Ionicons name="image-outline" size={13} color={colors.primary} />
+            <Pressable disabled={avatarUploading} onPress={handleChooseAvatar} style={[styles.avatarActionBtn, avatarUploading && styles.disabled]}>
+              {avatarUploading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="image-outline" size={13} color={colors.primary} />
+              )}
               <Text style={styles.avatarActionBtnText}>{avatarUploading ? 'Mengunggah…' : avatarUri ? 'Ganti Foto' : 'Unggah Foto'}</Text>
             </Pressable>
             {Boolean(avatarUri) && (
-              <Pressable disabled={avatarUploading} onPress={handleDeleteAvatar} style={styles.avatarDeleteBtn}>
-                <Text style={styles.avatarDeleteBtnText}>Hapus Foto</Text>
+              <Pressable disabled={avatarUploading} onPress={handleDeleteAvatar} style={[styles.avatarDeleteBtn, avatarUploading && styles.disabled]}>
+                <Text style={styles.avatarDeleteBtnText}>{avatarUploading ? 'Memproses…' : 'Hapus Foto'}</Text>
               </Pressable>
             )}
           </View>
@@ -3208,8 +3322,11 @@ function Main() {
           <Text style={styles.cardCopy}>Perangkat terdaftar dengan ID tersimpan aman.</Text>
           <Text style={styles.cardEyebrow}>SINKRONISASI</Text>
           <Text style={styles.cardCopy}>{pendingOutbox.length} event belum selesai · {online ? 'online' : 'offline'}</Text>
-          <Pressable onPress={() => { if (token) { syncOutbox(); loadData(); } }} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Perbarui data</Text>
+          <Pressable disabled={loading} onPress={() => { if (token) { syncOutbox(); loadData(); } }} style={[styles.secondaryButton, loading && styles.disabled]}>
+            <View style={styles.btnContentRow}>
+              {loading && <ActivityIndicator size="small" color={colors.primary} />}
+              <Text style={styles.secondaryButtonText}>{loading ? 'Memperbarui…' : 'Perbarui data'}</Text>
+            </View>
           </Pressable>
           <Pressable onPress={logout} style={styles.logoutButton}>
             <Text style={styles.logoutText}>Keluar dari akun</Text>
@@ -3250,7 +3367,10 @@ function Main() {
                 </View>
               )}
               <Pressable disabled={loginBusy} onPress={login} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, loginBusy && styles.disabled]}>
-                <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
+                <View style={styles.btnContentRow}>
+                  {loginBusy && <ActivityIndicator size="small" color={colors.primary} />}
+                  <Text style={styles.actionButtonText}>{loginBusy ? 'Menghubungkan…' : 'Masuk'}</Text>
+                </View>
               </Pressable>
               <Text style={styles.cardCopy}>Masuk dengan kode karyawan / username beserta password akun.</Text>
             </View>
@@ -3285,6 +3405,16 @@ function Main() {
             );
           })}
         </View>
+        {feedback && (
+          <View
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+            pointerEvents="none"
+            style={[styles.feedbackToast, feedback.tone === 'error' && styles.feedbackToastError]}
+          >
+            <Text style={styles.feedbackToastText}>{feedback.message}</Text>
+          </View>
+        )}
       </View>
 
       {/* Modal Attendance Action */}
@@ -3396,6 +3526,13 @@ function Main() {
                 <Ionicons name="close" size={22} color={colors.ink} />
               </Pressable>
             </View>
+
+            {directSchedulesBusy && (
+              <View style={styles.scheduleLoading}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.fieldHint}>Memuat jadwal karyawan…</Text>
+              </View>
+            )}
 
             <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
               {/* Step 1: Source Employee & Schedule */}
@@ -3856,6 +3993,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF', shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 10, elevation: 4,
   },
+  feedbackToast: { position: 'absolute', left: 20, right: 20, bottom: 90, padding: 14, borderRadius: 12, backgroundColor: colors.primary, elevation: 8 },
+  feedbackToastError: { backgroundColor: colors.danger },
+  feedbackToastText: { color: '#FFFFFF', fontSize: 13.5, fontWeight: '700', lineHeight: 19, textAlign: 'center' },
   tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12 },
   tabIndicator: { width: 18, height: 3, borderRadius: 2, backgroundColor: 'transparent', marginTop: 1 },
   tabIndicatorActive: { backgroundColor: colors.primary },
@@ -3865,6 +4005,7 @@ const styles = StyleSheet.create({
   modalCard: { padding: 22, borderRadius: 18, backgroundColor: '#fff', maxHeight: '90%' },
   modalCardLarge: { maxHeight: '92%', paddingVertical: 20 },
   modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  scheduleLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   modalScroll: { flexGrow: 0 },
   closeBtn: { padding: 4 },
   modalEyebrow: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: .8 },

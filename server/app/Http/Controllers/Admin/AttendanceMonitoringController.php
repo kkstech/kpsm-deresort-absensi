@@ -46,13 +46,19 @@ class AttendanceMonitoringController extends Controller
 
         $recent = (clone $sessions)
             ->where(fn (Builder $query) => $query->whereHas('attendanceRecord')->orWhereHas('attendanceEvents'))
-            ->with(['assignment.employee.department:id,name', 'attendanceRecord.latePermission', 'attendanceEvents'])
+            ->with($this->eagerRelations())
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
+            ->orderByDesc('start_at')
+            ->orderByDesc('id')
             ->limit(8)->get();
 
         $reviewItems = (clone $review)
-            ->with(['assignment.employee.department:id,name', 'attendanceRecord.latePermission', 'attendanceEvents'])
+            ->with($this->eagerRelations())
+            ->withMax('attendanceEvents', 'effective_at')
+            ->orderByDesc('attendance_events_max_effective_at')
+            ->orderByDesc('start_at')
+            ->orderByDesc('id')
             ->limit(5)->get();
 
         $pendingLeavesCount = LeaveRequest::query()->where('status', 'PENDING')->count();
@@ -80,14 +86,34 @@ class AttendanceMonitoringController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = $this->validatedFilters($request);
-        $perPage = min(max($request->integer('per_page', 50), 1), 100);
-        $paginator = $this->sessions($request->user(), $filters)
-            ->with(['assignment.employee.department:id,name', 'attendanceRecord.latePermission', 'attendanceEvents'])
-            ->orderBy('start_at')->paginate($perPage);
+        $perPage = min(max($request->integer('per_page', 15), 1), 100);
+        $sessions = $this->sessions($request->user(), $filters);
+        $sessionIds = (clone $sessions)->select('shift_sessions.id');
+        $records = AttendanceRecord::query()->whereIn('shift_session_id', clone $sessionIds);
+        $reviewCount = (clone $sessions)->where(fn (Builder $query) => $query
+            ->whereHas('attendanceRecord', fn (Builder $record) => $record->where('needs_review', true))
+            ->orWhere(fn (Builder $query) => $query
+                ->whereDoesntHave('attendanceRecord')
+                ->whereHas('attendanceEvents', fn (Builder $event) => $event->where('result', 'REVIEW_REQUIRED'))))->count();
+
+        $paginator = (clone $sessions)
+            ->with($this->eagerRelations())
+            ->withMax('attendanceEvents', 'effective_at')
+            ->orderByDesc('attendance_events_max_effective_at')
+            ->orderByDesc('start_at')
+            ->orderByDesc('id')
+            ->paginate($perPage);
 
         return response()->json([
             'filters' => $filters,
             'data' => $paginator->getCollection()->map(fn (ShiftSession $session) => $this->row($session))->values(),
+            'summary' => [
+                'total' => $paginator->total(),
+                'complete' => (clone $records)->where('needs_review', false)->where('is_late', false)->whereNotNull('check_out_at')->count(),
+                'in_progress' => (clone $records)->where('needs_review', false)->where('is_late', false)->whereNotNull('check_in_at')->whereNull('check_out_at')->count(),
+                'late' => (clone $records)->where('needs_review', false)->where('is_late', true)->count(),
+                'review' => $reviewCount,
+            ],
             'meta' => [
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
@@ -97,6 +123,18 @@ class AttendanceMonitoringController extends Controller
                 'to' => $paginator->lastItem(),
             ],
         ]);
+    }
+
+    private function eagerRelations(): array
+    {
+        return [
+            'assignment:id,employee_id,work_date,template_name,status',
+            'assignment.employee:id,name,code,department_id,avatar_path',
+            'assignment.employee.department:id,name',
+            'attendanceRecord:id,shift_session_id,check_in_event_id,check_out_event_id,late_permission_id,overtime_order_id,check_in_at,check_out_at,provisional_out_at,check_in_photo_path,check_out_photo_path,is_late,needs_review,review_reason,verified_minutes,verified_overtime_minutes',
+            'attendanceRecord.latePermission:id,status',
+            'attendanceEvents:id,shift_session_id,type,source,effective_at,latitude,longitude,accuracy_meters,distance_meters,is_mocked,result,reason_code,photo_path',
+        ];
     }
 
     private function validatedFilters(Request $request): array
@@ -159,6 +197,11 @@ class AttendanceMonitoringController extends Controller
             default => 'ABSENT',
         };
 
+        $checkInEvent = ($record?->check_in_event_id ? $events->firstWhere('id', $record->check_in_event_id) : null)
+            ?? $events->where('type', 'CHECK_IN')->last();
+        $checkOutEvent = ($record?->check_out_event_id ? $events->firstWhere('id', $record->check_out_event_id) : null)
+            ?? $events->where('type', 'CHECK_OUT')->last();
+
         return [
             'id' => $session->id,
             'work_date' => $assignment->work_date,
@@ -184,11 +227,19 @@ class AttendanceMonitoringController extends Controller
                     ? ($record->needs_review ? $record->review_reason : null)
                     : $events->first(fn ($event) => $event->result === 'REVIEW_REQUIRED')?->reason_code,
                 'verified_minutes' => $record?->verified_minutes ?? 0,
+                'verified_overtime_minutes' => $record?->verified_overtime_minutes ?? 0,
                 'last_event_at' => WorkTime::iso($events->last()?->effective_at),
                 'last_event_source' => $events->last()?->source,
                 'has_mock_event' => $events->contains('is_mocked', true),
-                'check_in_distance' => $events->firstWhere('type', 'CHECK_IN')?->distance_meters,
-                'check_out_distance' => $events->firstWhere('type', 'CHECK_OUT')?->distance_meters,
+                'location_required' => (bool) ($session->policy_snapshot['use_location_check'] ?? false),
+                'check_in_latitude' => $checkInEvent?->latitude !== null ? (float) $checkInEvent->latitude : null,
+                'check_in_longitude' => $checkInEvent?->longitude !== null ? (float) $checkInEvent->longitude : null,
+                'check_in_accuracy' => $checkInEvent?->accuracy_meters,
+                'check_in_distance' => $checkInEvent?->distance_meters,
+                'check_out_latitude' => $checkOutEvent?->latitude !== null ? (float) $checkOutEvent->latitude : null,
+                'check_out_longitude' => $checkOutEvent?->longitude !== null ? (float) $checkOutEvent->longitude : null,
+                'check_out_accuracy' => $checkOutEvent?->accuracy_meters,
+                'check_out_distance' => $checkOutEvent?->distance_meters,
             ],
         ];
     }

@@ -82,7 +82,12 @@ class SwapScheduleCycles
                 $policy = AttendancePolicy::resolveFor($target, $workDate);
                 foreach ($oldSessions as $old) {
                     $location = $old->policy_snapshot['location'] ?? null;
-                    if (! $location && ($policy['use_location_check'] ?? false) && $target->workLocation?->mode === 'radius') {
+                    $hasRadius = $target->workLocation?->mode === 'radius'
+                        && $target->workLocation->latitude !== null
+                        && $target->workLocation->longitude !== null
+                        && $target->workLocation->radius_meters;
+                    $useLocation = (bool) (($policy['use_location_check'] ?? false) || $hasRadius || $location);
+                    if (! $location && $useLocation && $target->workLocation?->mode === 'radius') {
                         $location = [
                             'mode' => 'radius', 'latitude' => (float) $target->workLocation->latitude,
                             'longitude' => (float) $target->workLocation->longitude,
@@ -90,7 +95,7 @@ class SwapScheduleCycles
                             'max_accuracy_meters' => $target->workLocation->max_accuracy_meters,
                         ];
                     }
-                    $snapshot = [...$policy, 'location' => $location];
+                    $snapshot = [...$policy, 'use_location_check' => $useLocation, 'location' => $location];
                     $assignment->sessions()->create([
                         'seq' => $old->seq, 'schedule_revision' => $revision,
                         'start_at' => $old->start_at, 'end_at' => $old->end_at,

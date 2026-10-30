@@ -567,9 +567,11 @@ function renderDetailsTable(rows) {
             </td>
             <td data-label="Jam Masuk" class="number-cell" style="text-align: center; white-space: nowrap;">
                 ${att.check_in_clock !== '-' ? `<b>${esc(att.check_in_clock)}</b>` : '<span style="color: var(--muted);">—</span>'}
+                ${att.check_in_latitude != null && att.check_in_longitude != null ? `<small class="gps-coord-meta">${esc(Number(att.check_in_latitude).toFixed(5))}, ${esc(Number(att.check_in_longitude).toFixed(5))}${att.check_in_distance != null ? ` · ${esc(att.check_in_distance)}m` : ''}</small>` : ''}
             </td>
             <td data-label="Jam Pulang" class="number-cell" style="text-align: center; white-space: nowrap;">
                 ${att.check_out_clock !== '-' ? `<b>${esc(att.check_out_clock)}</b>` : '<span style="color: var(--muted);">—</span>'}
+                ${att.check_out_latitude != null && att.check_out_longitude != null ? `<small class="gps-coord-meta">${esc(Number(att.check_out_latitude).toFixed(5))}, ${esc(Number(att.check_out_longitude).toFixed(5))}${att.check_out_distance != null ? ` · ${esc(att.check_out_distance)}m` : ''}</small>` : ''}
             </td>
             <td data-label="Status" style="text-align: center;">
                 ${getStatusBadge(att.state)}

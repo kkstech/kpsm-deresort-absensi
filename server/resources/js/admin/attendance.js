@@ -13,6 +13,17 @@ const formatClock = (value) => value ? new Intl.DateTimeFormat('id-ID', { timeZo
 const formatDate = (value) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00+07:00`));
 const formatMinutes = (minutes) => `${Math.floor(minutes / 60)}j ${minutes % 60}m`;
 
+function renderGpsMeta(lat, lng, distance, accuracy) {
+    if (lat == null || lng == null) {
+        return distance != null ? `<small class="gps-coord-meta">${esc(distance)} m</small>` : '';
+    }
+    const latStr = Number(lat).toFixed(5);
+    const lngStr = Number(lng).toFixed(5);
+    const distPart = distance != null ? ` · ${esc(distance)}m` : (accuracy != null ? ` · ±${esc(accuracy)}m` : '');
+    const mapUrl = `https://www.openstreetmap.org/?mlat=${encodeURIComponent(latStr)}&mlon=${encodeURIComponent(lngStr)}#map=18/${encodeURIComponent(latStr)}/${encodeURIComponent(lngStr)}`;
+    return `<a href="${mapUrl}" target="_blank" rel="noopener noreferrer" class="gps-coord-link" title="Buka koordinat ${esc(latStr)}, ${esc(lngStr)} di OpenStreetMap">${icon('locate', 11)}<span>${esc(latStr)}, ${esc(lngStr)}${distPart}</span></a>`;
+}
+
 function filterValues(form) {
     return Object.fromEntries(new FormData(form).entries());
 }
@@ -57,7 +68,9 @@ function renderRecent(rows) {
     container.innerHTML = `<div class="table-scroll"><table class="data-table attendance-data-table"><thead><tr><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th></tr></thead><tbody>${rows.map((row) => {
         const status = stateLabel(row);
         const checkout = row.attendance.check_out_at ?? row.attendance.provisional_out_at;
-        return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(row.attendance.check_in_at)}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${row.attendance.provisional_out_at && !row.attendance.check_out_at ? ' · provisional' : ''}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
+        const inGps = renderGpsMeta(row.attendance.check_in_latitude, row.attendance.check_in_longitude, row.attendance.check_in_distance, row.attendance.check_in_accuracy);
+        const outGps = renderGpsMeta(row.attendance.check_out_latitude, row.attendance.check_out_longitude, row.attendance.check_out_distance, row.attendance.check_out_accuracy);
+        return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(row.attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${row.attendance.provisional_out_at && !row.attendance.check_out_at ? ' · provisional' : ''}` : '—'}${outGps}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
     }).join('')}</tbody></table></div>`;
 }
 
@@ -225,7 +238,7 @@ function getMonitoringRange(preset) {
     return { from: today, to: today };
 }
 
-function renderMonitoring({ data, meta }) {
+function renderMonitoring({ data, meta, summary }) {
     monitoringRows = new Map(data.map((row) => [String(row.id), row]));
     $('#monitoring-count').textContent = `${meta.total} sesi pada rentang ini`;
 
@@ -243,15 +256,15 @@ function renderMonitoring({ data, meta }) {
     });
 
     const statTotal = $('#stat-total-sessions');
-    if (statTotal) statTotal.textContent = meta.total;
+    if (statTotal) statTotal.textContent = summary?.total ?? meta.total;
     const statComplete = $('#stat-complete-sessions');
-    if (statComplete) statComplete.textContent = completeCount;
+    if (statComplete) statComplete.textContent = summary?.complete ?? completeCount;
     const statInProgress = $('#stat-inprogress-sessions');
-    if (statInProgress) statInProgress.textContent = inProgressCount;
+    if (statInProgress) statInProgress.textContent = summary?.in_progress ?? inProgressCount;
     const statLate = $('#stat-late-sessions');
-    if (statLate) statLate.textContent = lateCount;
+    if (statLate) statLate.textContent = summary?.late ?? lateCount;
     const statReview = $('#stat-review-sessions');
-    if (statReview) statReview.textContent = reviewCount;
+    if (statReview) statReview.textContent = summary?.review ?? reviewCount;
 
     const container = $('#monitoring-table');
     if (!data.length) {
@@ -307,14 +320,14 @@ function renderMonitoring({ data, meta }) {
                         ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}
                         ${checkInPhotoBtn}
                     </div>
-                    ${attendance.check_in_distance != null ? `<small style="display:block;color:var(--muted);font-size:11px;">${attendance.check_in_distance}m</small>` : ''}
+                    ${renderGpsMeta(attendance.check_in_latitude, attendance.check_in_longitude, attendance.check_in_distance, attendance.check_in_accuracy)}
                 </td>
                 <td data-label="Pulang">
                     <div style="display:flex;align-items:center;gap:6px;">
                         ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}
                         ${checkOutPhotoBtn}
                     </div>
-                    ${attendance.check_out_distance != null ? `<small style="display:block;color:var(--muted);font-size:11px;">${attendance.check_out_distance}m</small>` : ''}
+                    ${renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy)}
                 </td>
                 <td data-label="Status"><span class="status ${status.className}">${status.label}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(attendance.review_reason)}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
@@ -338,7 +351,7 @@ async function loadMonitoring(page = 1) {
         monTable.innerHTML = renderSkeletonTable(6, 8);
     }
     try {
-        renderMonitoring(await api('attendance', { query: { ...monitoringFilters, page } }));
+        renderMonitoring(await api('attendance', { query: { ...monitoringFilters, page, per_page: 15 } }));
     } catch (failure) {
         showError('#monitoring-error', failure.message);
         $('#monitoring-table').innerHTML = '<p class="list-empty">Data monitoring gagal dimuat.</p>';
@@ -374,7 +387,8 @@ function openWorkflowModal(title, hint, fields, submit, submitLabel = 'Simpan') 
     $('#workflow-modal-hint').textContent = hint;
     $('#workflow-modal-fields').innerHTML = fields;
     $('#workflow-modal-error').hidden = true;
-    $('#workflow-modal-submit').textContent = submitLabel;
+    const submitBtn = $('#workflow-modal-submit');
+    submitBtn.textContent = submitLabel;
     form.onsubmit = async (event) => {
         event.preventDefault();
         const body = new FormData(form);
@@ -387,6 +401,10 @@ function openWorkflowModal(title, hint, fields, submit, submitLabel = 'Simpan') 
         for (const key of ['requested_check_in_at', 'requested_check_out_at']) {
             if (body.has(key) && body.get(key)) body.set(key, formDateToUtc(body.get(key)));
         }
+        const prevLabel = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.setAttribute('aria-busy', 'true');
+        submitBtn.textContent = 'Menyimpan…';
         try {
             await submit(body);
             dialog.close();
@@ -395,6 +413,11 @@ function openWorkflowModal(title, hint, fields, submit, submitLabel = 'Simpan') 
         } catch (failure) {
             $('#workflow-modal-error').textContent = failure.message;
             $('#workflow-modal-error').hidden = false;
+            toast(failure.message || 'Gagal menyimpan perubahan.', 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.removeAttribute('aria-busy');
+            submitBtn.textContent = prevLabel;
         }
     };
     dialog.showModal();
@@ -903,6 +926,7 @@ function initOvertimeModal() {
         } catch (err) {
             errorEl.textContent = err.message;
             errorEl.hidden = false;
+            toast(err.message || 'Gagal menerbitkan SPL.', 'error');
         } finally {
             submitBtn.disabled = false;
         }
@@ -986,6 +1010,7 @@ export async function initAttendance() {
                 await Promise.all([loadDashboard(), loadMonitoring(monitoringPage), showApprovals()]);
             } catch (failure) {
                 showError('#workflow-error', failure.message);
+                toast(failure.message || 'Gagal menyimpan izin terlambat.', 'error');
             }
         });
         await loadDirectSessions();

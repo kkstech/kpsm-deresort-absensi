@@ -1,4 +1,4 @@
-import { destroyLocationMap, refreshLocationMap, syncLocationMap } from './locationMap';
+import { destroyLocationMap, locateCurrentPoint, refreshLocationMap, syncLocationMap } from './locationMap';
 
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -41,6 +41,7 @@ const ICONS = {
     'check-circle': '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
     'more-horizontal': '<circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/><circle cx="5" cy="12" r="1.5" fill="currentColor"/>',
     'more-vertical': '<circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/>',
+    locate: '<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
 };
 
 export function icon(name, size = 16) {
@@ -49,12 +50,16 @@ export function icon(name, size = 16) {
 }
 
 let toastTimer;
-export function toast(message) {
+let toastCalledInCycle = false;
+export function toast(message, tone = 'success') {
+    toastCalledInCycle = true;
     const el = $('#toast');
+    if (!el) return;
     el.textContent = message;
+    el.classList.toggle('error', tone === 'error');
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+    toastTimer = setTimeout(() => el.classList.remove('show'), tone === 'error' ? 4200 : 2800);
 }
 
 /** Menghasilkan skeleton loading placeholder untuk tabel */
@@ -189,9 +194,17 @@ function fieldHtml(f, value) {
 
     if (f.type === 'map') {
         return `<div class="location-map-field" data-field="${esc(f.name)}" data-span="full">
-            <span class="field-label-text">${esc(f.label)}</span>
-            ${hint}
+            <div class="location-map-head">
+                <div class="location-map-copy">
+                    <span class="field-label-text">${esc(f.label)}</span>
+                    ${hint}
+                </div>
+                <button type="button" class="secondary-button location-geo-btn" data-use-my-location>
+                    ${icon('locate', 15)}<span>Gunakan lokasi saya</span>
+                </button>
+            </div>
             <div class="location-map" data-osm-map role="application" aria-label="${esc(f.label)}"></div>
+            <small class="field-hint" data-geo-status aria-live="polite" hidden></small>
         </div>`;
     }
     if (f.type === 'section') {
@@ -477,6 +490,11 @@ fieldsBox.addEventListener('change', (event) => {
     if (current) syncVisibility();
 });
 fieldsBox.addEventListener('click', (event) => {
+    const locateBtn = event.target.closest('[data-use-my-location]');
+    if (locateBtn) {
+        locateCurrentPoint(fieldsBox, locateBtn);
+        return;
+    }
     if (event.target.closest('[data-add-session]')) {
         const rows = $('.session-rows', fieldsBox);
         if (rows && rows.children.length < 4) {
@@ -500,13 +518,23 @@ $('#form-modal-form').addEventListener('submit', async (event) => {
     errorBox.hidden = true;
     $$('.field-error', fieldsBox).forEach((el) => { el.hidden = true; });
     const submit = $('#form-modal-submit');
+    const prevLabel = submit.textContent;
     submit.disabled = true;
+    submit.setAttribute('aria-busy', 'true');
+    submit.textContent = 'Menyimpan…';
+    toastCalledInCycle = false;
     try {
         const result = await current.onSubmit(collect());
-        if (result !== false) modal.close();
+        if (result !== false) {
+            if (!toastCalledInCycle) toast('Data berhasil disimpan.');
+            modal.close();
+        }
     } catch (error) {
         showErrors(error);
+        toast(error.message || 'Gagal menyimpan data.', 'error');
     } finally {
         submit.disabled = false;
+        submit.removeAttribute('aria-busy');
+        submit.textContent = prevLabel;
     }
 });

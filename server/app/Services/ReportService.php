@@ -306,7 +306,10 @@ class ReportService
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
             ])
-            ->orderBy('start_at');
+            ->withMax('attendanceEvents', 'effective_at')
+            ->orderByDesc('attendance_events_max_effective_at')
+            ->orderByDesc('start_at')
+            ->orderByDesc('id');
 
         $paginator = $sessionQuery->paginate($perPage);
 
@@ -346,7 +349,10 @@ class ReportService
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
             ])
-            ->orderBy('start_at');
+            ->withMax('attendanceEvents', 'effective_at')
+            ->orderByDesc('attendance_events_max_effective_at')
+            ->orderByDesc('start_at')
+            ->orderByDesc('id');
 
         $sessions = $sessionQuery->get();
         $assignmentIds = $sessions->pluck('shift_assignment_id')->unique()->all();
@@ -416,6 +422,10 @@ class ReportService
             : ($record?->provisional_out_at ? WorkTime::clock($record->provisional_out_at, $assignment->work_date).' (Provisional)' : '-');
 
         $scheduleClock = WorkTime::clock($session->start_at, $assignment->work_date).' - '.WorkTime::clock($session->end_at, $assignment->work_date);
+        $checkInEvent = ($record?->check_in_event_id ? $events->firstWhere('id', $record->check_in_event_id) : null)
+            ?? $events->where('type', 'CHECK_IN')->last();
+        $checkOutEvent = ($record?->check_out_event_id ? $events->firstWhere('id', $record->check_out_event_id) : null)
+            ?? $events->where('type', 'CHECK_OUT')->last();
 
         return [
             'id' => $session->id,
@@ -441,6 +451,12 @@ class ReportService
                 'check_out_clock' => $checkOutClock,
                 'check_in_photo_url' => $record?->check_in_photo_url,
                 'check_out_photo_url' => $record?->check_out_photo_url,
+                'check_in_latitude' => $checkInEvent?->latitude !== null ? (float) $checkInEvent->latitude : null,
+                'check_in_longitude' => $checkInEvent?->longitude !== null ? (float) $checkInEvent->longitude : null,
+                'check_in_distance' => $checkInEvent?->distance_meters,
+                'check_out_latitude' => $checkOutEvent?->latitude !== null ? (float) $checkOutEvent->latitude : null,
+                'check_out_longitude' => $checkOutEvent?->longitude !== null ? (float) $checkOutEvent->longitude : null,
+                'check_out_distance' => $checkOutEvent?->distance_meters,
                 'is_late' => (bool) $record?->is_late,
                 'late_minutes' => (int) ($record?->raw_late_minutes ?? 0),
                 'late_permission_status' => $record?->latePermission?->status,

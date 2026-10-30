@@ -379,8 +379,10 @@ async function saveSchedule() {
         if (editingSchedule && custom) await api(`schedule/${editingSchedule.id}/sessions`, { method: 'PATCH', body });
         else await api('schedule', { method: 'POST', body });
     } catch (error) {
-        errorBox.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
+        const msg = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
+        errorBox.textContent = msg;
         errorBox.hidden = false;
+        toast(msg || 'Gagal menyimpan jadwal.', 'error');
         return;
     } finally {
         submit.disabled = false;
@@ -403,7 +405,7 @@ async function runAction(fn) {
         clearScheduleCache();
         load(true);
     } catch (error) {
-        toast(error.message);
+        toast(error.message || 'Gagal memproses aksi jadwal.', 'error');
     }
 }
 
@@ -546,8 +548,10 @@ async function submitBulkSchedule(event) {
         clearScheduleCache();
         load(true);
     } catch (error) {
-        bulkError.textContent = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
+        const msg = Object.values(error.details ?? {})[0]?.[0] ?? error.message;
+        bulkError.textContent = msg;
         bulkError.hidden = false;
+        toast(msg || 'Gagal membuat jadwal massal.', 'error');
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
@@ -917,6 +921,7 @@ $('#schedule-swap-form').addEventListener('submit', async (event) => {
     } catch (reason) {
         error.textContent = reason.message;
         error.hidden = false;
+        toast(reason.message || 'Gagal menukar jadwal.', 'error');
         invalidateSwapPreview();
     }
 });

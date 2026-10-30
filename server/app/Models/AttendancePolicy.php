@@ -46,8 +46,16 @@ class AttendancePolicy extends Model
     public static function snapshotFor(Employee $employee, string $date): array
     {
         $policy = static::resolveFor($employee, $date);
-        $location = $employee->workLocation()->first();
-        $policy['location'] = $policy['use_location_check'] && $location?->mode === 'radius' ? [
+        $location = $employee->relationLoaded('workLocation')
+            ? $employee->workLocation
+            : $employee->workLocation()->first();
+        $hasRadiusLocation = $location?->mode === 'radius'
+            && $location->latitude !== null
+            && $location->longitude !== null
+            && $location->radius_meters;
+        $useLocationCheck = (bool) ($policy['use_location_check'] || $hasRadiusLocation);
+        $policy['use_location_check'] = $useLocationCheck;
+        $policy['location'] = $useLocationCheck && $location?->mode === 'radius' ? [
             'mode' => 'radius',
             'latitude' => (float) $location->latitude,
             'longitude' => (float) $location->longitude,
