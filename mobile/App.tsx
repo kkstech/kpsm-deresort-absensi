@@ -42,7 +42,7 @@ type Session = {
   attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
   overtime?: OvertimeItem | null;
 };
-type Assignment = { id: number; employee_id?: number; employee_name?: string; work_date: string; template_name: string; status: string; revision?: number; scheduled_minutes: number; sessions: Session[] };
+type Assignment = { id: number; employee_id?: number; employee_name?: string; work_date: string; template_name: string; status: string; revision?: number; scheduled_minutes: number; attendance_block_message?: string | null; sessions: Session[] };
 type Profile = {
   id: number;
   name: string;
@@ -212,6 +212,8 @@ function humanizeReason(code?: string | null): string {
       return 'Sesi ini mewajibkan data lokasi GPS yang valid.';
     case 'GPS_ACCURACY_LOW':
       return 'Sinyal akurasi GPS terlalu rendah. Pindah ke area terbuka agar lokasi terdeteksi akurat.';
+    case 'EMPLOYEE_PROFILE_INCOMPLETE':
+      return 'Data karyawan belum lengkap. Hubungi HRD untuk mengisi lokasi penempatan, level, atau data kerja lain.';
     default:
       return code ? `Penolakan server (${code}). Periksa jadwal dan waktu absensi Anda.` : 'Periksa jadwal dan waktu absensi Anda.';
   }
@@ -903,26 +905,13 @@ function Main() {
       const sessionDate = chosenSession?.assignment.work_date ?? todayKey();
       const isoStr = `${sessionDate}T${timeStr}:00+07:00`;
       setAllowedUntil(isoStr);
-      if (chosenSession?.session.start_at) {
-        const startMillis = new Date(chosenSession.session.start_at).getTime();
-        const targetMillis = new Date(isoStr).getTime();
-        if (targetMillis > startMillis) {
-          const diffMins = Math.round((targetMillis - startMillis) / 60000);
-          setMinutes(String(diffMins));
-        }
-      }
+      setMinutes('');
     }
   }
 
   function applyDurationChip(mins: number) {
     setMinutes(String(mins));
-    const chosenSession = (requestKind === 'late' ? unfinishedSessions : openSessions).find((i) => i.session.id === sessionId);
-    if (chosenSession?.session.start_at) {
-      const targetDate = new Date(new Date(chosenSession.session.start_at).getTime() + mins * 60000);
-      const isoDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(targetDate);
-      const isoTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false }).format(targetDate);
-      setAllowedUntil(`${isoDate}T${isoTime}:00+07:00`);
-    }
+    setAllowedUntil('');
   }
 
   useEffect(() => {
@@ -1247,6 +1236,10 @@ function Main() {
 
   async function recordAttendance() {
     if (!intent || !token || !deviceId) return;
+    if (intent.assignment.attendance_block_message) {
+      Alert.alert('Absen belum bisa dicatat', intent.assignment.attendance_block_message);
+      return;
+    }
     if (!attendancePhoto) {
       Alert.alert('Foto Wajib', 'Silakan ambil foto selfie kehadiran terlebih dahulu sebelum melanjutkan.');
       return;
@@ -1380,7 +1373,12 @@ function Main() {
         if (proofRequired && !proof) throw new Error('Kebijakan sesi ini mewajibkan bukti lampiran.');
         if (requestKind === 'late') {
           if (!allowedUntil && !minutes) throw new Error('Isi jam target hadir atau durasi izin.');
-          await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), allowed_until: allowedUntil, allowed_minutes: minutes, reason: reason.trim() }, proof) });
+          if (allowedUntil && minutes) throw new Error('Isi jam target hadir atau durasi izin, jangan keduanya.');
+          const lateFields: Record<string, string> = { shift_session_id: String(sessionId), reason: reason.trim() };
+          if (allowedUntil) lateFields.allowed_until = allowedUntil;
+          else lateFields.allowed_minutes = minutes;
+          await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData(lateFields, proof) });
+        }
         } else if (requestKind === 'correction') {
           if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
           if (!requestedIn && !requestedOut) throw new Error('Isi minimal waktu check-in atau check-out yang diminta.');
@@ -1902,6 +1900,11 @@ function Main() {
     } else if (!hasCheckedOut) {
       eventType = 'CHECK_OUT';
     }
+    const profileBlock = assignment.attendance_block_message;
+    if (profileBlock) {
+      allowAction = false;
+      timingNotice = profileBlock;
+    }
 
     const label = record?.provisional_out_at ? `Checkout otomatis ${clock(record.provisional_out_at)} · menunggu tinjauan` : record?.check_out_at ? `Keluar ${clock(record.check_out_at)}` : record?.check_in_at ? `Masuk ${clock(record.check_in_at)}` : 'Belum absen';
     const pillTone = record?.needs_review ? 'warning' : record?.check_out_at ? 'success' : record?.check_in_at ? 'blue' : (now >= closesAt && !hasCheckedIn ? 'warning' : 'neutral');
@@ -1922,6 +1925,10 @@ function Main() {
               <Text style={styles.actionButtonText}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
               <Text style={styles.actionHint}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server saat online'}</Text>
             </Pressable>
+          ) : profileBlock ? (
+            <View style={styles.sessionBlockNotice}>
+              <Text style={styles.sessionBlockText}>{profileBlock}</Text>
+            </View>
           ) : (
             <View style={styles.sessionDisabledWrap}>
               <Text style={styles.sessionDisabledText}>{timingNotice}</Text>
@@ -2132,12 +2139,16 @@ function Main() {
           <Text style={styles.heroTitle}>{activeAssignment?.template_name ?? 'Belum ada jadwal'}</Text>
           <Text style={styles.heroTime}>{activeAssignment ? `${activeAssignment.sessions.length} sesi · ${Math.floor(activeAssignment.scheduled_minutes / 60)} jam` : 'Jadwal dari HR tampil di sini'}</Text>
           <Text style={styles.heroMeta}>{nameOrString(profile?.employee?.position ? `${nameOrString(profile.employee.position)} · ${nameOrString(profile.employee.department)}` : profile?.employee?.department, 'Absensi')}{activeSession?.session.attendance_policy?.location_required ? ' · validasi lokasi aktif' : ''}</Text>
-          {activeIntent && (
+          {activeAssignment?.attendance_block_message ? (
+            <View style={styles.sessionBlockNotice}>
+              <Text style={styles.sessionBlockText}>{activeAssignment.attendance_block_message}</Text>
+            </View>
+          ) : activeIntent ? (
             <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, pressed && styles.pressed]}>
               <Text style={styles.attendanceButtonText}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
               <Text style={styles.attendanceHint}>Sesi {activeIntent.session.seq} · {shortClock(activeIntent.session.local_start)}–{shortClock(activeIntent.session.local_end)}</Text>
             </Pressable>
-          )}
+          ) : null}
         </View>
 
         {balance && (
@@ -3689,7 +3700,9 @@ const styles = StyleSheet.create({
   sectionMeta: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   sessionCard: { padding: 16, marginTop: 10, borderWidth: 1, borderColor: colors.line, borderRadius: 14, backgroundColor: colors.surface },
   sessionDisabledWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginTop: 10, borderRadius: 10, backgroundColor: '#F0F3F1' },
-  sessionDisabledText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  sessionDisabledText: { color: colors.muted, fontSize: 13, fontWeight: '700', flex: 1 },
+  sessionBlockNotice: { marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: colors.warningSoft },
+  sessionBlockText: { color: colors.ink, fontSize: 13, fontWeight: '700', lineHeight: 19 },
   sessionTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sessionTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
   mutedCopy: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },

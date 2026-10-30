@@ -37,8 +37,8 @@ async function fields(withAccount, employee) {
         { name: 'sec_job', label: '2. Kepegawaian & Penempatan', hint: 'Pengaturan unit kerja, jabatan, dan kelompok tunjangan', icon: 'contract', type: 'section' },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
-        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Dasar penghitungan tunjangan makan & transport.' },
-        { name: 'work_location_id', label: 'Lokasi penempatan kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations) },
+        { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Wajib sebelum karyawan bisa absen. Dasar tunjangan makan dan transport.' },
+        { name: 'work_location_id', label: 'Lokasi penempatan kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations), hint: 'Wajib sebelum karyawan bisa absen. Titik GPS dipakai jika validasi lokasi aktif.' },
         { name: 'status', label: 'Status karyawan', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
         { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: !employee },
     ];

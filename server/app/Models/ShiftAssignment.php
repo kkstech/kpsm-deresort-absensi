@@ -56,6 +56,7 @@ class ShiftAssignment extends Model
     public function toApi(): array
     {
         $now = WorkTime::now();
+        $this->loadMissing('employee.workLocation');
 
         return [
             'id' => $this->id,
@@ -70,6 +71,7 @@ class ShiftAssignment extends Model
             'editable' => in_array($this->status, ['DRAFT', 'PUBLISHED'], true) && $this->sessions->first()?->start_at->gt($now),
             'sessions_editable' => in_array($this->status, ['DRAFT', 'PUBLISHED', 'IN_PROGRESS'], true)
                 && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
+            'attendance_block_message' => $this->employee?->attendanceBlockMessage($this->work_date),
             'sessions' => $this->sessions->map(function (ShiftSession $s) {
                 $snapshot = $s->policy_snapshot;
                 if (! $s->attendanceRecord) {
@@ -78,30 +80,30 @@ class ShiftAssignment extends Model
                 }
 
                 return [
-                'id' => $s->id,
-                'seq' => $s->seq,
-                'start_at' => WorkTime::iso($s->start_at),
-                'end_at' => WorkTime::iso($s->end_at),
-                'local_start_date' => WorkTime::local($s->start_at)->toDateString(),
-                'local_start_time' => WorkTime::local($s->start_at)->format('H:i'),
-                'local_end_date' => WorkTime::local($s->end_at)->toDateString(),
-                'local_end_time' => WorkTime::local($s->end_at)->format('H:i'),
-                'local_start' => WorkTime::clock($s->start_at, $this->work_date),
-                'local_end' => WorkTime::clock($s->end_at, $this->work_date),
-                'unpaid_break_minutes' => $s->unpaid_break_minutes,
-                'scheduled_minutes' => $s->scheduledMinutes(),
-                'attendance_policy' => [
-                    'location_required' => (bool) ($snapshot['use_location_check'] ?? false),
-                    'max_accuracy_meters' => $snapshot['location']['max_accuracy_meters'] ?? null,
-                    'late_permission_proof_required' => (bool) ($snapshot['late_permission_proof_required'] ?? false),
-                    'correction_proof_required' => (bool) ($snapshot['correction_proof_required'] ?? false),
-                ],
-                'attendance_window' => [
-                    'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(config('attendance.checkin_early_minutes'))),
-                    'check_in_closes_at' => WorkTime::iso($s->end_at),
-                    'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
-                    'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
-                ],
+                    'id' => $s->id,
+                    'seq' => $s->seq,
+                    'start_at' => WorkTime::iso($s->start_at),
+                    'end_at' => WorkTime::iso($s->end_at),
+                    'local_start_date' => WorkTime::local($s->start_at)->toDateString(),
+                    'local_start_time' => WorkTime::local($s->start_at)->format('H:i'),
+                    'local_end_date' => WorkTime::local($s->end_at)->toDateString(),
+                    'local_end_time' => WorkTime::local($s->end_at)->format('H:i'),
+                    'local_start' => WorkTime::clock($s->start_at, $this->work_date),
+                    'local_end' => WorkTime::clock($s->end_at, $this->work_date),
+                    'unpaid_break_minutes' => $s->unpaid_break_minutes,
+                    'scheduled_minutes' => $s->scheduledMinutes(),
+                    'attendance_policy' => [
+                        'location_required' => (bool) ($snapshot['use_location_check'] ?? false),
+                        'max_accuracy_meters' => $snapshot['location']['max_accuracy_meters'] ?? null,
+                        'late_permission_proof_required' => (bool) ($snapshot['late_permission_proof_required'] ?? false),
+                        'correction_proof_required' => (bool) ($snapshot['correction_proof_required'] ?? false),
+                    ],
+                    'attendance_window' => [
+                        'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(config('attendance.checkin_early_minutes'))),
+                        'check_in_closes_at' => WorkTime::iso($s->end_at),
+                        'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
+                        'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
+                    ],
                 ];
             })->all(),
         ];

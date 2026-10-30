@@ -45,6 +45,7 @@ class RecordAttendance
         if (! $session || $session->assignment->employee_id !== $employee->id) {
             throw new BusinessRuleException('FORBIDDEN', 'Sesi ini bukan milik Anda.', 403);
         }
+        $employee->assertReadyForAttendance($session->assignment->work_date);
 
         $now = WorkTime::now();
         $offline = (bool) ($input['captured_offline'] ?? false);

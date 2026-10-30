@@ -65,14 +65,16 @@ const tabs = {
     positions: { title: 'Jabatan', hint: 'Jabatan yang masih dipakai tidak bisa dihapus.', singular: 'jabatan', ...nameOnly('jabatan') },
     locations: {
         title: 'Lokasi kerja', hint: 'Mode radius menolak absen di luar jarak yang diatur.', singular: 'lokasi',
+        grid: true,
         columns: [
             { label: 'Nama', cell: (l) => `<b>${esc(l.name)}</b>` },
             { label: 'Mode', cell: (l) => l.mode === 'radius' ? `Radius ${esc(l.radius_meters)} m` : 'Tanpa cek lokasi' },
             { label: 'Titik', cell: (l) => l.latitude ? `${esc(l.latitude)}, ${esc(l.longitude)}` : '-' },
         ],
         fields: async () => [
-            { name: 'name', label: 'Nama lokasi', required: true, maxlength: 100 },
-            { name: 'mode', label: 'Mode', type: 'select', required: true, options: [{ value: 'none', label: 'Tanpa cek lokasi' }, { value: 'radius', label: 'Radius dari titik' }], default: 'none' },
+            { name: 'name', label: 'Nama lokasi', required: true, maxlength: 100, fullWidth: true },
+            { name: 'mode', label: 'Mode', type: 'select', required: true, options: [{ value: 'none', label: 'Tanpa cek lokasi' }, { value: 'radius', label: 'Radius dari titik' }], default: 'none', fullWidth: true },
+            { name: 'map', type: 'map', label: 'Peta radius', hint: 'Klik peta untuk menandai titik kerja. Lingkaran adalah area absen yang diizinkan.', showIf: (v) => v.mode === 'radius' },
             { name: 'latitude', label: 'Latitude', type: 'number', step: 'any', showIf: (v) => v.mode === 'radius' },
             { name: 'longitude', label: 'Longitude', type: 'number', step: 'any', showIf: (v) => v.mode === 'radius' },
             { name: 'radius_meters', label: 'Radius area kerja (meter)', type: 'number', min: 10, max: 5000, showIf: (v) => v.mode === 'radius', hint: 'Jarak maksimal dari titik kerja. Bukan ketajaman sinyal GPS.' },
@@ -442,6 +444,7 @@ async function openLinkEmployee(user) {
                 numeric: true,
                 blank: 'Tidak diatur',
                 options: opts(locations),
+                hint: 'Wajib sebelum karyawan bisa absen.',
                 showIf: (v) => v.mode === 'create',
             },
             {

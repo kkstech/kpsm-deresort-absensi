@@ -1,3 +1,5 @@
+import { destroyLocationMap, refreshLocationMap, syncLocationMap } from './locationMap';
+
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
@@ -174,6 +176,7 @@ const modal = $('#form-modal');
 const fieldsBox = $('#form-modal-fields');
 const errorBox = $('#form-modal-error');
 let current = null;
+modal?.addEventListener('close', destroyLocationMap);
 
 function fieldHtml(f, value) {
     const id = `ff-${f.name}`;
@@ -184,6 +187,13 @@ function fieldHtml(f, value) {
     const spanAttr = f.fullWidth ? ' data-span="full"' : '';
     const attrs = ['min', 'max', 'step', 'maxlength', 'autocomplete', 'inputmode'].filter((a) => f[a] != null).map((a) => ` ${a}="${esc(f[a])}"`).join('');
 
+    if (f.type === 'map') {
+        return `<div class="location-map-field" data-field="${esc(f.name)}" data-span="full">
+            <span class="field-label-text">${esc(f.label)}</span>
+            ${hint}
+            <div class="location-map" data-osm-map role="application" aria-label="${esc(f.label)}"></div>
+        </div>`;
+    }
     if (f.type === 'section') {
         const iconHtml = f.icon ? `<div class="form-section-icon">${icon(f.icon, 15)}</div>` : '';
         return `<div class="form-section-divider" data-field="${esc(f.name)}" data-span="full">
@@ -357,6 +367,7 @@ function syncVisibility() {
             if (input) input.disabled = isHidden;
         }
     });
+    syncLocationMap(fieldsBox);
     const rows = $('.session-rows', fieldsBox);
     if (rows) {
         const typeSelect = $('[name="type"]', fieldsBox);
@@ -375,7 +386,7 @@ function syncVisibility() {
 function collect() {
     const out = {};
     current.fields.forEach((f) => {
-        if (f.type === 'section') return;
+        if (f.type === 'section' || f.type === 'map') return;
         const wrap = $(`[data-field="${f.name}"]`, fieldsBox);
         if (!wrap || (wrap.hidden && f.showIf)) return;
         if (f.type === 'sessions') {
@@ -423,10 +434,14 @@ export function openForm({ title, hint = '', fields, values = {}, submitLabel = 
     if (rows) rows.innerHTML = (values.sessions?.length ? values.sessions : [{}]).map((s, idx) => sessionRow(s, idx)).join('');
     syncVisibility();
     modal.showModal();
+    syncLocationMap(fieldsBox);
     $('input, select', fieldsBox)?.focus();
 }
 
 fieldsBox.addEventListener('input', (event) => {
+    if (['latitude', 'longitude', 'radius_meters'].includes(event.target.name)) {
+        refreshLocationMap(fieldsBox, { fit: event.target.name === 'radius_meters' });
+    }
     if (event.target.classList.contains('currency-input')) {
         const input = event.target;
         const raw = input.value;

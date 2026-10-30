@@ -43,7 +43,7 @@ class AttendanceTest extends TestCase
         $this->seed(MasterDataSeeder::class);
         $this->travelTo('2026-10-24 03:00:00');
         $user = User::factory()->create();
-        $this->employee = Employee::query()->create([
+        $this->employee = Employee::query()->create($this->completeEmployeeAttrs([
             'code' => 'ATT-001',
             'name' => $user->name,
             'user_id' => $user->id,
@@ -51,7 +51,7 @@ class AttendanceTest extends TestCase
             'position_id' => Position::query()->value('id'),
             'status' => 'active',
             'started_on' => '2026-01-01',
-        ]);
+        ]));
         $this->device = DeviceRegistration::query()->create([
             'user_id' => $user->id,
             'device_uuid' => 'attendance-phone',
@@ -529,6 +529,74 @@ class AttendanceTest extends TestCase
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertSame($event->photo_path, $record->check_in_photo_path);
         $this->assertNotNull($record->toApi()['check_in_photo_url']);
+    }
+
+    public function test_attendance_rejects_incomplete_employee_profile_and_exposes_block_on_schedule(): void
+    {
+        $this->employee->update(['work_location_id' => null, 'level_id' => null]);
+
+        $this->withToken($this->token)
+            ->getJson('/api/v1/me/schedule?from=2026-10-25&to=2026-10-25')
+            ->assertOk()
+            ->assertJsonPath(
+                'data.0.attendance_block_message',
+                'Absen belum bisa dicatat. Lengkapi level tunjangan dan lokasi penempatan kerja. Hubungi HRD.'
+            );
+
+        $this->travelTo('2026-10-25 01:10:00');
+        $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $this->event('18181818-1818-4181-8181-181818181818'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'EMPLOYEE_PROFILE_INCOMPLETE')
+            ->assertJsonPath('message', 'Absen belum bisa dicatat. Lengkapi level tunjangan dan lokasi penempatan kerja. Hubungi HRD.');
+
+        $this->assertDatabaseCount('attendance_events', 0);
+    }
+
+    public function test_attendance_rejects_missing_level(): void
+    {
+        $this->employee->update(['level_id' => null]);
+        $this->travelTo('2026-10-25 01:10:00');
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $this->event('19191919-1919-4191-8191-191919191919'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'EMPLOYEE_PROFILE_INCOMPLETE')
+            ->assertJsonPath('message', 'Absen belum bisa dicatat. Lengkapi level tunjangan. Hubungi HRD.');
+
+        $this->assertDatabaseCount('attendance_events', 0);
+    }
+
+    public function test_attendance_rejects_missing_work_location(): void
+    {
+        $this->employee->update(['work_location_id' => null]);
+        $this->travelTo('2026-10-25 01:10:00');
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $this->event('20202020-2020-4202-8202-202020202020'))
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'EMPLOYEE_PROFILE_INCOMPLETE')
+            ->assertJsonPath('message', 'Absen belum bisa dicatat. Lengkapi lokasi penempatan kerja. Hubungi HRD.');
+
+        $this->assertDatabaseCount('attendance_events', 0);
+    }
+
+    public function test_sync_rejects_incomplete_employee_profile(): void
+    {
+        $this->employee->update(['work_location_id' => null]);
+        $this->travelTo('2026-10-25 01:10:00');
+
+        $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/sync', [
+                'batch_uuid' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                'events' => [$this->event('21212121-2121-4212-8212-212121212121')],
+            ])
+            ->assertOk()
+            ->assertJsonPath('results.0.status', 'REJECTED')
+            ->assertJsonPath('results.0.reason_code', 'EMPLOYEE_PROFILE_INCOMPLETE')
+            ->assertJsonPath('results.0.message', 'Absen belum bisa dicatat. Lengkapi lokasi penempatan kerja. Hubungi HRD.');
+
+        $this->assertDatabaseCount('attendance_events', 0);
     }
 
     private function event(string $uuid, array $overrides = []): array

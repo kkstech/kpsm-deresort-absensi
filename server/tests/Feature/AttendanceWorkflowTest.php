@@ -324,6 +324,20 @@ class AttendanceWorkflowTest extends TestCase
         $this->assertSame('PROVISIONAL', AttendanceRecord::query()->where('shift_session_id', $this->session->id)->value('status'));
     }
 
+    public function test_late_permission_rejects_until_and_minutes_together(): void
+    {
+        $this->withToken($this->token)
+            ->postJson('/api/v1/late-permissions', [
+                'shift_session_id' => $this->session->id,
+                'allowed_until' => '2026-10-25T01:30:00Z',
+                'allowed_minutes' => 30,
+                'reason' => 'Terlambat hadir',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'VALIDATION_ERROR')
+            ->assertJsonPath('details.allowed_until.0', 'Isi jam target hadir atau durasi izin, jangan keduanya.');
+    }
+
     public function test_policy_proof_settings_persist_and_partial_updates_keep_existing_values(): void
     {
         $admin = User::factory()->role('admin')->create();

@@ -63,8 +63,8 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
   if (!response.ok) {
     let msg = data?.message ?? 'Permintaan gagal.';
     if (data?.details && typeof data.details === 'object') {
-      const detailsStr = Object.values(data.details).flat().filter(Boolean).join(' ');
-      if (detailsStr) msg = `${msg} (${detailsStr})`;
+      const detailsStr = [...new Set(Object.values(data.details).flat().filter(Boolean))].join(' ');
+      if (detailsStr) msg = msg === 'Data belum valid.' ? detailsStr : `${msg} (${detailsStr})`;
     }
     if (response.status === 401 && path !== 'auth/login') {
       const sessionMsg = 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.';

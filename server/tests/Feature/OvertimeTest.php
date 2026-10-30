@@ -2,21 +2,17 @@
 
 namespace Tests\Feature;
 
-use App\Actions\RecordAttendance;
-use App\Models\AttendanceEvent;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\OvertimeOrder;
 use App\Models\Position;
-use App\Models\ShiftAssignment;
 use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class OvertimeTest extends TestCase
@@ -24,9 +20,13 @@ class OvertimeTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $employeeUser;
+
     private Employee $employee;
+
     private DeviceRegistration $device;
+
     private string $token;
 
     protected function setUp(): void
@@ -37,7 +37,7 @@ class OvertimeTest extends TestCase
 
         $this->admin = User::factory()->role('admin')->create();
         $this->employeeUser = User::factory()->create();
-        $this->employee = Employee::query()->create([
+        $this->employee = Employee::query()->create($this->completeEmployeeAttrs([
             'code' => 'FO-001',
             'name' => 'Budi Santoso',
             'status' => 'active',
@@ -45,7 +45,7 @@ class OvertimeTest extends TestCase
             'user_id' => $this->employeeUser->id,
             'department_id' => Department::query()->first()->id,
             'position_id' => Position::query()->first()->id,
-        ]);
+        ]));
 
         $this->device = DeviceRegistration::query()->create([
             'user_id' => $this->employeeUser->id,

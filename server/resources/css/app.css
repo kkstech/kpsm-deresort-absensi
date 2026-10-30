@@ -919,6 +919,26 @@ main:focus { outline: none; }
 .list-error { margin: 16px 0; }
 .form-fields { display: grid; gap: 16px; }
 
+.location-map-field { display: grid; gap: 8px; }
+.location-map {
+    width: 100%;
+    height: 260px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface-soft);
+    z-index: 0;
+}
+.location-map .leaflet-control-attribution {
+    font-size: 11px;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.92);
+}
+.location-map .leaflet-control-attribution a { color: var(--primary); }
+@media (max-width: 640px) {
+    .location-map { height: 220px; }
+}
+
 /* Wide Modal for Rich Forms (e.g. Employee Edit) */
 .app-dialog.modal-wide {
     width: min(760px, calc(100vw - 32px));

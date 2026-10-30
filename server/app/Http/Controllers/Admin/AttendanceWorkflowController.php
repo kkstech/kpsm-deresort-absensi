@@ -36,6 +36,10 @@ class AttendanceWorkflowController extends Controller
             'allowed_minutes' => ['nullable', 'integer', 'between:0,1440', 'prohibits:allowed_until'],
             'reason' => ['required', 'string', 'max:2000'],
             'evidence' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
+        ], [
+            'allowed_until.prohibits' => 'Isi jam target hadir atau durasi izin, jangan keduanya.',
+            'allowed_minutes.prohibits' => 'Isi jam target hadir atau durasi izin, jangan keduanya.',
+            'allowed_minutes.between' => 'Durasi izin harus 0 sampai 1440 menit.',
         ]);
         $permission = $workflow->createDirectLatePermission($request->user(), $data['shift_session_id'], $data, $request->file('evidence'));
 

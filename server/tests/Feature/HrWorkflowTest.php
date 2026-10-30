@@ -250,11 +250,11 @@ class HrWorkflowTest extends TestCase
 
     private function employee(string $code, string $startedOn, ?User $user = null): Employee
     {
-        return Employee::query()->create([
+        return Employee::query()->create($this->completeEmployeeAttrs([
             'code' => $code, 'name' => "Karyawan {$code}", 'status' => 'active', 'started_on' => $startedOn,
             'user_id' => $user?->id,
             'department_id' => Department::query()->value('id'), 'position_id' => Position::query()->value('id'),
-        ]);
+        ]));
     }
 
     private function event(int $sessionId, string $uuid, string $type): array

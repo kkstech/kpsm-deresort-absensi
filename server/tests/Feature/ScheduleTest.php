@@ -476,9 +476,9 @@ class ScheduleTest extends TestCase
 
     private function makeEmployee(string $code, string $department): Employee
     {
-        return Employee::query()->create([
+        return Employee::query()->create($this->completeEmployeeAttrs([
             'code' => $code, 'name' => "Karyawan {$code}", 'status' => 'active', 'started_on' => '2026-01-01',
             'department_id' => Department::query()->where('name', $department)->value('id'), 'position_id' => Position::query()->value('id'),
-        ]);
+        ]));
     }
 }
