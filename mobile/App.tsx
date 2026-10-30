@@ -1378,7 +1378,6 @@ function Main() {
           if (allowedUntil) lateFields.allowed_until = allowedUntil;
           else lateFields.allowed_minutes = minutes;
           await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData(lateFields, proof) });
-        }
         } else if (requestKind === 'correction') {
           if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
           if (!requestedIn && !requestedOut) throw new Error('Isi minimal waktu check-in atau check-out yang diminta.');
