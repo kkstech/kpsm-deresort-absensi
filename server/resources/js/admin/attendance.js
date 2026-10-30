@@ -865,6 +865,22 @@ function initOvertimeModal() {
         const notes = $('#overtime-notes').value.trim();
         const isCrossDay = $('#overtime-cross-day').checked;
 
+        if (!workDate) {
+            errorEl.textContent = 'Pilih tanggal kerja terlebih dahulu.';
+            errorEl.hidden = false;
+            return;
+        }
+        if (!startTime || !endTime) {
+            errorEl.textContent = 'Isi jam mulai dan jam selesai.';
+            errorEl.hidden = false;
+            return;
+        }
+        if (title.length < 3) {
+            errorEl.textContent = 'Judul tugas lembur minimal 3 karakter.';
+            errorEl.hidden = false;
+            return;
+        }
+
         const submitBtn = $('#overtime-submit-btn');
         submitBtn.disabled = true;
 

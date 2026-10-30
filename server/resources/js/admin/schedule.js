@@ -906,8 +906,10 @@ $('#schedule-swap-form').addEventListener('submit', async (event) => {
     error.hidden = true;
     try {
         const payload = swapPayload();
+        const reason = $('#schedule-swap-reason').value.trim();
+        if (reason.length < 3) throw new Error('Tuliskan alasan perubahan (minimal 3 karakter).');
         if (payload.vacancy_decisions.some((decision) => !decision.action || decision.reason.length < 3)) throw new Error('Lengkapi pilihan roster dan alasan pada semua jadwal yang kosong.');
-        await api('schedule/swap', { method: 'POST', body: { ...payload, preview_token: swapPreview.preview_token, reason: $('#schedule-swap-reason').value.trim() } });
+        await api('schedule/swap', { method: 'POST', body: { ...payload, preview_token: swapPreview.preview_token, reason } });
         swapModal.close();
         toast('Rantai jadwal ditukar dan dicatat.');
         clearScheduleCache();

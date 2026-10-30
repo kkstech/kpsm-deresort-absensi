@@ -4,7 +4,20 @@ Baca file ini sebelum lanjut mengerjakan backend. `README.md` masih menggambarka
 
 Rencana kerja ada di plan "Backend + API mobile". Jangan ubah file plan itu. Lanjut dari bagian yang belum selesai di bawah.
 
-Tanggal: 29 Oktober 2026.
+Tanggal: 30 Oktober 2026.
+
+## Perubahan terbaru — Validasi Form Admin setelah novalidate
+
+- Menonaktifkan input mode yang tersembunyi di dialog jadwal (`setScheduleMode`) supaya Chrome tidak menolak submit dengan `An invalid form control with name='' is not focusable`.
+- Menambah `novalidate` pada form jadwal, penugasan massal, tukar siklus, dan SPL. Validasi native HTML gagal pada field `required` di dalam `[hidden]`.
+- Validasi JS di `saveSchedule()`: karyawan, tanggal kerja, shift reguler, sesi custom, dan alasan perubahan jadwal terbit.
+- Validasi JS di form SPL: tanggal kerja, jam mulai/selesai, judul minimal 3 karakter (selaras `OvertimeAdminController`).
+- Validasi JS alasan tukar siklus: wajib, minimal 3 karakter (selaras `ScheduleController::swap`).
+
+## Perubahan terbaru — Mobile 0.1.1 dan Izin Kamera
+
+- Menaikkan versi Expo ke `0.1.1` (`versionCode` 2) di `mobile/app.json`.
+- Menambah plugin `expo-image-picker` dengan teks izin kamera, plus `android.permission.CAMERA`.
 
 ## Perubahan terbaru — Perapihan Kartu Kontak Bantuan pada Halaman Login
 
