@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Actions\PublishSchedule;
+use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
@@ -103,10 +105,29 @@ class OvertimeTest extends TestCase
 
     public function test_employee_can_submit_overtime_request_and_admin_approves(): void
     {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Split 12 Jam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '08:00', 'end_date' => '2026-10-26', 'end_time' => '14:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '15:00', 'end_date' => '2026-10-26', 'end_time' => '21:00'],
+            ],
+        ], $this->admin);
+
+        foreach ($assignment->sessions as $session) {
+            AttendanceRecord::query()->create([
+                'shift_session_id' => $session->id,
+                'employee_id' => $this->employee->id,
+                'check_in_at' => $session->start_at,
+                'check_out_at' => $session->end_at,
+                'status' => 'VERIFIED',
+                'verified_minutes' => $session->scheduledMinutes(),
+            ]);
+        }
+
         $req = $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             'work_date' => '2026-10-26',
-            'start_time' => '17:00',
-            'end_time' => '19:00',
+            'start_time' => '21:00',
+            'end_time' => '23:00',
             'title' => 'Pembersihan Banquet Tambahan',
         ])->assertCreated();
 
