@@ -52,6 +52,7 @@ class SiteSettingController extends Controller
             'contact_email' => ['nullable', 'email', 'max:255'],
             'contact_phone' => ['nullable', 'string', 'max:40'],
             'contact_address' => ['nullable', 'string', 'max:500'],
+            'retirement_age_years' => ['nullable', 'integer', 'between:18,100'],
             'logo' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'favicon' => ['nullable', 'file', 'mimes:png,ico', 'max:2048'],
             'remove_logo' => ['sometimes', 'boolean'],

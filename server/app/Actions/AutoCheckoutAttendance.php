@@ -150,7 +150,7 @@ class AutoCheckoutAttendance
         $sessions = $session->assignment->sessions()->with('attendanceRecord')->get();
         $cycleStart = $sessions->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
             ->filter()->sortBy(fn ($checkIn) => $checkIn->getTimestamp())->first() ?? $record->check_in_at;
-        $cycleDeadline = $cycleStart->addMinutes(13 * 60);
+        $cycleDeadline = $cycleStart->addHours(24);
 
         return $session->end_at->lt($cycleDeadline) ? $session->end_at : $cycleDeadline;
     }

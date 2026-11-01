@@ -93,7 +93,7 @@
                 </div>
                 <div class="top-actions">
                     <span class="server-state"><i></i>Server lokal aktif</span>
-                    <button type="button" class="icon-button notification-button" data-view-link="requests" aria-label="Buka persetujuan"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg></button>
+                    <button type="button" class="icon-button notification-button" id="notification-button" aria-label="Buka notifikasi"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><b id="notification-unread-count" hidden></b></button>
                 </div>
             </header>
 
@@ -346,6 +346,7 @@
                                 </div>
                             </div>
                             <div id="calendar-body"></div>
+                            <div id="schedule-pagination" class="table-pagination"></div>
                             <div class="calendar-legend"><span><i class="legend-dot regular"></i>Reguler</span><span><i class="legend-dot special"></i>Khusus</span><span><i class="legend-dot night"></i>Malam</span></div>
                         </section>
                         <aside class="panel selected-day-panel" aria-live="polite">
@@ -535,7 +536,7 @@
                                 <p class="list-empty">Memuat data…</p>
                             </div>
                         </section>
-                        <section class="panel workflow-queue-panel">
+                        <section class="panel workflow-queue-panel" data-requires="admin">
                             <div class="panel-heading">
                                 <div>
                                     <div class="queue-title-wrap">
@@ -550,6 +551,17 @@
                                         <option value="APPROVED">Disetujui / SPL Aktif</option>
                                         <option value="all">Semua</option>
                                     </select>
+                                </div>
+                            </div>
+                            <div class="overtime-recommendations" aria-labelledby="overtime-recommendation-heading">
+                                <div class="panel-heading" style="padding: 14px 18px 8px;">
+                                    <div>
+                                        <h3 id="overtime-recommendation-heading" style="font-size:14px;margin:0;">Mendekati 12 jam kerja</h3>
+                                        <p id="overtime-recommendation-count" style="margin:4px 0 0;color:var(--muted);font-size:12px;">Memuat rekomendasi…</p>
+                                    </div>
+                                </div>
+                                <div id="overtime-recommendation-list" class="workflow-queue-list" aria-live="polite">
+                                    <p class="list-empty">Memuat rekomendasi…</p>
                                 </div>
                             </div>
                             <div id="overtime-queue" class="workflow-queue-list" aria-live="polite">
@@ -1114,6 +1126,14 @@
                                             <label>Alamat<textarea name="contact_address" rows="3" maxlength="500" autocomplete="street-address"></textarea><small class="field-error" id="site-contact-address-error" hidden></small></label>
                                             <p class="field-hint">Kontak yang diisi akan tampil di halaman login.</p>
                                         </section>
+                                        <section class="site-settings-section">
+                                            <h3>Monitoring usia pensiun</h3>
+                                            <label>Usia pensiun perusahaan
+                                                <input name="retirement_age_years" type="number" min="18" max="100" step="1">
+                                                <small class="field-hint">Kosongkan sampai kebijakan ditetapkan. Karyawan akan ditandai mulai 12 bulan sebelum usia pensiun.</small>
+                                                <small class="field-error" id="site-retirement-age-years-error" hidden></small>
+                                            </label>
+                                        </section>
                                     </div>
                                     <aside class="site-preview" aria-live="polite" aria-label="Pratinjau halaman login">
                                         <h3>Pratinjau login</h3>
@@ -1137,7 +1157,7 @@
                                             <h3>Check-in lebih awal</h3>
                                             <label>Jendela sebelum jam mulai sesi
                                                 <input name="checkin_early_minutes" type="number" min="0" max="720" step="1" required>
-                                                <small class="field-hint">Menit sebelum jadwal. Contoh: 60 berarti satu jam lebih awal; 0 berarti check-in dibuka tepat pada jam mulai.</small>
+                                                <small class="field-hint">Contoh: 60 berarti check-in dibuka satu jam lebih awal. Nilai 0 membolehkan check-in kapan saja dan tetap menghitung jam kerja mulai dari awal shift.</small>
                                                 <small class="field-error" id="attendance-window-checkin-early-minutes-error" hidden></small>
                                             </label>
                                         </section>
@@ -1578,6 +1598,20 @@
                 <button type="submit" class="primary-button" id="workflow-modal-submit">Simpan</button>
             </div>
         </form>
+    </dialog>
+    <dialog class="app-dialog notification-dialog" id="notification-modal" aria-labelledby="notification-modal-title">
+        <div class="modal-heading">
+            <div><h2 id="notification-modal-title">Notifikasi</h2><p>Persetujuan cuti dan izin terbaru.</p></div>
+            <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="modal-body">
+            <p class="form-error" id="notification-error" role="alert" hidden></p>
+            <div id="notification-list" class="notification-list" aria-live="polite"></div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" class="secondary-button" data-open-approvals>Buka persetujuan</button>
+            <button type="button" class="primary-button" data-close-modal>Tutup</button>
+        </div>
     </dialog>
     <dialog class="app-dialog photo-preview-dialog" id="photo-preview-modal" aria-labelledby="photo-preview-title">
         <div class="modal-heading">

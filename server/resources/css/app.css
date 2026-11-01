@@ -73,6 +73,15 @@ img.avatar { object-fit: cover; }
 .icon-button:hover { background: rgba(0, 0, 0, .06); }
 .notification-button { color: var(--ink); border: 1px solid var(--line); }
 .notification-button b { position: absolute; top: -6px; right: -6px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #fff; background: var(--danger); font-size: 12px; }
+.notification-list { display: grid; gap: 8px; }
+.notification-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.notification-item.unread { border-color: #9ab8a8; background: #f1f7f3; }
+.notification-item h3 { margin: 0; color: var(--ink); font-size: 14px; }
+.notification-item p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.notification-item time { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
+.notification-item button { min-height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--primary); background: #fff; font-weight: 700; cursor: pointer; }
+.notification-actions { display: grid; gap: 6px; }
+.notification-dialog .modal-body { display: grid; gap: 12px; overflow: auto; padding: 18px 24px; }
 .menu-button { display: none; }
 
 /* Halaman, tombol */

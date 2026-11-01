@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\ManageAttendanceWorkflow;
 use App\Actions\PublishSchedule;
+use App\Actions\RecordAttendance;
 use App\Exceptions\BusinessRuleException;
 use App\Models\AttendanceAttachment;
 use App\Models\AttendanceCorrection;
@@ -45,7 +46,7 @@ class AttendanceWorkflowTest extends TestCase
         $this->travelTo('2026-10-24 03:00:00');
 
         $this->employeeUser = User::factory()->create();
-        $this->employee = Employee::query()->create([
+        $this->employee = Employee::query()->create($this->completeEmployeeAttrs([
             'code' => 'WF-001',
             'name' => $this->employeeUser->name,
             'user_id' => $this->employeeUser->id,
@@ -53,7 +54,7 @@ class AttendanceWorkflowTest extends TestCase
             'position_id' => Position::query()->value('id'),
             'status' => 'active',
             'started_on' => '2026-01-01',
-        ]);
+        ]));
         $device = DeviceRegistration::query()->create([
             'user_id' => $this->employeeUser->id,
             'device_uuid' => 'workflow-phone',
@@ -131,6 +132,80 @@ class AttendanceWorkflowTest extends TestCase
         $this->actingAs(User::factory()->role('supervisor')->create([
             'department_id' => Department::query()->where('name', 'Front Office')->value('id'),
         ]))->get("/admin/api/attachments/{$attachment->id}")->assertForbidden();
+    }
+
+    public function test_temporary_exit_is_approved_and_deducted_from_verified_work_time(): void
+    {
+        $checkIn = $this->session->start_at;
+        $record = AttendanceRecord::query()->create([
+            'shift_session_id' => $this->session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $checkIn,
+            'status' => 'IN_PROGRESS',
+        ]);
+        $this->travelTo($checkIn->addMinutes(30)->toDateTimeString());
+        $leaveAt = $checkIn->addHours(2);
+        $returnAt = $leaveAt->addHour();
+        $response = $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'temporary_exit',
+            'leave_at' => $leaveAt->toIso8601String(),
+            'return_at' => $returnAt->toIso8601String(),
+            'reason' => 'Keperluan mendadak keluarga',
+        ])->assertCreated()->assertJsonPath('data.permission_type', 'temporary_exit');
+
+        $permissionId = $response->json('data.id');
+        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
+        $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui oleh atasan',
+        ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
+
+        $checkOut = $this->session->end_at;
+        $record->update([
+            'check_out_at' => $checkOut,
+            'status' => 'VERIFIED',
+            'verified_minutes' => AttendanceRecord::paidMinutes($this->session, $checkIn, $checkOut),
+        ]);
+        $this->assertSame(420, $record->fresh()->verified_minutes);
+    }
+
+    public function test_early_checkout_requires_preapproved_permission(): void
+    {
+        $checkIn = $this->session->start_at;
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $this->session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $checkIn,
+            'status' => 'IN_PROGRESS',
+        ]);
+        $earlyCheckoutAt = $this->session->end_at->subHour();
+        $this->travelTo($earlyCheckoutAt->toDateTimeString());
+
+        $payload = [
+            'event_uuid' => 'wf-early-checkout-first',
+            'shift_session_id' => $this->session->id,
+            'event_type' => 'CHECK_OUT',
+            'device_id' => 'workflow-phone',
+            'captured_offline' => false,
+        ];
+        $first = app(RecordAttendance::class)->handle($this->employee, $payload);
+        $this->assertSame('EARLY_CHECKOUT_NOT_APPROVED', $first['data']['reason_code']);
+
+        $permission = $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'early_departure',
+            'leave_at' => now()->toIso8601String(),
+            'reason' => 'Kondisi keluarga mendesak',
+        ])->assertCreated()->json('data');
+        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
+        $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permission['id']}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        ])->assertOk();
+
+        $this->travelTo($earlyCheckoutAt->addMinute()->toDateTimeString());
+        $payload['event_uuid'] = 'wf-early-checkout-approved';
+        $second = app(RecordAttendance::class)->handle($this->employee, $payload);
+        $this->assertSame('ACCEPTED', $second['data']['status']);
     }
 
     public function test_employee_cannot_approve_own_request_and_direct_permission_is_super_admin_only(): void

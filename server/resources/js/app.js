@@ -7,6 +7,7 @@ import { initAttendance, showApprovals, showDashboard, showMonitoring } from './
 import { showLeaves } from './admin/leaves';
 import { showAllowances } from './admin/allowances';
 import { showReports } from './admin/reports';
+import { initNotifications } from './admin/notifications';
 
 const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, leaves: showLeaves, allowances: showAllowances, reports: showReports, settings: showSettings };
 const canSee = (el) => ({
@@ -141,6 +142,7 @@ $$('[data-filter]').forEach((button) => button.addEventListener('click', () => {
 $$('[data-close-modal]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 
 initAttendance();
+initNotifications((requestType) => showView(requestType === 'leave' ? 'leaves' : 'requests'));
 
 $('#global-search').addEventListener('focus', () => initSchedule().catch(() => {}), { once: true });
 $('#global-search').addEventListener('change', async (event) => {

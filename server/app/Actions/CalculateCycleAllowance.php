@@ -4,9 +4,11 @@ namespace App\Actions;
 
 use App\Models\AllowancePolicy;
 use App\Models\AllowanceResult;
+use App\Models\AttendanceCorrection;
 use App\Models\EmployeeAllowanceOverride;
 use App\Models\EmployeeLevel;
 use App\Models\EmployeeLevelAssignment;
+use App\Models\LatePermission;
 use App\Models\ShiftAssignment;
 use App\Support\Audit;
 use App\Support\WorkTime;
@@ -21,13 +23,16 @@ class CalculateCycleAllowance
         $result = AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->first();
         $result ??= $this->snapshot($assignment);
         $verifiedMinutes = $assignment->sessions->sum(fn ($session) => $session->attendanceRecord?->verified_minutes ?? 0);
+        $sessionIds = $assignment->sessions->pluck('id');
+        $hasApprovedException = LatePermission::query()->whereIn('shift_session_id', $sessionIds)->where('status', 'APPROVED')->exists()
+            || AttendanceCorrection::query()->whereIn('shift_session_id', $sessionIds)->where('status', 'APPROVED')->exists();
         $closed = $assignment->sessions->isNotEmpty() && $assignment->sessions->every(fn ($session) => ($session->attendanceRecord && ($session->attendanceRecord->check_out_at || $session->attendanceRecord->provisional_out_at))
             || (! $session->attendanceRecord && $session->end_at->lte(WorkTime::now()))
         );
 
         $status = match (true) {
             ! $result->rate_snapshot['configured'] => 'CONFIGURATION_REQUIRED',
-            $verifiedMinutes > 0 => 'ELIGIBLE',
+            $verifiedMinutes >= 480 || ($hasApprovedException && $closed) => 'ELIGIBLE',
             $closed => 'NO_VERIFIED_ATTENDANCE',
             default => 'PENDING_VERIFICATION',
         };

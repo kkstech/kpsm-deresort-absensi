@@ -16,6 +16,7 @@ class SiteSetting extends Model
         'logo_path',
         'favicon_path',
         'checkin_early_minutes',
+        'retirement_age_years',
     ];
 
     protected $appends = ['logo_url', 'favicon_url'];
@@ -42,6 +43,9 @@ class SiteSetting extends Model
 
     protected function casts(): array
     {
-        return ['checkin_early_minutes' => 'integer'];
+        return [
+            'checkin_early_minutes' => 'integer',
+            'retirement_age_years' => 'integer',
+        ];
     }
 }

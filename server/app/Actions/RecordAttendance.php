@@ -97,11 +97,17 @@ class RecordAttendance
 
         $nonProjectable = [
             'SCHEDULE_CANCELLED', 'SCHEDULE_NOT_PUBLISHED', 'PERIOD_LOCKED', 'ALREADY_CHECKED_IN',
-            'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'OFFLINE_CLOCK_FUTURE', 'OFFLINE_TOO_OLD',
+            'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'EARLY_CHECKOUT_NOT_APPROVED', 'OFFLINE_CLOCK_FUTURE', 'OFFLINE_TOO_OLD',
             'SCHEDULE_CHANGED', 'OPEN_SESSION_EXISTS', 'PREVIOUS_PERIOD_LOCKED', 'AUTO_CHECKOUT_DUE',
             'FAKE_GPS_DETECTED',
         ];
         if ($result !== 'REJECTED' && ! in_array($problem, $nonProjectable, true)) {
+            if ($input['event_type'] === 'CHECK_IN' && $record?->check_in_at === null) {
+                $policySnapshot = $session->policy_snapshot ?? [];
+                $policySnapshot['checkin_early_minutes'] = SiteSetting::checkInEarlyMinutes();
+                $session->policy_snapshot = $policySnapshot;
+                $session->save();
+            }
             $record = $this->project($session, $event, $record, $result === 'REVIEW_REQUIRED');
             if ($event->type === 'CHECK_IN') {
                 $record = $this->reconcilePendingCheckout($session, $record);
@@ -115,7 +121,7 @@ class RecordAttendance
     private function scheduleProblem(ShiftSession $session, string $type, CarbonImmutable $at, ?AttendanceRecord $record): ?string
     {
         $assignment = $session->assignment;
-        $early = SiteSetting::checkInEarlyMinutes();
+        $early = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
         $late = config('attendance.checkout_late_minutes');
         $checkoutDeadline = $session->end_at->addMinutes($late);
         if ((int) $assignment->rules_version >= 2) {
@@ -125,7 +131,7 @@ class RecordAttendance
                 $firstCheckIn = $assignment->sessions()->with('attendanceRecord')->get()
                     ->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
                     ->filter()->sortBy(fn ($checkIn) => $checkIn->getTimestamp())->first();
-                $cycleDeadline = $firstCheckIn?->addMinutes(13 * 60);
+                $cycleDeadline = $firstCheckIn?->addHours(24);
                 $checkoutDeadline = $cycleDeadline && $cycleDeadline->lt($session->end_at->addMinutes(60))
                     ? $cycleDeadline : $session->end_at->addMinutes(60);
             }
@@ -137,14 +143,25 @@ class RecordAttendance
             $assignment->status === 'DRAFT' => 'SCHEDULE_NOT_PUBLISHED',
             $this->periodLocked($assignment->work_date) => 'PERIOD_LOCKED',
             $type === 'CHECK_IN' && $record?->check_in_at !== null => 'ALREADY_CHECKED_IN',
-            $type === 'CHECK_IN' && ($at->lt($session->start_at->subMinutes($early)) || $at->gte($session->end_at)) => 'OUTSIDE_WINDOW',
+            $type === 'CHECK_IN' && $early > 0 && ($at->lt($session->start_at->subMinutes($early)) || $at->gte($session->end_at)) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && $record?->check_in_at === null => 'NOT_CHECKED_IN',
             $type === 'CHECK_OUT' && $record?->check_out_at !== null => 'ALREADY_CHECKED_OUT',
+            $type === 'CHECK_OUT' && $at->lt($session->end_at) && ! $this->hasApprovedEarlyDeparture($session, $at) => 'EARLY_CHECKOUT_NOT_APPROVED',
             $type === 'CHECK_OUT' && ($at->lte($record->check_in_at) || ($checkoutDeadline && $at->gt($checkoutDeadline))) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && (int) $assignment->rules_version >= 2 && $assignment->template_type === 'regular'
                 && $at->gte($record->check_in_at->addMinutes(13 * 60)) => 'AUTO_CHECKOUT_DUE',
             default => null,
         };
+    }
+
+    private function hasApprovedEarlyDeparture(ShiftSession $session, CarbonImmutable $at): bool
+    {
+        return LatePermission::query()
+            ->where('shift_session_id', $session->id)
+            ->where('permission_type', 'early_departure')
+            ->where('status', 'APPROVED')
+            ->where('leave_at', '<=', $at)
+            ->exists();
     }
 
     private function periodLocked(string $workDate): bool

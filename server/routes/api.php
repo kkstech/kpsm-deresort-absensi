@@ -6,6 +6,8 @@ use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AttendanceWorkflowController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\OvertimeController;
 use App\Http\Controllers\Api\V1\ShiftExchangeController;
 use App\Http\Controllers\AttendanceAttachmentController;
 use Illuminate\Support\Facades\Route;
@@ -17,8 +19,11 @@ Route::prefix('v1')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
         Route::patch('me', [AuthController::class, 'updateProfile']);
+        Route::post('me/push-token', [AuthController::class, 'pushToken']);
         Route::post('me/avatar', [AuthController::class, 'uploadAvatar']);
         Route::delete('me/avatar', [AuthController::class, 'deleteAvatar']);
+        Route::get('notifications', [NotificationController::class, 'index']);
+        Route::post('notifications/{notification}/read', [NotificationController::class, 'read']);
         Route::get('me/schedule', [AttendanceController::class, 'schedule']);
         Route::get('me/leave-balance', [LeaveController::class, 'balance']);
         Route::get('leaves', [LeaveController::class, 'employeeIndex']);
@@ -37,15 +42,15 @@ Route::prefix('v1')->group(function () {
         Route::get('attendance/attachments/{attachment}', [AttendanceAttachmentController::class, 'mobile'])->whereNumber('attachment');
 
         // Overtime (Lembur)
-        Route::get('me/overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
-        Route::get('overtime', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
-        Route::get('overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
-        Route::post('overtime', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
-        Route::post('overtimes', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
-        Route::post('overtime/{order}/consent', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'consent'])->whereNumber('order');
-        Route::post('overtimes/{order}/consent', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'consent'])->whereNumber('order');
-        Route::post('overtime/{order}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel'])->whereNumber('order');
-        Route::post('overtimes/{order}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel'])->whereNumber('order');
+        Route::get('me/overtimes', [OvertimeController::class, 'index']);
+        Route::get('overtime', [OvertimeController::class, 'index']);
+        Route::get('overtimes', [OvertimeController::class, 'index']);
+        Route::post('overtime', [OvertimeController::class, 'store']);
+        Route::post('overtimes', [OvertimeController::class, 'store']);
+        Route::post('overtime/{order}/consent', [OvertimeController::class, 'consent'])->whereNumber('order');
+        Route::post('overtimes/{order}/consent', [OvertimeController::class, 'consent'])->whereNumber('order');
+        Route::post('overtime/{order}/cancel', [OvertimeController::class, 'cancel'])->whereNumber('order');
+        Route::post('overtimes/{order}/cancel', [OvertimeController::class, 'cancel'])->whereNumber('order');
 
         // Shift Exchange (Pengajuan & Pengaturan Tukar Shift)
         Route::get('shift-exchanges/colleagues', [ShiftExchangeController::class, 'colleagues']);

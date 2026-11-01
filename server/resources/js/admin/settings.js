@@ -246,6 +246,7 @@ function showSiteSettings(settings) {
     siteForm.elements.contact_email.value = settings.contact_email ?? '';
     siteForm.elements.contact_phone.value = settings.contact_phone ?? '';
     siteForm.elements.contact_address.value = settings.contact_address ?? '';
+    siteForm.elements.retirement_age_years.value = settings.retirement_age_years ?? '';
     siteForm.elements.remove_logo.checked = false;
     siteForm.elements.remove_favicon.checked = false;
     siteForm.elements.logo.value = '';

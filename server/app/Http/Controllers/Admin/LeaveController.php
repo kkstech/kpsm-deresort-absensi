@@ -14,6 +14,7 @@ use App\Models\LeaveRequest as LeaveRequestModel;
 use App\Models\LeaveYear;
 use App\Models\ShiftAssignment;
 use App\Support\Audit;
+use App\Support\WorkflowNotifier;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -130,7 +131,7 @@ class LeaveController extends Controller
     {
         $employee = $this->employee($request);
         $data = $request->validate([
-            'work_date' => ['required', 'date_format:Y-m-d', 'after:'.WorkTime::today()],
+            'work_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.CarbonImmutable::parse(WorkTime::today())->addDays(14)->toDateString()],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
             'type' => ['required', 'in:regular,day_off'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
@@ -192,6 +193,8 @@ class LeaveController extends Controller
 
             return $item;
         });
+
+        app(WorkflowNotifier::class)->leaveRequested($item);
 
         return response()->json(['data' => $item], 201);
     }
@@ -258,7 +261,7 @@ class LeaveController extends Controller
 
     public function decide(Request $request, LeaveRequestModel $leave): JsonResponse
     {
-        Gate::authorize('admin');
+        Gate::authorize('super-admin');
         $data = $request->validate(['decision' => ['required', 'in:APPROVED,REJECTED'], 'decision_reason' => ['required', 'string', 'min:3', 'max:1000']]);
         $item = DB::transaction(function () use ($request, $leave, $data) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($leave->employee_id);
@@ -321,12 +324,14 @@ class LeaveController extends Controller
             return $item;
         });
 
+        app(WorkflowNotifier::class)->leaveDecision($item);
+
         return response()->json(['data' => $item->fresh()]);
     }
 
     public function direct(Request $request): JsonResponse
     {
-        Gate::authorize('admin');
+        Gate::authorize('super-admin');
         $data = $request->validate([
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'work_date' => ['required', 'date_format:Y-m-d'],
@@ -409,12 +414,14 @@ class LeaveController extends Controller
             return $item;
         });
 
+        app(WorkflowNotifier::class)->leaveDecision($item);
+
         return response()->json(['data' => $item], 201);
     }
 
     public function cancelApproved(Request $request, LeaveRequestModel $leave): JsonResponse
     {
-        Gate::authorize('admin');
+        Gate::authorize('super-admin');
         $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:1000']]);
         $leave = DB::transaction(function () use ($leave, $data, $request) {
             Employee::query()->lockForUpdate()->findOrFail($leave->employee_id);

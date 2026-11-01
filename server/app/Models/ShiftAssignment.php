@@ -57,6 +57,7 @@ class ShiftAssignment extends Model
     {
         $now = WorkTime::now();
         $this->loadMissing('employee.workLocation');
+        $unrecordedPolicySnapshot = null;
 
         return [
             'id' => $this->id,
@@ -72,12 +73,14 @@ class ShiftAssignment extends Model
             'sessions_editable' => in_array($this->status, ['DRAFT', 'PUBLISHED', 'IN_PROGRESS'], true)
                 && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
             'attendance_block_message' => $this->employee?->attendanceBlockMessage($this->work_date),
-            'sessions' => $this->sessions->map(function (ShiftSession $s) {
+            'sessions' => $this->sessions->map(function (ShiftSession $s) use (&$unrecordedPolicySnapshot) {
                 $snapshot = $s->policy_snapshot;
                 if (! $s->attendanceRecord) {
                     $this->loadMissing('employee.workLocation');
-                    $snapshot = AttendancePolicy::snapshotFor($this->employee, $this->work_date);
+                    $unrecordedPolicySnapshot ??= AttendancePolicy::snapshotFor($this->employee, $this->work_date);
+                    $snapshot = $unrecordedPolicySnapshot;
                 }
+                $checkInEarlyMinutes = (int) ($snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
 
                 return [
                     'id' => $s->id,
@@ -99,9 +102,12 @@ class ShiftAssignment extends Model
                         'correction_proof_required' => (bool) ($snapshot['correction_proof_required'] ?? false),
                     ],
                     'attendance_window' => [
-                        'check_in_opens_at' => WorkTime::iso($s->start_at->subMinutes(SiteSetting::checkInEarlyMinutes())),
-                        'check_in_closes_at' => WorkTime::iso($s->end_at),
-                        'max_elapsed_minutes' => (int) $this->rules_version >= 2 ? 13 * 60 : null,
+                        'check_in_opens_at' => $checkInEarlyMinutes === 0 ? null : WorkTime::iso($s->start_at->subMinutes($checkInEarlyMinutes)),
+                        'check_in_closes_at' => $checkInEarlyMinutes === 0 ? null : WorkTime::iso($s->end_at),
+                        'check_in_unrestricted' => $checkInEarlyMinutes === 0,
+                        'max_elapsed_minutes' => (int) $this->rules_version >= 2
+                            ? ($this->template_type === 'special' ? 24 * 60 : 13 * 60)
+                            : null,
                         'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
                     ],
                 ];

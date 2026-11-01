@@ -1,4 +1,4 @@
-import { api, lookup } from './api';
+import { api, isSuperAdmin, lookup } from './api';
 import { $, $$, confirmDialog, esc, errorInto, icon, loadingInto, openForm, renderPagination, toast } from './ui';
 
 const table = $('#leave-table');
@@ -13,6 +13,9 @@ const statusFilter = $('#leave-status-filter');
 const balanceSearch = $('#leave-balance-search');
 const balanceDeptFilter = $('#leave-balance-dept-filter');
 const leaveTabs = $$('[data-leave-tab]');
+const directLeaveButton = $('#leave-direct-add');
+
+if (directLeaveButton && !isSuperAdmin) directLeaveButton.hidden = true;
 
 let yearSettings = null;
 let allRequests = [];
@@ -179,14 +182,14 @@ function renderRequestsTable() {
 
     const bodyHtml = rows.map((item) => {
         const [tone, label] = statusLabel[item.status] ?? ['neutral', item.status];
-        const actions = item.status === 'PENDING'
+        const actions = item.status === 'PENDING' && isSuperAdmin
             ? `
                 <button type="button" class="action-btn success" data-action="approve" data-id="${item.id}" title="Setujui permohonan cuti" aria-label="Setujui permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('check')}</button>
                 <button type="button" class="action-btn danger" data-action="reject" data-id="${item.id}" title="Tolak permohonan cuti" aria-label="Tolak permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('x')}</button>
             `
-            : item.status === 'APPROVED'
+                : item.status === 'APPROVED' && isSuperAdmin
                 ? `<button type="button" class="action-btn danger" data-action="cancel" data-id="${item.id}" title="Batalkan cuti &amp; kembalikan kuota" aria-label="Batalkan cuti dan kembalikan kuota ${esc(item.employee?.name ?? '')}">${icon('undo')}</button>`
-                : '';
+                : item.status === 'PENDING' ? '<small class="field-hint">Menunggu keputusan Super Admin</small>' : '';
 
         const dateHtml = formatDateRange(item.work_date, item.end_date, item.days_count);
 
@@ -524,7 +527,7 @@ settingsForm.elements.year.addEventListener('change', async () => {
     await loadBalances();
 });
 
-$('#leave-direct-add').addEventListener('click', openDirectLeave);
+directLeaveButton?.addEventListener('click', openDirectLeave);
 
 $('#leave-balance-table').addEventListener('click', (event) => {
     const button = event.target.closest('[data-adjust-quota]');

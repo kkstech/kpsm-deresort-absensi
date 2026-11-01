@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
 use App\Models\Employee;
 use App\Models\LatePermission;
+use App\Support\WorkflowNotifier;
 use App\Support\WorkTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,8 +34,11 @@ class AttendanceWorkflowController extends Controller
     {
         $data = $request->validate([
             'shift_session_id' => ['required', 'integer', 'exists:shift_sessions,id'],
+            'permission_type' => ['sometimes', 'in:late_arrival,temporary_exit,early_departure'],
             'allowed_until' => ['nullable', 'date', 'prohibits:allowed_minutes'],
             'allowed_minutes' => ['nullable', 'integer', 'between:0,1440', 'prohibits:allowed_until'],
+            'leave_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit,early_departure'],
+            'return_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit'],
             'reason' => ['required', 'string', 'max:2000'],
             'evidence' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
         ], [
@@ -43,6 +47,7 @@ class AttendanceWorkflowController extends Controller
             'allowed_minutes.between' => 'Durasi izin harus 0 sampai 1440 menit.',
         ]);
         $permission = $workflow->submitLatePermission($request->user(), $this->employee($request), $data['shift_session_id'], $data, $request->file('evidence'));
+        app(WorkflowNotifier::class)->permissionRequested($permission);
 
         return response()->json(['data' => $this->permissionData($permission)], 201);
     }
@@ -104,10 +109,13 @@ class AttendanceWorkflowController extends Controller
         return [
             'id' => $item->id,
             'shift_session_id' => $item->shift_session_id,
+            'permission_type' => $item->permission_type,
             'work_date' => $item->session->assignment->work_date,
             'shift' => $item->session->assignment->template_name.' · sesi '.$item->session->seq,
             'allowed_until' => WorkTime::iso($item->allowed_until),
             'allowed_minutes' => $item->allowed_minutes,
+            'leave_at' => WorkTime::iso($item->leave_at),
+            'return_at' => WorkTime::iso($item->return_at),
             'reason' => $item->reason,
             'status' => $item->status,
             'decision_reason' => $item->decision_reason,

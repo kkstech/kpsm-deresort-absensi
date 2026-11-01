@@ -7,6 +7,7 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
 use App\Models\LatePermission;
+use App\Support\WorkflowNotifier;
 use App\Support\WorkTime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,6 +43,7 @@ class AttendanceWorkflowController extends Controller
             'allowed_minutes.between' => 'Durasi izin harus 0 sampai 1440 menit.',
         ]);
         $permission = $workflow->createDirectLatePermission($request->user(), $data['shift_session_id'], $data, $request->file('evidence'));
+        app(WorkflowNotifier::class)->permissionDecision($permission);
 
         return response()->json(['data' => $this->latePermissionData($permission->load('employee.department', 'session.assignment', 'attachments'))], 201);
     }
@@ -52,7 +54,11 @@ class AttendanceWorkflowController extends Controller
             'decision' => ['required', 'in:APPROVED,REJECTED'],
             'decision_reason' => ['required', 'string', 'max:1000'],
         ]);
+        $wasPending = LatePermission::query()->whereKey($permission)->where('status', 'PENDING')->exists();
         $result = $workflow->decideLatePermission($request->user(), $permission, $data['decision'], $data['decision_reason']);
+        if ($wasPending) {
+            app(WorkflowNotifier::class)->permissionDecision($result);
+        }
 
         return response()->json(['data' => $this->latePermissionData($result->load('employee.department', 'session.assignment', 'attachments'))]);
     }
@@ -100,11 +106,14 @@ class AttendanceWorkflowController extends Controller
         return [
             'id' => $item->id,
             'shift_session_id' => $item->shift_session_id,
+            'permission_type' => $item->permission_type,
             'employee' => ['id' => $item->employee->id, 'name' => $item->employee->name, 'code' => $item->employee->code, 'avatar_url' => $item->employee->avatar_url, 'department' => $item->employee->department?->name],
             'work_date' => $item->session->assignment->work_date,
             'shift' => $item->session->assignment->template_name.' · sesi '.$item->session->seq,
             'allowed_until' => WorkTime::iso($item->allowed_until),
             'allowed_minutes' => $item->allowed_minutes,
+            'leave_at' => WorkTime::iso($item->leave_at),
+            'return_at' => WorkTime::iso($item->return_at),
             'reason' => $item->reason,
             'status' => $item->status,
             'requester_id' => $item->requester_id,

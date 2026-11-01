@@ -17,10 +17,12 @@ use App\Models\Employee;
 use App\Models\Position;
 use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
+use App\Models\SiteSetting;
 use App\Models\User;
 use App\Models\WorkLocation;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -269,6 +271,37 @@ class AttendanceTest extends TestCase
         $this->assertSame('2026-10-26', $assignment->work_date);
         $this->assertSame('2026-10-26 23:00:00', $record->check_out_at->format('Y-m-d H:i:s'));
         $this->assertSame(475, $record->verified_minutes);
+    }
+
+    public function test_zero_checkin_early_setting_allows_late_checkin_and_counts_from_shift_start(): void
+    {
+        $setting = SiteSetting::current();
+        $originalValue = $setting->checkin_early_minutes;
+        $setting->update(['checkin_early_minutes' => 0]);
+        Cache::forget('attendance.checkin_early_minutes');
+
+        try {
+            $session = ShiftSession::query()->findOrFail($this->sessionId);
+            $this->travelTo($session->start_at->addHours(2)->toDateTimeString());
+            $result = app(RecordAttendance::class)->handle(
+                $this->employee,
+                $this->event('16161616-1616-4161-8161-161616161616'),
+                $this->device->id,
+            );
+
+            $this->assertSame('ACCEPTED', $result['data']['status']);
+            $setting->update(['checkin_early_minutes' => 60]);
+            Cache::forget('attendance.checkin_early_minutes');
+            $this->travelTo($session->end_at->toDateTimeString());
+            $checkout = $this->event('17171717-1717-4171-8171-171717171717', ['event_type' => 'CHECK_OUT']);
+            $recorded = app(RecordAttendance::class)->handle($this->employee, $checkout, $this->device->id);
+
+            $this->assertSame('ACCEPTED', $recorded['data']['status']);
+            $this->assertSame($session->scheduledMinutes(), $recorded['data']['record']['verified_minutes']);
+        } finally {
+            $setting->update(['checkin_early_minutes' => $originalValue]);
+            Cache::forget('attendance.checkin_early_minutes');
+        }
     }
 
     public function test_all_four_sessions_can_be_recorded_independently(): void

@@ -4,12 +4,14 @@ namespace App\Models;
 
 use App\Exceptions\BusinessRuleException;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
 
-#[Fillable(['code', 'name', 'department_id', 'position_id', 'level_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email', 'avatar_path'])]
+#[Fillable(['code', 'name', 'department_id', 'position_id', 'level_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email', 'avatar_path', 'base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address'])]
+#[Hidden(['base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address'])]
 class Employee extends Model
 {
     protected $appends = ['avatar_url'];
@@ -167,5 +169,13 @@ class Employee extends Model
             && $location->latitude !== null
             && $location->longitude !== null
             && $location->radius_meters;
+    }
+
+    protected function casts(): array
+    {
+        return [
+            'base_salary' => 'integer',
+            'date_of_birth' => 'date',
+        ];
     }
 }

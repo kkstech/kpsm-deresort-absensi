@@ -24,26 +24,35 @@ class ManageAttendanceWorkflow
 {
     public function submitLatePermission(User $actor, Employee $employee, int $sessionId, array $data, ?UploadedFile $evidence = null): LatePermission
     {
-        return $this->transactionWithEvidence($evidence, function (?string $path) use ($actor, $employee, $sessionId, $data, $evidence) {
-            [$lockedEmployee, $session] = $this->lockedSession($sessionId);
+        $permissionType = $data['permission_type'] ?? 'late_arrival';
+
+        return $this->transactionWithEvidence($evidence, function (?string $path) use ($actor, $employee, $sessionId, $data, $evidence, $permissionType) {
+            [$lockedEmployee, $session, $record] = $this->lockedSession($sessionId);
             if ($lockedEmployee->id !== $employee->id || $employee->user_id !== $actor->id) {
                 throw new BusinessRuleException('FORBIDDEN', 'Sesi ini bukan milik Anda.', 403);
             }
             $this->assertRequestable($session);
             $this->assertOpen($session);
-            if (WorkTime::now()->gt($session->start_at->addHours(config('attendance.late_request_deadline_hours')))) {
+            if ($permissionType === 'late_arrival' && WorkTime::now()->gt($session->start_at->addHours(config('attendance.late_request_deadline_hours')))) {
                 throw new BusinessRuleException('LATE_REQUEST_EXPIRED', 'Batas pengajuan izin terlambat sudah lewat.');
             }
-            $this->assertNoActivePermission($session);
-            $this->assertLateTarget($session, $data);
+            $this->assertNoActivePermission($session, $permissionType);
+            if ($permissionType === 'late_arrival') {
+                $this->assertLateTarget($session, $data);
+            } else {
+                $this->assertLeavePermission($session, $record, $permissionType, $data);
+            }
             $this->assertEvidence($session, 'late', $evidence);
 
             $permission = LatePermission::query()->create([
                 'shift_session_id' => $session->id,
+                'permission_type' => $permissionType,
                 'employee_id' => $lockedEmployee->id,
                 'requester_id' => $actor->id,
                 'allowed_until' => isset($data['allowed_until']) ? CarbonImmutable::parse($data['allowed_until'])->utc() : null,
                 'allowed_minutes' => $data['allowed_minutes'] ?? null,
+                'leave_at' => isset($data['leave_at']) ? CarbonImmutable::parse($data['leave_at'])->utc() : null,
+                'return_at' => isset($data['return_at']) ? CarbonImmutable::parse($data['return_at'])->utc() : null,
                 'reason' => $data['reason'],
                 'status' => 'PENDING',
             ]);
@@ -64,12 +73,13 @@ class ManageAttendanceWorkflow
             [, $session, $record] = $this->lockedSession($sessionId);
             $this->assertRequestable($session);
             $this->assertOpen($session);
-            $this->assertNoActivePermission($session);
+            $this->assertNoActivePermission($session, 'late_arrival');
             $this->assertLateTarget($session, $data);
             $this->assertEvidence($session, 'late', $evidence);
 
             $permission = LatePermission::query()->create([
                 'shift_session_id' => $session->id,
+                'permission_type' => 'late_arrival',
                 'employee_id' => $session->assignment->employee_id,
                 'direct_by' => $actor->id,
                 'allowed_until' => isset($data['allowed_until']) ? CarbonImmutable::parse($data['allowed_until'])->utc() : null,
@@ -116,10 +126,17 @@ class ManageAttendanceWorkflow
                 'decided_at' => WorkTime::now(),
                 'decision_reason' => $reason,
             ]);
-            if ($decision === 'APPROVED' && $record?->check_in_at && $this->permissionCovers($session, $permission, $record->check_in_at)) {
-                $recordBefore = $this->recordSnapshot($record);
-                $record->update(['late_permission_id' => $permission->id]);
-                Audit::log('attendance.late_permission.applied', $record, $recordBefore, $this->recordSnapshot($record));
+            if ($decision === 'APPROVED') {
+                if ($permission->permission_type === 'late_arrival' && $record?->check_in_at && $this->permissionCovers($session, $permission, $record->check_in_at)) {
+                    $recordBefore = $this->recordSnapshot($record);
+                    $record->update(['late_permission_id' => $permission->id]);
+                    Audit::log('attendance.late_permission.applied', $record, $recordBefore, $this->recordSnapshot($record));
+                } elseif ($permission->permission_type === 'temporary_exit' && $record?->check_in_at && $record->check_out_at && ! $record->needs_review) {
+                    $recordBefore = $this->recordSnapshot($record);
+                    $record->update(['verified_minutes' => AttendanceRecord::paidMinutes($session, $record->check_in_at, $record->check_out_at)]);
+                    Audit::log('attendance.late_permission.applied', $record, $recordBefore, $this->recordSnapshot($record));
+                }
+                app(CalculateCycleAllowance::class)->refresh($session->assignment);
             }
             Audit::log('attendance.late_permission.decided', $permission, $before, $permission->attributesToArray());
 
@@ -344,10 +361,30 @@ class ManageAttendanceWorkflow
         AttendancePeriod::assertOpen($session->assignment->work_date);
     }
 
-    private function assertNoActivePermission(ShiftSession $session): void
+    private function assertNoActivePermission(ShiftSession $session, string $permissionType): void
     {
-        if (LatePermission::query()->where('shift_session_id', $session->id)->whereIn('status', ['PENDING', 'APPROVED'])->exists()) {
-            throw new BusinessRuleException('REQUEST_PENDING', 'Sudah ada izin terlambat aktif untuk sesi ini.');
+        if (LatePermission::query()->where('shift_session_id', $session->id)
+            ->where('permission_type', $permissionType)->whereIn('status', ['PENDING', 'APPROVED'])->exists()) {
+            throw new BusinessRuleException('REQUEST_PENDING', 'Sudah ada pengajuan izin aktif dengan jenis yang sama untuk sesi ini.');
+        }
+    }
+
+    private function assertLeavePermission(ShiftSession $session, ?AttendanceRecord $record, string $permissionType, array $data): void
+    {
+        if (! $record?->check_in_at || $record->check_out_at || $record->provisional_out_at) {
+            throw new BusinessRuleException('SESSION_NOT_ACTIVE', 'Izin keluar hanya dapat diajukan saat sesi sedang berjalan.');
+        }
+
+        $leaveAt = CarbonImmutable::parse($data['leave_at'])->utc();
+        if ($leaveAt->lt(WorkTime::now()) || $leaveAt->lt($session->start_at) || $leaveAt->gte($session->end_at)) {
+            throw new BusinessRuleException('VALIDATION_ERROR', 'Waktu keluar harus mulai dari sekarang dan masih berada dalam sesi.', 422);
+        }
+
+        if ($permissionType === 'temporary_exit') {
+            $returnAt = CarbonImmutable::parse($data['return_at'])->utc();
+            if ($returnAt->lte($leaveAt) || $returnAt->gt($session->end_at)) {
+                throw new BusinessRuleException('VALIDATION_ERROR', 'Waktu kembali harus setelah waktu keluar dan masih berada dalam sesi.', 422);
+            }
         }
     }
 
@@ -434,7 +471,8 @@ class ManageAttendanceWorkflow
 
     private function assertSessionTimes(ShiftSession $session, ?CarbonImmutable $checkIn, ?CarbonImmutable $checkOut): void
     {
-        if ($checkIn && ($checkIn->lt($session->start_at->subMinutes(SiteSetting::checkInEarlyMinutes())) || $checkIn->gte($session->end_at))) {
+        $early = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
+        if ($checkIn && $early > 0 && ($checkIn->lt($session->start_at->subMinutes($early)) || $checkIn->gte($session->end_at))) {
             throw new BusinessRuleException('OUTSIDE_WINDOW', 'Waktu check-in berada di luar jendela sesi.', 422);
         }
         if ($checkOut && (! $checkIn || $checkOut->lte($checkIn) || $checkOut->gt($session->end_at->addMinutes(config('attendance.checkout_late_minutes'))))) {

@@ -1,5 +1,5 @@
 import { api, isAdmin, lookup } from './api';
-import { $, $$, confirmDialog, esc, icon, toast } from './ui';
+import { $, $$, confirmDialog, esc, icon, renderPagination, toast } from './ui';
 
 /* ---------- Tanggal ---------- */
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -34,9 +34,12 @@ const templateText = (t) => (t.sessions.length > 1 ? `${t.sessions.length} sesi`
 const savedCalView = (() => {
     try { return localStorage.getItem('deresort_cal_view'); } catch (_) { return null; }
 })();
-const state = { view: ['week', 'month'].includes(savedCalView) ? savedCalView : 'week', anchor: parseKey(todayKey()), filter: 'all', selected: { date: todayKey(), emp: null } };
+const state = { view: ['week', 'month'].includes(savedCalView) ? savedCalView : 'week', anchor: parseKey(todayKey()), filter: 'all', employeePage: 1, selected: { date: todayKey(), emp: null } };
 const personFilter = () => (state.filter === 'all' ? null : Number(state.filter));
-const visiblePeople = () => employees.filter((e) => !personFilter() || e.id === personFilter());
+const pageSize = 10;
+const visiblePeople = () => personFilter()
+    ? employees.filter((e) => e.id === personFilter())
+    : employees.slice((state.employeePage - 1) * pageSize, state.employeePage * pageSize);
 const entriesOn = (key, emp) => entries
     .filter((e) => e.work_date === key && (!emp || e.employee_id === emp))
     .sort((a, b) => a.sessions[0].start_at.localeCompare(b.sessions[0].start_at) || nameOf(a.employee_id).localeCompare(nameOf(b.employee_id)));
@@ -63,7 +66,8 @@ export function clearScheduleCache() {
 async function load(forceRefresh = false) {
     const [from, to] = fetchRange().map(keyOf);
     const emp = personFilter();
-    const cacheKey = `${from}_${to}_${emp || 'all'}`;
+    const pageEmployeeIds = visiblePeople().map((employee) => employee.id);
+    const cacheKey = `${from}_${to}_${emp || state.employeePage}`;
     const errorBox = $('#schedule-load-error');
 
     if (!forceRefresh && scheduleCache.has(cacheKey)) {
@@ -82,7 +86,14 @@ async function load(forceRefresh = false) {
     }
 
     try {
-        const query = { from, to, ...(emp ? { employee_id: emp } : {}) };
+        if (!pageEmployeeIds.length) {
+            entries = [];
+            errorBox.hidden = true;
+            scheduleCache.set(cacheKey, { data: entries, time: Date.now() });
+            render();
+            return;
+        }
+        const query = { from, to, ...(emp ? { employee_id: emp } : { employee_ids: pageEmployeeIds }) };
         const res = await api('schedule', { query });
         entries = res.data ?? [];
         scheduleCache.set(cacheKey, { data: entries, time: Date.now() });
@@ -193,6 +204,18 @@ function render() {
     if (state.view === 'week') renderWeek();
     else renderMonth();
     renderPanel();
+    const total = personFilter() ? 1 : employees.length;
+    renderPagination($('#schedule-pagination'), {
+        current_page: personFilter() ? 1 : state.employeePage,
+        last_page: personFilter() ? 1 : Math.max(1, Math.ceil(total / pageSize)),
+        per_page: pageSize,
+        total,
+        from: total ? (personFilter() ? 1 : (state.employeePage - 1) * pageSize + 1) : 0,
+        to: personFilter() ? 1 : Math.min(state.employeePage * pageSize, total),
+    }, (page) => {
+        state.employeePage = page;
+        load();
+    });
 }
 
 function focusCell({ date, emp }) {
@@ -813,6 +836,7 @@ async function previewSwap() {
 /* ---------- Event ---------- */
 $('#person-filter').addEventListener('change', (event) => {
     state.filter = event.target.value;
+    state.employeePage = 1;
     state.selected = { date: state.selected.date, emp: null };
     render();
 });

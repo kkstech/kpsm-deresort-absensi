@@ -2,15 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Actions\CalculateCycleAllowance;
 use App\Actions\PublishSchedule;
 use App\Actions\RecordAttendance;
 use App\Models\AllowancePolicy;
 use App\Models\AllowanceResult;
+use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\EmployeeLevel;
 use App\Models\EmployeeLevelAssignment;
+use App\Models\LatePermission;
 use App\Models\LeaveRequest;
 use App\Models\Position;
 use App\Models\ShiftTemplate;
@@ -46,16 +49,17 @@ class HrWorkflowTest extends TestCase
         $schedules = app(PublishSchedule::class);
         $assignment = $schedules->upsert($employee, '2026-10-25', $template, $this->admin);
         $schedules->publish('2026-10-25', '2026-10-25', [$employee->id]);
-        $sessionId = $assignment->sessions()->value('id');
+        $session = $assignment->sessions()->firstOrFail();
+        $sessionId = $session->id;
 
-        $this->travelTo('2026-10-25 01:10:00');
+        $this->travelTo($session->start_at->toDateTimeString());
         $attendance = app(RecordAttendance::class);
         $attendance->handle($employee, $this->event($sessionId, '11111111-1111-4111-8111-111111111111', 'CHECK_IN'));
         $pending = AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->firstOrFail();
         $this->assertSame('PENDING_VERIFICATION', $pending->status);
         $this->assertSame(0, $pending->meal_amount);
 
-        $this->travelTo('2026-10-25 09:20:00');
+        $this->travelTo($session->end_at->toDateTimeString());
         $attendance->handle($employee, $this->event($sessionId, '22222222-2222-4222-8222-222222222222', 'CHECK_OUT'));
         $eligible = $pending->fresh();
         $this->assertSame('ELIGIBLE', $eligible->status);
@@ -68,7 +72,7 @@ class HrWorkflowTest extends TestCase
         $this->assertSame(12000, $eligible->fresh()->transport_amount);
     }
 
-    public function test_split_cycle_pays_one_allowance_when_only_one_session_is_attended(): void
+    public function test_split_cycle_requires_eight_verified_hours_for_allowance(): void
     {
         $employee = $this->employee('ALW-SPLIT', '2026-01-01');
         $level = EmployeeLevel::query()->create(['code' => 'L-SPLIT', 'name' => 'Level Split']);
@@ -82,19 +86,64 @@ class HrWorkflowTest extends TestCase
             ],
         ], $this->admin);
         app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$employee->id]);
-        $sessionId = $assignment->sessions()->where('seq', 1)->value('id');
+        $session = $assignment->sessions()->where('seq', 1)->firstOrFail();
+        $sessionId = $session->id;
 
-        $this->travelTo('2026-10-25 01:05:00');
+        $this->travelTo($session->start_at->toDateTimeString());
         app(RecordAttendance::class)->handle($employee, $this->event($sessionId, '33333333-3333-4333-8333-333333333333', 'CHECK_IN'));
-        $this->travelTo('2026-10-25 04:00:00');
+        $this->travelTo($session->end_at->toDateTimeString());
         app(RecordAttendance::class)->handle($employee, $this->event($sessionId, '44444444-4444-4444-8444-444444444444', 'CHECK_OUT'));
 
         $result = AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->firstOrFail();
-        $this->assertSame('ELIGIBLE', $result->status);
-        $this->assertSame(175, $result->verified_minutes);
-        $this->assertSame(8000, $result->meal_amount);
-        $this->assertSame(14000, $result->transport_amount);
+        $this->assertSame('PENDING_VERIFICATION', $result->status);
+        $this->assertSame(240, $result->verified_minutes);
+        $this->assertSame(0, $result->meal_amount);
+        $this->assertSame(0, $result->transport_amount);
         $this->assertSame(1, AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->count());
+    }
+
+    public function test_approved_attendance_permission_exempts_closed_cycle_from_eight_hour_minimum(): void
+    {
+        $employee = $this->employee('ALW-EXCEPTION', '2026-01-01');
+        $level = EmployeeLevel::query()->create(['code' => 'L-EXCEPTION', 'name' => 'Level Exception']);
+        $employee->update(['level_id' => $level->id]);
+        EmployeeLevelAssignment::query()->create(['employee_id' => $employee->id, 'level_id' => $level->id, 'effective_from' => '2026-01-01']);
+        AllowancePolicy::query()->create(['level_id' => $level->id, 'effective_from' => '2026-01-01', 'meal_amount' => 8000, 'transport_amount' => 14000]);
+        $assignment = app(PublishSchedule::class)->upsertCustom($employee, '2026-10-25', [
+            'name' => 'Split dengan izin', 'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '14:00', 'end_date' => '2026-10-25', 'end_time' => '18:00'],
+            ],
+        ], $this->admin);
+        app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$employee->id]);
+        $first = $assignment->sessions()->where('seq', 1)->firstOrFail();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $first->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => $first->start_at,
+            'check_out_at' => $first->end_at,
+            'status' => 'VERIFIED',
+            'verified_minutes' => 240,
+        ]);
+        LatePermission::query()->create([
+            'shift_session_id' => $first->id,
+            'permission_type' => 'early_departure',
+            'employee_id' => $employee->id,
+            'requester_id' => $this->admin->id,
+            'leave_at' => $first->end_at,
+            'reason' => 'Izin disetujui',
+            'status' => 'APPROVED',
+            'decided_by' => $this->admin->id,
+            'decided_at' => $first->end_at,
+            'decision_reason' => 'Disetujui',
+        ]);
+
+        $this->travelTo('2026-10-25 12:00:00');
+        $result = app(CalculateCycleAllowance::class)->refresh($assignment);
+
+        $this->assertSame('ELIGIBLE', $result->status);
+        $this->assertSame(240, $result->verified_minutes);
+        $this->assertSame(8000, $result->meal_amount);
     }
 
     public function test_leave_balance_prorates_first_year_reserves_pending_and_refunds_once(): void
@@ -110,7 +159,10 @@ class HrWorkflowTest extends TestCase
         $balance->assertJsonPath('data.regular.entitled', 9)->assertJsonPath('data.day_off.entitled', 3);
 
         $this->withToken($token)->postJson('/api/v1/leaves', [
-            'work_date' => '2026-11-05', 'type' => 'regular', 'reason' => 'Keperluan keluarga',
+            'work_date' => '2026-11-06', 'type' => 'regular', 'reason' => 'Keperluan keluarga',
+        ])->assertUnprocessable();
+        $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-07', 'type' => 'regular', 'reason' => 'Keperluan keluarga',
         ])->assertCreated()->assertJsonPath('data.status', 'PENDING');
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.reserved', 1)->assertJsonPath('data.regular.available', 8);
@@ -119,6 +171,10 @@ class HrWorkflowTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        ])->assertForbidden();
+        $superAdmin = User::factory()->role('super_admin')->create();
+        $this->actingAs($superAdmin)->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
@@ -126,12 +182,14 @@ class HrWorkflowTest extends TestCase
 
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/cancel-approved", ['reason' => 'Jadwal berubah'])
+            ->assertForbidden();
+        $this->actingAs($superAdmin)->postJson("/admin/api/leaves/{$requestId}/cancel-approved", ['reason' => 'Jadwal berubah'])
             ->assertOk()->assertJsonPath('data.status', 'CANCELLED');
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.used', 0)->assertJsonPath('data.regular.available', 9);
         $this->app['auth']->forgetGuards();
-        $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/cancel-approved", ['reason' => 'Ulangi'])
+        $this->actingAs($superAdmin)->postJson("/admin/api/leaves/{$requestId}/cancel-approved", ['reason' => 'Ulangi'])
             ->assertStatus(409);
     }
 
@@ -218,7 +276,7 @@ class HrWorkflowTest extends TestCase
         // 4. Admin approves the 3-day leave
         $requestId = $res->json('data.id');
         $this->app['auth']->forgetGuards();
-        $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
+        $this->actingAs(User::factory()->role('super_admin')->create())->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED',
             'decision_reason' => 'Disetujui 3 hari',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
@@ -233,13 +291,16 @@ class HrWorkflowTest extends TestCase
 
         // 5. Admin direct multi-day leave for 2 days
         $this->app['auth']->forgetGuards();
-        $this->actingAs($this->admin)->postJson('/admin/api/leaves/direct', [
+        $directLeave = [
             'employee_id' => $employee->id,
             'work_date' => '2026-11-20',
             'end_date' => '2026-11-21',
             'type' => 'regular',
             'reason' => 'Cuti langsung HR 2 hari',
-        ])->assertCreated()->assertJsonPath('data.days_count', 2)->assertJsonPath('data.status', 'APPROVED');
+        ];
+        $this->actingAs($this->admin)->postJson('/admin/api/leaves/direct', $directLeave)->assertForbidden();
+        $this->actingAs(User::factory()->role('super_admin')->create())->postJson('/admin/api/leaves/direct', $directLeave)
+            ->assertCreated()->assertJsonPath('data.days_count', 2)->assertJsonPath('data.status', 'APPROVED');
 
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')

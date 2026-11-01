@@ -77,7 +77,7 @@ class ManageOvertime
                     ]);
                 }
 
-                $orderNumber = 'SPL-' . CarbonImmutable::parse($workDate)->format('ymd') . '-' . strtoupper(Str::random(5));
+                $orderNumber = 'SPL-'.CarbonImmutable::parse($workDate)->format('ymd').'-'.strtoupper(Str::random(5));
 
                 $order = OvertimeOrder::query()->create([
                     'order_number' => $orderNumber,
@@ -107,24 +107,36 @@ class ManageOvertime
     }
 
     /** Karyawan mengajukan permohonan lembur dari mobile app. */
-    public function submitRequest(Employee $employee, array $data): OvertimeOrder
+    public function submitRequest(Employee $employee, array $data, WorkCycleMinutes $workCycleMinutes): OvertimeOrder
     {
-        return DB::transaction(function () use ($employee, $data) {
+        return DB::transaction(function () use ($employee, $data, $workCycleMinutes) {
             $workDate = $data['work_date'];
             AttendancePeriod::assertOpen($workDate);
+
+            $assignment = ShiftAssignment::query()
+                ->with('sessions.attendanceRecord')
+                ->where('employee_id', $employee->id)
+                ->where('work_date', $workDate)
+                ->where('status', '!=', 'CANCELLED')
+                ->first();
+            $workedMinutes = $assignment ? $workCycleMinutes->forAssignment($assignment) : 0;
+            if ($workedMinutes < 12 * 60) {
+                throw new BusinessRuleException(
+                    'OVERTIME_THRESHOLD_NOT_MET',
+                    'Pengajuan lembur hanya dapat diajukan setelah 12 jam kerja terverifikasi pada siklus shift ini.',
+                    422,
+                    ['worked_minutes' => $workedMinutes, 'remaining_minutes' => max(0, 12 * 60 - $workedMinutes)],
+                );
+            }
 
             $startAt = WorkTime::at($workDate, $data['start_time']);
             $endOffset = (! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0;
             $endAt = WorkTime::at($workDate, $data['end_time'], $endOffset);
             $plannedMinutes = max(1, WorkTime::minutesBetween($startAt, $endAt));
 
-            // Cari sesi shift aktif jika ada
-            $session = ShiftSession::query()
-                ->whereHas('assignment', fn ($q) => $q->where('employee_id', $employee->id)->where('work_date', $workDate)->where('status', '!=', 'CANCELLED'))
-                ->latest('id')
-                ->first();
+            $session = $assignment?->sessions->sortBy('seq')->last();
 
-            $orderNumber = 'REQ-SPL-' . CarbonImmutable::parse($workDate)->format('ymd') . '-' . strtoupper(Str::random(5));
+            $orderNumber = 'REQ-SPL-'.CarbonImmutable::parse($workDate)->format('ymd').'-'.strtoupper(Str::random(5));
 
             $order = OvertimeOrder::query()->create([
                 'order_number' => $orderNumber,

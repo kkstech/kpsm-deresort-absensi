@@ -12,9 +12,18 @@ import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import * as Network from 'expo-network';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 import {
   ApiError, authStore, clearCache, enqueueEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
@@ -37,7 +46,7 @@ const tabItems: Array<{
 
 type Session = {
   id: number; seq: number; start_at: string; end_at: string; local_start: string; local_end: string; local_start_date?: string; local_end_date?: string;
-  attendance_window?: { check_in_opens_at: string; check_in_closes_at: string; max_elapsed_minutes: number | null };
+  attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
   attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
   overtime?: OvertimeItem | null;
@@ -70,15 +79,28 @@ type WorkRequest = {
   end_date?: string | null;
   days_count?: number;
   shift: string;
+  permission_type?: 'late_arrival' | 'temporary_exit' | 'early_departure';
+  leave_at?: string | null;
+  return_at?: string | null;
+  allowed_until?: string | null;
+  allowed_minutes?: number | null;
   type?: string;
   reason: string;
   status: string;
   decision_reason?: string;
   shift_session_id: number;
 };
+type AppNotification = {
+  id: string;
+  data: { title?: string; body?: string; kind?: string };
+  read_at: string | null;
+  created_at: string | null;
+};
+type NotificationFeed = { data: AppNotification[]; unread_count: number };
 type Proof = { uri: string; name: string; mimeType?: string };
 type ActionIntent = { assignment: Assignment; session: Session; eventType: 'CHECK_IN' | 'CHECK_OUT' };
 type RequestKind = 'leave' | 'late' | 'correction' | 'swap' | 'overtime';
+type AttendancePermissionType = 'late_arrival' | 'temporary_exit' | 'early_departure';
 
 const colors = { ink: '#142019', muted: '#374151', line: '#DDE4DE', canvas: '#F2F5F1', surface: '#FFFFFF', primary: '#173D2B', accent: '#D9F25F', successSoft: '#E6F1E9', warning: '#A65718', warningSoft: '#FFF1DC', blueSoft: '#E8F1FB', dangerSoft: '#FEECEC', danger: '#A51F18' };
 function sanitizeTextChildren(child: any): any {
@@ -129,6 +151,11 @@ const localDate = (value?: string | Date | null) => {
   return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(typeof value === 'string' ? new Date(`${value.slice(0, 10)}T12:00:00+07:00`) : value);
 };
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+const minimumLeaveDate = () => {
+  const date = new Date(`${todayKey()}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 14);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(date);
+};
 const clock = (value?: string | null) => value ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
 const shortClock = (value: string) => value.replace('.', ':').replace(' (+1)', ' (+1)');
 const nameOrString = (val: unknown, fallback = '—'): string => {
@@ -194,6 +221,8 @@ function humanizeReason(code?: string | null): string {
       return 'Anda sudah melakukan check-out pada sesi ini.';
     case 'NOT_CHECKED_IN':
       return 'Belum dapat check-out karena Anda belum check-in pada sesi ini.';
+    case 'EARLY_CHECKOUT_NOT_APPROVED':
+      return 'Pengajuan pulang lebih awal harus disetujui atasan sebelum check-out.';
     case 'SCHEDULE_CHANGED':
       return 'Jadwal sesi telah diubah atau diperbarui oleh HR.';
     case 'SCHEDULE_CANCELLED':
@@ -730,6 +759,8 @@ function Main() {
   const [leaveRequests, setLeaveRequests] = useState<WorkRequest[]>([]);
   const [lateRequests, setLateRequests] = useState<WorkRequest[]>([]);
   const [corrections, setCorrections] = useState<WorkRequest[]>([]);
+  const [notificationFeed, setNotificationFeed] = useState<NotificationFeed>({ data: [], unread_count: 0 });
+  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
   const [outbox, setOutbox] = useState<OutboxRow[]>([]);
   const [online, setOnline] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -784,6 +815,9 @@ function Main() {
   const [allEmployees, setAllEmployees] = useState<Colleague[]>([]);
   const [adminSchedules, setAdminSchedules] = useState<Assignment[]>([]);
   const [adminScheduleEmpFilter, setAdminScheduleEmpFilter] = useState<number | null>(null);
+  const [adminScheduleEmployeePage, setAdminScheduleEmployeePage] = useState(1);
+  const [adminScheduleEmployeeQuery, setAdminScheduleEmployeeQuery] = useState('');
+  const [adminScheduleLoading, setAdminScheduleLoading] = useState(false);
   const [pengajuanView, setPengajuanView] = useState<'mine' | 'admin'>('mine');
   const [approvalFilter, setApprovalFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
 
@@ -799,6 +833,7 @@ function Main() {
   // Employee shift exchange form
   const [swapSourceAssId, setSwapSourceAssId] = useState<number | null>(null);
   const [swapTargetEmpId, setSwapTargetEmpId] = useState<number | null>(null);
+  const [colleagueQuery, setColleagueQuery] = useState('');
   const [swapMode, setSwapMode] = useState<'direct' | 'delegation'>('direct');
   const [swapTargetAssId, setSwapTargetAssId] = useState<number | null>(null);
   const [swapVacancyAction, setSwapVacancyAction] = useState<'roster_off' | 'regular' | 'day_off'>('roster_off');
@@ -808,9 +843,11 @@ function Main() {
   // Admin Direct Swap Modal state
   const [directSwapOpen, setDirectSwapOpen] = useState(false);
   const [directSourceEmpId, setDirectSourceEmpId] = useState<number | null>(null);
+  const [directSourceQuery, setDirectSourceQuery] = useState('');
   const [directSourceSchedules, setDirectSourceSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [directSourceAssId, setDirectSourceAssId] = useState<number | null>(null);
   const [directTargetEmpId, setDirectTargetEmpId] = useState<number | null>(null);
+  const [directTargetQuery, setDirectTargetQuery] = useState('');
   const [directTargetSchedules, setDirectTargetSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [directTargetAssId, setDirectTargetAssId] = useState<number | null>(null);
   const [directSwapMode, setDirectSwapMode] = useState<'direct' | 'delegation'>('direct');
@@ -863,13 +900,16 @@ function Main() {
   const [calendarTarget, setCalendarTarget] = useState<'leaveStart' | 'leaveEnd' | 'overtimeDate' | null>(null);
   const [calendarMinDate, setCalendarMinDate] = useState<string | undefined>(undefined);
   const [clockVisible, setClockVisible] = useState(false);
-  const [clockTarget, setClockTarget] = useState<'otStart' | 'otEnd' | 'lateTarget' | null>(null);
+  const [clockTarget, setClockTarget] = useState<'otStart' | 'otEnd' | 'lateTarget' | 'permissionLeave' | 'permissionReturn' | null>(null);
 
   // Shift exchange wizard step state
   const [swapStep, setSwapStep] = useState<1 | 2 | 3>(1);
 
   // Permission / Izin category
   const [permissionCategory, setPermissionCategory] = useState<string>('Terlambat Hadir');
+  const [attendancePermissionType, setAttendancePermissionType] = useState<AttendancePermissionType>('late_arrival');
+  const [permissionLeaveAt, setPermissionLeaveAt] = useState('');
+  const [permissionReturnAt, setPermissionReturnAt] = useState('');
 
   const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
@@ -905,7 +945,7 @@ function Main() {
     }
   }
 
-  function openClock(target: 'otStart' | 'otEnd' | 'lateTarget') {
+  function openClock(target: 'otStart' | 'otEnd' | 'lateTarget' | 'permissionLeave' | 'permissionReturn') {
     setClockTarget(target);
     setClockVisible(true);
   }
@@ -921,6 +961,28 @@ function Main() {
       const isoStr = `${sessionDate}T${timeStr}:00+07:00`;
       setAllowedUntil(isoStr);
       setMinutes('');
+    } else if (clockTarget === 'permissionLeave' || clockTarget === 'permissionReturn') {
+      const selected = openSessions.find((item) => item.session.id === sessionId)?.session;
+      if (!selected) return;
+      const dates = [...new Set([selected.local_start_date, selected.local_end_date].filter(Boolean))] as string[];
+      const notBefore = clockTarget === 'permissionReturn' && permissionLeaveAt
+        ? new Date(permissionLeaveAt).getTime()
+        : Date.now();
+      const selectedTime = dates.map((date) => `${date}T${timeStr}:00+07:00`)
+        .filter((value) => (clockTarget === 'permissionReturn' ? new Date(value).getTime() > notBefore : new Date(value).getTime() >= notBefore)
+          && new Date(value) >= new Date(selected.start_at)
+          && (clockTarget === 'permissionReturn' ? new Date(value) <= new Date(selected.end_at) : new Date(value) < new Date(selected.end_at)))
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+      if (!selectedTime) {
+        setError('Pilih waktu yang masih berada dalam sesi kerja.');
+        return;
+      }
+      if (clockTarget === 'permissionLeave') {
+        setPermissionLeaveAt(selectedTime);
+        setPermissionReturnAt('');
+      } else {
+        setPermissionReturnAt(selectedTime);
+      }
     }
   }
 
@@ -965,6 +1027,7 @@ function Main() {
     setBalance(null);
     setLeaveRequests([]);
     setLateRequests([]);
+    setNotificationFeed({ data: [], unread_count: 0 });
     setCorrections([]);
     setShiftExchanges([]);
     setAdminShiftExchanges([]);
@@ -986,6 +1049,90 @@ function Main() {
   }, [token, baseUrl]);
 
   useEffect(() => {
+    if (!token || !online || tab !== 'Jadwal' || !isAdminOrSupervisor || hasEmployee || !allEmployees.length) return;
+    let active = true;
+    const matchingEmployees = allEmployees.filter((employee) => `${employee.name} ${nameOrString(employee.department)} ${employee.code ?? ''}`.toLowerCase().includes(adminScheduleEmployeeQuery.trim().toLowerCase()));
+    const pageEmployees = adminScheduleEmpFilter
+      ? allEmployees.filter((employee) => employee.id === adminScheduleEmpFilter)
+      : matchingEmployees.slice((adminScheduleEmployeePage - 1) * 10, adminScheduleEmployeePage * 10);
+    if (!pageEmployees.length) {
+      setAdminSchedules([]);
+      setAdminScheduleLoading(false);
+      return;
+    }
+
+    const { from, to } = dateRange();
+    const query = new URLSearchParams({ from, to });
+    if (adminScheduleEmpFilter) query.set('employee_id', String(adminScheduleEmpFilter));
+    else pageEmployees.forEach((employee) => query.append('employee_ids[]', String(employee.id)));
+    setAdminScheduleLoading(true);
+    setAdminSchedules([]);
+    setError('');
+    request<{ data: Assignment[] }>(baseUrl, `admin/schedule?${query.toString()}`, token)
+      .then(async (result) => {
+        if (!active) return;
+        setAdminSchedules(result.data ?? []);
+        await saveCache('adminSchedules', result.data ?? []);
+      })
+      .catch((failure) => {
+        if (active) setError(failure instanceof Error ? failure.message : 'Jadwal karyawan belum bisa dimuat.');
+      })
+      .finally(() => { if (active) setAdminScheduleLoading(false); });
+    return () => { active = false; };
+  }, [token, baseUrl, online, tab, isAdminOrSupervisor, hasEmployee, allEmployees, adminScheduleEmpFilter, adminScheduleEmployeePage, adminScheduleEmployeeQuery]);
+
+  useEffect(() => {
+    if (!token || !deviceId || !baseUrl || !online) return;
+    let active = true;
+    (async () => {
+      try {
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Notifikasi',
+            importance: Notifications.AndroidImportance.DEFAULT,
+          });
+        }
+        let permission = await Notifications.getPermissionsAsync();
+        if (!permission.granted) permission = await Notifications.requestPermissionsAsync();
+        let expoPushToken: string | null = null;
+        if (permission.granted) {
+          expoPushToken = (await Notifications.getExpoPushTokenAsync({
+            projectId: '62ea25e6-3745-414f-945c-9872b79d15f6',
+          })).data;
+        }
+        if (!active) return;
+        await request(baseUrl, 'me/push-token', token, {
+          method: 'POST',
+          body: { device_uuid: deviceId, expo_push_token: expoPushToken },
+        });
+      } catch {
+        // Notifikasi in-app tetap tersedia meski perangkat tidak mendukung push.
+      }
+    })();
+    return () => { active = false; };
+  }, [token, deviceId, baseUrl, online]);
+
+  useEffect(() => {
+    const received = Notifications.addNotificationReceivedListener(() => {
+      if (token && online) refreshNotificationFeed(token, baseUrl);
+    });
+    const response = Notifications.addNotificationResponseReceivedListener(() => {
+      setTab('Pengajuan');
+      if (token && online) refreshNotificationFeed(token, baseUrl);
+    });
+    return () => {
+      received.remove();
+      response.remove();
+    };
+  }, [token, baseUrl, online]);
+
+  useEffect(() => {
+    if (!token || !online) return;
+    const timer = setInterval(() => refreshNotificationFeed(token, baseUrl), 60_000);
+    return () => clearInterval(timer);
+  }, [token, baseUrl, online]);
+
+  useEffect(() => {
     if (!token || !online) return;
     syncOutbox(token, baseUrl);
     const timer = setInterval(() => syncOutbox(token, baseUrl), 60_000);
@@ -997,20 +1144,44 @@ function Main() {
     setLoading(true);
     setError('');
     const range = dateRange();
+    const cacheKeys = ['profile', 'assignments', 'balance', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
+    const cachedValues = await Promise.all(cacheKeys.map((key) => readCache<unknown>(key)));
+    cacheKeys.forEach((key, index) => {
+      const value = cachedValues[index];
+      if (value !== null && value !== undefined) applyCached(key, value);
+    });
+    let knownProfile = normalizeProfile(cachedValues[0] as Profile | null) ?? profile;
+    let initialProfileResponse: { user: Profile } | null = null;
+    if (!knownProfile) {
+      try {
+        initialProfileResponse = await request<{ user: Profile }>(url, 'me', authToken);
+        knownProfile = normalizeProfile(initialProfileResponse.user);
+        if (knownProfile) {
+          await saveCache('profile', knownProfile);
+          applyCached('profile', knownProfile);
+        }
+      } catch {}
+    }
 
+    const isEmployeeAccount = Boolean(knownProfile?.employee);
+    const isAdminAccount = ['super_admin', 'admin', 'supervisor'].includes(knownProfile?.role ?? '');
     const tasks: Array<{ key: string; promise: Promise<any> }> = [
-      { key: 'profile', promise: request<{ user: Profile }>(url, 'me', authToken) },
-      { key: 'assignments', promise: request<{ data: Assignment[] }>(url, `attendance/me?from=${range.from}&to=${range.to}`, authToken) },
-      { key: 'balance', promise: request<{ data: LeaveBalance | null }>(url, 'me/leave-balance', authToken) },
-      { key: 'leaveRequests', promise: request<{ data: WorkRequest[] }>(url, 'leaves', authToken) },
-      { key: 'lateRequests', promise: request<{ data: WorkRequest[] }>(url, 'late-permissions', authToken) },
-      { key: 'corrections', promise: request<{ data: WorkRequest[] }>(url, 'attendance-corrections', authToken) },
-      { key: 'shiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges', authToken) },
-      { key: 'overtimes', promise: fetchOvertimes(url, authToken) },
-      { key: 'colleagues', promise: request<{ data: Colleague[] }>(url, 'shift-exchanges/colleagues', authToken) },
-      { key: 'adminShiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges?scope=admin', authToken) },
-      { key: 'adminSchedules', promise: request<{ data: Assignment[] }>(url, `admin/schedule?from=${range.from}&to=${range.to}`, authToken) },
-      { key: 'allEmployees', promise: request<{ data: Colleague[] }>(url, 'admin/employees', authToken) },
+      { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile }>(url, 'me', authToken) },
+      { key: 'notifications', promise: request<NotificationFeed>(url, 'notifications', authToken) },
+      ...(isEmployeeAccount ? [
+        { key: 'assignments', promise: request<{ data: Assignment[] }>(url, `attendance/me?from=${range.from}&to=${range.to}`, authToken) },
+        { key: 'balance', promise: request<{ data: LeaveBalance | null }>(url, 'me/leave-balance', authToken) },
+        { key: 'leaveRequests', promise: request<{ data: WorkRequest[] }>(url, 'leaves', authToken) },
+        { key: 'lateRequests', promise: request<{ data: WorkRequest[] }>(url, 'late-permissions', authToken) },
+        { key: 'corrections', promise: request<{ data: WorkRequest[] }>(url, 'attendance-corrections', authToken) },
+        { key: 'shiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges', authToken) },
+        { key: 'overtimes', promise: fetchOvertimes(url, authToken) },
+        { key: 'colleagues', promise: request<{ data: Colleague[] }>(url, 'shift-exchanges/colleagues', authToken) },
+      ] : []),
+      ...(isAdminAccount ? [
+        { key: 'adminShiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges?scope=admin', authToken) },
+        { key: 'allEmployees', promise: request<{ data: Colleague[] }>(url, 'admin/employees', authToken) },
+      ] : []),
     ];
 
     const results = await Promise.allSettled(tasks.map((t) => t.promise));
@@ -1030,7 +1201,9 @@ function Main() {
       try {
         if (result.status === 'fulfilled') {
           const value = result.value;
-          let normalized: any = task.key === 'profile' ? (value as { user: Profile }).user : (value as { data: unknown }).data;
+          let normalized: any = task.key === 'profile'
+            ? (value as { user: Profile }).user
+            : task.key === 'notifications' ? value : (value as { data: unknown }).data;
           if (task.key === 'profile') {
             normalized = normalizeProfile(normalized as Profile);
           } else if (task.key === 'shiftExchanges' || task.key === 'adminShiftExchanges') {
@@ -1044,6 +1217,7 @@ function Main() {
           const cached = await readCache<unknown>(task.key);
           if (cached) applyCached(task.key, cached);
           const isPermittedError = result.reason instanceof ApiError && (result.reason.status === 403 || result.reason.status === 404);
+          if (task.key === 'notifications') continue;
           if (!error && result.reason instanceof Error && !isPermittedError) {
             setError(result.reason.message);
           }
@@ -1084,6 +1258,29 @@ function Main() {
     if (key === 'allEmployees') {
       const list = Array.isArray(value) ? value : [];
       setAllEmployees(list.map(normalizeColleague));
+    }
+    if (key === 'notifications') setNotificationFeed(value as NotificationFeed);
+  }
+
+  async function refreshNotificationFeed(authToken = token, url = baseUrl) {
+    if (!authToken || !url) return;
+    try {
+      const feed = await request<NotificationFeed>(url, 'notifications', authToken);
+      setNotificationFeed(feed);
+      await saveCache('notifications', feed);
+    } catch {
+      // Keep the last cached feed available while offline.
+    }
+  }
+
+  async function markNotificationRead(id: string) {
+    if (!token) return;
+    try {
+      const feed = await request<NotificationFeed>(baseUrl, `notifications/${encodeURIComponent(id)}/read`, token, { method: 'POST' });
+      setNotificationFeed(feed);
+      await saveCache('notifications', feed);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Notifikasi belum bisa diperbarui.');
     }
   }
 
@@ -1393,6 +1590,7 @@ function Main() {
         const cleanStart = workDate.trim();
         const cleanEnd = endDate.trim();
         if (!cleanStart || reason.trim().length < 3) throw new Error('Pilih tanggal mulai dan tulis alasan minimal 3 karakter.');
+        if (cleanStart < minimumLeaveDate()) throw new Error('Pengajuan cuti harus dibuat minimal 14 hari sebelum tanggal mulai.');
         if (cleanEnd && cleanEnd < cleanStart) throw new Error('Tanggal akhir cuti tidak boleh mendahului tanggal mulai.');
         await request(baseUrl, 'leaves', token, {
           method: 'POST',
@@ -1409,11 +1607,24 @@ function Main() {
         const proofRequired = requestKind === 'late' ? selected?.attendance_policy?.late_permission_proof_required : selected?.attendance_policy?.correction_proof_required;
         if (proofRequired && !proof) throw new Error('Kebijakan sesi ini mewajibkan bukti lampiran.');
         if (requestKind === 'late') {
-          if (!allowedUntil && !minutes) throw new Error('Isi jam target hadir atau durasi izin.');
-          if (allowedUntil && minutes) throw new Error('Isi jam target hadir atau durasi izin, jangan keduanya.');
-          const lateFields: Record<string, string> = { shift_session_id: String(sessionId), reason: reason.trim() };
-          if (allowedUntil) lateFields.allowed_until = allowedUntil;
-          else lateFields.allowed_minutes = minutes;
+          const lateFields: Record<string, string> = {
+            shift_session_id: String(sessionId),
+            permission_type: attendancePermissionType,
+            reason: reason.trim(),
+          };
+          if (attendancePermissionType === 'late_arrival') {
+            if (!allowedUntil && !minutes) throw new Error('Isi jam target hadir atau durasi izin.');
+            if (allowedUntil && minutes) throw new Error('Isi jam target hadir atau durasi izin, jangan keduanya.');
+            if (allowedUntil) lateFields.allowed_until = allowedUntil;
+            else lateFields.allowed_minutes = minutes;
+          } else {
+            if (!permissionLeaveAt) throw new Error('Pilih rencana jam keluar.');
+            lateFields.leave_at = permissionLeaveAt;
+            if (attendancePermissionType === 'temporary_exit') {
+              if (!permissionReturnAt) throw new Error('Pilih rencana jam kembali.');
+              lateFields.return_at = permissionReturnAt;
+            }
+          }
           await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData(lateFields, proof) });
         } else if (requestKind === 'correction') {
           if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
@@ -1421,7 +1632,7 @@ function Main() {
           await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
         }
       }
-      setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setRequestedIn(''); setRequestedOut(''); setProof(null);
+      setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setPermissionLeaveAt(''); setPermissionReturnAt(''); setAttendancePermissionType('late_arrival'); setRequestedIn(''); setRequestedOut(''); setProof(null);
       showFeedback('success', 'Pengajuan berhasil dikirim.');
       Alert.alert('Pengajuan dikirim', 'Status dapat dilihat di daftar pengajuan.');
       await loadData();
@@ -1961,6 +2172,7 @@ function Main() {
     const record = session.attendance;
     const verifiedMinutes = record?.verified_minutes ?? 0;
     const now = new Date();
+    const unrestrictedCheckIn = session.attendance_window?.check_in_unrestricted === true;
     const opensAt = session.attendance_window?.check_in_opens_at ? new Date(session.attendance_window.check_in_opens_at) : new Date(session.start_at);
     const closesAt = new Date(session.end_at);
 
@@ -1973,10 +2185,10 @@ function Main() {
 
     if (!hasCheckedIn) {
       eventType = 'CHECK_IN';
-      if (now < opensAt) {
+      if (!unrestrictedCheckIn && now < opensAt) {
         allowAction = false;
         timingNotice = `Check-in dibuka pk. ${clock(opensAt.toISOString())}`;
-      } else if (now >= closesAt) {
+      } else if (!unrestrictedCheckIn && now >= closesAt) {
         allowAction = false;
         timingNotice = `Sesi berakhir pk. ${shortClock(session.local_end)}`;
       }
@@ -1990,8 +2202,8 @@ function Main() {
     }
 
     const label = record?.provisional_out_at ? `Checkout otomatis ${clock(record.provisional_out_at)} · menunggu tinjauan` : record?.check_out_at ? `Keluar ${clock(record.check_out_at)}` : record?.check_in_at ? `Masuk ${clock(record.check_in_at)}` : 'Belum absen';
-    const pillTone = record?.needs_review ? 'warning' : record?.check_out_at ? 'success' : record?.check_in_at ? 'blue' : (now >= closesAt && !hasCheckedIn ? 'warning' : 'neutral');
-    const pillLabel = record?.needs_review ? 'Tinjauan' : record?.check_out_at ? 'Selesai' : record?.check_in_at ? 'Berjalan' : (now >= closesAt && !hasCheckedIn ? 'Terlewat' : 'Terjadwal');
+    const pillTone = record?.needs_review ? 'warning' : record?.check_out_at ? 'success' : record?.check_in_at ? 'blue' : (!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn ? 'warning' : 'neutral');
+    const pillLabel = record?.needs_review ? 'Tinjauan' : record?.check_out_at ? 'Selesai' : record?.check_in_at ? 'Berjalan' : (!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn ? 'Terlewat' : 'Terjadwal');
 
     return (
       <View key={session.id} style={styles.sessionCard}>
@@ -2015,7 +2227,7 @@ function Main() {
           ) : (
             <View style={styles.sessionDisabledWrap}>
               <Text style={styles.sessionDisabledText}>{timingNotice}</Text>
-              {now >= closesAt && !hasCheckedIn && isAdminOrSupervisor && (
+              {!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn && isAdminOrSupervisor && (
                 <Pressable onPress={() => { setRequestKind('correction'); setSessionId(session.id); setTab('Pengajuan'); }} style={styles.smallButton}>
                   <Text style={styles.smallButtonText}>Koreksi (Admin)</Text>
                 </Pressable>
@@ -2165,7 +2377,9 @@ function Main() {
     const activeAssignment = todayAssignments[0];
     const sessions = todayAssignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session })));
     const activeSession = sessions.find(({ session }) => session.attendance?.check_in_at && !session.attendance.check_out_at && !session.attendance.provisional_out_at)
-      ?? sessions.find(({ session }) => !session.attendance?.check_in_at && new Date(session.attendance_window?.check_in_opens_at ?? session.start_at) <= new Date() && new Date(session.end_at) > new Date());
+      ?? sessions.find(({ session }) => !session.attendance?.check_in_at
+        && (session.attendance_window?.check_in_unrestricted === true
+          || (new Date(session.attendance_window?.check_in_opens_at ?? session.start_at) <= new Date() && new Date(session.end_at) > new Date())));
     const activeIntent = activeSession ? { assignment: activeSession.assignment, session: activeSession.session, eventType: activeSession.session.attendance?.check_in_at ? 'CHECK_OUT' as const : 'CHECK_IN' as const } : null;
     const credited = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_minutes ?? 0), 0);
     const creditedOvertime = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_overtime_minutes ?? 0), 0);
@@ -2287,6 +2501,11 @@ function Main() {
   }
 
   function renderSchedule() {
+    const matchingScheduleEmployees = allEmployees.filter((employee) => `${employee.name} ${nameOrString(employee.department)} ${employee.code ?? ''}`.toLowerCase().includes(adminScheduleEmployeeQuery.trim().toLowerCase()));
+    const scheduleEmployeePageCount = Math.max(1, Math.ceil(matchingScheduleEmployees.length / 10));
+    const visibleScheduleEmployees = adminScheduleEmpFilter
+      ? allEmployees.filter((employee) => employee.id === adminScheduleEmpFilter)
+      : matchingScheduleEmployees.slice((adminScheduleEmployeePage - 1) * 10, adminScheduleEmployeePage * 10);
     const displayedAssignments = (isAdminOrSupervisor && !hasEmployee)
       ? (adminScheduleEmpFilter ? adminSchedules.filter((a) => a.employee_id === adminScheduleEmpFilter) : adminSchedules)
       : assignments;
@@ -2321,22 +2540,46 @@ function Main() {
         {isAdminOrSupervisor && (
           <View style={styles.adminBar}>
             <Text style={styles.fieldLabel}>Filter Karyawan Roster:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.empFilterScroll}>
-              <Pressable onPress={() => setAdminScheduleEmpFilter(null)} style={[styles.filterChip, adminScheduleEmpFilter === null && styles.filterChipActive]}>
-                <Text style={[styles.filterChipText, adminScheduleEmpFilter === null && styles.filterChipTextActive]}>Semua Karyawan ({allEmployees.length})</Text>
+            <TextInput
+              value={adminScheduleEmployeeQuery}
+              onChangeText={(value) => { setAdminScheduleEmployeeQuery(value); setAdminScheduleEmployeePage(1); setAdminScheduleEmpFilter(null); }}
+              placeholder="Cari nama atau kode karyawan…"
+              placeholderTextColor={colors.muted}
+              style={[styles.input, { marginTop: 8 }]}
+              accessibilityLabel="Cari karyawan untuk melihat jadwal"
+            />
+            <View style={styles.employeeChoiceList}>
+              <Pressable onPress={() => setAdminScheduleEmpFilter(null)} style={[styles.employeeChoiceRow, adminScheduleEmpFilter === null && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected: adminScheduleEmpFilter === null }}>
+                <Text style={[styles.choiceChipTitle, adminScheduleEmpFilter === null && styles.employeeChoiceTitleActive]}>Tampilkan 10 karyawan</Text>
+                {adminScheduleEmpFilter === null && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
               </Pressable>
-              {allEmployees.map((emp) => (
-                <Pressable key={emp.id} onPress={() => setAdminScheduleEmpFilter(emp.id)} style={[styles.filterChip, adminScheduleEmpFilter === emp.id && styles.filterChipActive]}>
-                  <Text style={[styles.filterChipText, adminScheduleEmpFilter === emp.id && styles.filterChipTextActive]}>{emp.name}</Text>
+              {visibleScheduleEmployees.map((employee) => (
+                <Pressable key={employee.id} onPress={() => setAdminScheduleEmpFilter(employee.id)} style={[styles.employeeChoiceRow, adminScheduleEmpFilter === employee.id && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected: adminScheduleEmpFilter === employee.id }}>
+                  <View style={styles.employeeChoiceCopy}>
+                    <Text style={[styles.choiceChipTitle, adminScheduleEmpFilter === employee.id && styles.employeeChoiceTitleActive]}>{employee.name}</Text>
+                    <Text style={styles.choiceChipSub}>{nameOrString(employee.department, employee.code)}</Text>
+                  </View>
+                  {adminScheduleEmpFilter === employee.id && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                 </Pressable>
               ))}
-            </ScrollView>
+              {!visibleScheduleEmployees.length && <Text style={styles.fieldHint}>Karyawan tidak ditemukan.</Text>}
+            </View>
+            {!adminScheduleEmpFilter && <View style={styles.scheduleEmployeePagination}>
+              <Pressable disabled={adminScheduleEmployeePage <= 1} onPress={() => setAdminScheduleEmployeePage((page) => Math.max(1, page - 1))} style={[styles.smallButton, adminScheduleEmployeePage <= 1 && styles.disabled]}>
+                <Text style={styles.smallButtonText}>Sebelumnya</Text>
+              </Pressable>
+              <Text style={styles.fieldHint}>Halaman {Math.min(adminScheduleEmployeePage, scheduleEmployeePageCount)} dari {scheduleEmployeePageCount} · {matchingScheduleEmployees.length} karyawan</Text>
+              <Pressable disabled={adminScheduleEmployeePage >= scheduleEmployeePageCount} onPress={() => setAdminScheduleEmployeePage((page) => Math.min(scheduleEmployeePageCount, page + 1))} style={[styles.smallButton, adminScheduleEmployeePage >= scheduleEmployeePageCount && styles.disabled]}>
+                <Text style={styles.smallButtonText}>Berikutnya</Text>
+              </Pressable>
+            </View>}
+            {adminScheduleLoading && <Text style={styles.fieldHint}>Memuat jadwal untuk {adminScheduleEmpFilter ? '1 karyawan' : 'maksimal 10 karyawan'}…</Text>}
           </View>
         )}
 
         <Text style={styles.intro}>Satu siklus kerja mengikuti tanggal awal, termasuk shift malam dan split shift.</Text>
 
-        {loading && !upcoming.length ? (
+        {(loading || adminScheduleLoading) && !upcoming.length ? (
           <View style={styles.loadingCard}>
             <ActivityIndicator size="small" color={colors.primary} />
             <Text style={styles.cardCopy}>Memuat daftar jadwal kerja…</Text>
@@ -2463,22 +2706,27 @@ function Main() {
         {swapStep === 2 && (
           <View>
             <Text style={styles.fieldLabel}>Pilih Rekan Pengganti:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-              {colleagues.map((col) => {
+            <TextInput
+              value={colleagueQuery}
+              onChangeText={setColleagueQuery}
+              placeholder="Cari nama rekan…"
+              placeholderTextColor={colors.muted}
+              style={[styles.input, { marginTop: 8 }]}
+              accessibilityLabel="Cari rekan pengganti"
+            />
+            <View style={styles.employeeChoiceList}>
+              {colleagues.filter((col) => `${col.name} ${nameOrString(col.department)} ${col.code ?? ''}`.toLowerCase().includes(colleagueQuery.trim().toLowerCase())).map((col) => {
                 const selected = swapTargetEmpId === col.id;
-                return (
-                  <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                      <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{col.name}</Text>
-                      {selected && <Ionicons name="checkmark-circle" size={16} color="#fff" />}
-                    </View>
-                    <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
-                      {col.position ? `${nameOrString(col.position)} · ${nameOrString(col.department)}` : nameOrString(col.department, col.code)}
-                    </Text>
-                  </Pressable>
-                );
+                return <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.employeeChoiceRow, selected && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected }}>
+                  <View style={styles.employeeChoiceCopy}>
+                    <Text style={[styles.choiceChipTitle, selected && styles.employeeChoiceTitleActive]}>{col.name}</Text>
+                    <Text style={styles.choiceChipSub}>{col.position ? `${nameOrString(col.position)} · ${nameOrString(col.department)}` : nameOrString(col.department, col.code)}</Text>
+                  </View>
+                  {selected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+                </Pressable>;
               })}
-            </ScrollView>
+              {colleagues.length > 0 && !colleagues.some((col) => `${col.name} ${nameOrString(col.department)} ${col.code ?? ''}`.toLowerCase().includes(colleagueQuery.trim().toLowerCase())) && <Text style={styles.fieldHint}>Rekan tidak ditemukan.</Text>}
+            </View>
 
             {swapMode === 'direct' ? (
               <View style={{ marginTop: 14 }}>
@@ -2740,7 +2988,12 @@ function Main() {
       );
     }
 
-    const sessions = unfinishedSessions.length > 0 ? unfinishedSessions : openSessions;
+    const activeWorkSessions = assignments.flatMap((assignment) => assignment.sessions
+      .filter((session) => session.attendance?.check_in_at && !session.attendance.check_out_at && !session.attendance.provisional_out_at)
+      .map((session) => ({ assignment, session })));
+    const sessions = requestKind === 'late' && attendancePermissionType !== 'late_arrival'
+      ? activeWorkSessions
+      : unfinishedSessions.length > 0 ? unfinishedSessions : openSessions;
     const chosen = sessions.find((item) => item.session.id === sessionId)?.session;
     const evidenceRequired = requestKind === 'late' ? chosen?.attendance_policy?.late_permission_proof_required : chosen?.attendance_policy?.correction_proof_required;
 
@@ -2758,7 +3011,7 @@ function Main() {
                   value={workDate ? localDate(workDate) : ''}
                   placeholder="Pilih tanggal"
                   icon="calendar"
-                  onPress={() => openCalendar('leaveStart', todayKey())}
+                  onPress={() => openCalendar('leaveStart', minimumLeaveDate())}
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -2821,11 +3074,31 @@ function Main() {
 
             {requestKind === 'late' && (
               <>
-                <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Kategori / Keperluan Izin:</Text>
+                <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Jenis Izin:</Text>
+                <View style={styles.segmentRow}>
+                  {([
+                    ['late_arrival', 'Terlambat hadir'],
+                    ['temporary_exit', 'Keluar sementara'],
+                    ['early_departure', 'Pulang lebih awal'],
+                  ] as Array<[AttendancePermissionType, string]>).map(([value, label]) => (
+                    <Pressable key={value} onPress={() => {
+                      setAttendancePermissionType(value);
+                      setSessionId(null);
+                      setAllowedUntil('');
+                      setMinutes('');
+                      setPermissionLeaveAt('');
+                      setPermissionReturnAt('');
+                    }} style={[styles.segment, attendancePermissionType === value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, attendancePermissionType === value && styles.segmentTextActive]}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Kategori / Alasan:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
                   {[
                     { label: '🚗 Terlambat Hadir', prefix: '[Terlambat Hadir] ' },
-                    { label: '🏃 Pulang Awal', prefix: '[Pulang Awal] ' },
+                    { label: '🚶 Keperluan mendadak', prefix: '[Keperluan Mendadak] ' },
                     { label: '👨‍👩‍👧 Keperluan Keluarga', prefix: '[Urusan Keluarga] ' },
                     { label: '🏥 Sakit / Medis', prefix: '[Kondisi Sakit] ' },
                     { label: '💼 Tugas Dinas Luar', prefix: '[Tugas Dinas] ' },
@@ -2850,31 +3123,24 @@ function Main() {
                   })}
                 </ScrollView>
 
-                <PickerTrigger
-                  label="Target Jam Hadir (Pilih Jam)"
-                  value={allowedUntil ? clock(allowedUntil) : ''}
-                  placeholder="Pilih jam target hadir"
-                  icon="time"
-                  onPress={() => openClock('lateTarget')}
-                />
-
-                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Atau Pilih Durasi Izin Cepat (Menit):</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
-                  {[15, 30, 45, 60, 90, 120].map((mins) => {
-                    const active = minutes === String(mins);
-                    return (
-                      <Pressable
-                        key={mins}
-                        onPress={() => applyDurationChip(mins)}
-                        style={[styles.quickChip, active && styles.quickChipActive]}
-                      >
-                        <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>
-                          {mins} Menit
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+                {attendancePermissionType === 'late_arrival' ? (
+                  <>
+                    <PickerTrigger label="Target Jam Hadir" value={allowedUntil ? clock(allowedUntil) : ''} placeholder="Pilih jam target hadir" icon="time" onPress={() => openClock('lateTarget')} />
+                    <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Atau pilih durasi izin (menit):</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+                      {[15, 30, 45, 60, 90, 120].map((mins) => {
+                        const active = minutes === String(mins);
+                        return <Pressable key={mins} onPress={() => applyDurationChip(mins)} style={[styles.quickChip, active && styles.quickChipActive]}><Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{mins} menit</Text></Pressable>;
+                      })}
+                    </ScrollView>
+                  </>
+                ) : (
+                  <>
+                    <PickerTrigger label={attendancePermissionType === 'temporary_exit' ? 'Rencana jam keluar' : 'Rencana jam pulang'} value={permissionLeaveAt ? clock(permissionLeaveAt) : ''} placeholder="Pilih jam keluar" icon="time" onPress={() => openClock('permissionLeave')} />
+                    {attendancePermissionType === 'temporary_exit' && <PickerTrigger label="Rencana jam kembali" value={permissionReturnAt ? clock(permissionReturnAt) : ''} placeholder="Pilih jam kembali" icon="time" onPress={() => openClock('permissionReturn')} />}
+                    <Text style={styles.requiredHint}>Pengajuan harus disetujui atasan sebelum Anda meninggalkan pekerjaan.</Text>
+                  </>
+                )}
               </>
             )}
 
@@ -3020,6 +3286,41 @@ function Main() {
           )}
         </View>
 
+        <View style={styles.formCard}>
+          <View style={styles.notificationHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Notifikasi</Text>
+              <Text style={styles.fieldHint}>Pembaruan status izin dan cuti.</Text>
+            </View>
+            {notificationFeed.unread_count > 0 && <Pill tone="warning">{notificationFeed.unread_count} baru</Pill>}
+          </View>
+          {notificationFeed.data.length === 0 ? (
+            <Text style={styles.cardCopy}>Belum ada notifikasi.</Text>
+          ) : (
+            <View style={styles.notificationList}>
+              {(notificationsExpanded ? notificationFeed.data : notificationFeed.data.slice(0, 5)).map((item) => (
+                <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread]}>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.cardTitle}>{item.data.title || 'Notifikasi'}</Text>
+                    <Text style={styles.cardCopy}>{item.data.body || ''}</Text>
+                    {item.created_at && <Text style={styles.notificationDate}>{new Date(item.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</Text>}
+                  </View>
+                  {!item.read_at && (
+                    <Pressable onPress={() => markNotificationRead(item.id)} style={styles.notificationReadButton} accessibilityLabel="Tandai notifikasi dibaca">
+                      <Ionicons name="checkmark-done-outline" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+              {notificationFeed.data.length > 5 && (
+                <Pressable onPress={() => setNotificationsExpanded((expanded) => !expanded)} style={styles.notificationExpandButton}>
+                  <Text style={styles.linkText}>{notificationsExpanded ? 'Tampilkan lebih sedikit' : `Lihat semua (${notificationFeed.data.length})`}</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
+
         {/* View Switcher for Admin / HRD */}
         {isAdminOrSupervisor && (
           <View style={styles.viewSwitcher}>
@@ -3093,7 +3394,7 @@ function Main() {
               return (
                 <View style={styles.segmentRow}>
                   {availableRequestKinds.map((item) => (
-                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
+                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); setAttendancePermissionType('late_arrival'); setPermissionLeaveAt(''); setPermissionReturnAt(''); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
                       <Text style={[styles.segmentText, requestKind === item.key && styles.segmentTextActive]}>
                         {item.label}
                       </Text>
@@ -3108,7 +3409,7 @@ function Main() {
             <Text style={styles.sectionTitle}>Riwayat pengajuan</Text>
             {[
               ...leaveRequests.map((item) => ({ ...item, group: 'Cuti', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
-              ...lateRequests.map((item) => ({ ...item, group: 'Izin terlambat', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...lateRequests.map((item) => ({ ...item, group: 'Izin absensi', reason: `${item.permission_type === 'temporary_exit' ? `Keluar ${item.leave_at ? clock(item.leave_at) : '—'} · kembali ${item.return_at ? clock(item.return_at) : '—'}` : item.permission_type === 'early_departure' ? `Pulang ${item.leave_at ? clock(item.leave_at) : '—'}` : `Izin terlambat${item.allowed_until ? ` · target ${clock(item.allowed_until)}` : item.allowed_minutes ? ` · ${item.allowed_minutes} menit` : ''}`} · ${item.reason}`, sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu persetujuan' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...(isAdminOrSupervisor ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
               ...shiftExchanges.map((item) => ({
                 id: item.id,
@@ -3183,7 +3484,7 @@ function Main() {
                       ? cancelOvertimeItem(item.id)
                       : cancelRequest(
                           item.group === 'Cuti' ? `leaves/${item.id}/cancel` :
-                          item.group === 'Izin terlambat' ? `late-permissions/${item.id}/cancel` :
+                          item.group === 'Izin absensi' ? `late-permissions/${item.id}/cancel` :
                           item.group === 'Koreksi' ? `attendance-corrections/${item.id}/cancel` :
                           `shift-exchanges/${item.id}/cancel`,
                           item.group
@@ -3402,7 +3703,7 @@ function Main() {
                 style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] }]}
               >
                 <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
-                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{label}</Text>
+                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{key === 'Pengajuan' && notificationFeed.unread_count > 0 ? `${label} · ${notificationFeed.unread_count}` : label}</Text>
                 <View style={[styles.tabIndicator, isSelected && styles.tabIndicatorActive]} />
               </Pressable>
             );
@@ -3540,19 +3841,21 @@ function Main() {
             <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
               {/* Step 1: Source Employee & Schedule */}
               <Text style={styles.fieldLabel}>1. Karyawan & Jadwal Asal</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-                {allEmployees.map((emp) => {
+              <TextInput value={directSourceQuery} onChangeText={setDirectSourceQuery} placeholder="Cari karyawan asal…" placeholderTextColor={colors.muted} style={[styles.input, { marginTop: 8 }]} accessibilityLabel="Cari karyawan asal" />
+              <View style={styles.employeeChoiceList}>
+                {allEmployees.filter((emp) => `${emp.name} ${nameOrString(emp.department)} ${emp.code ?? ''}`.toLowerCase().includes(directSourceQuery.trim().toLowerCase())).slice(0, 10).map((emp) => {
                   const selected = directSourceEmpId === emp.id;
                   return (
-                    <Pressable key={emp.id} onPress={() => selectDirectSourceEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                      <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
-                        {emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}
-                      </Text>
+                    <Pressable key={emp.id} onPress={() => selectDirectSourceEmp(emp.id)} style={[styles.employeeChoiceRow, selected && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected }}>
+                      <View style={styles.employeeChoiceCopy}>
+                        <Text style={[styles.choiceChipTitle, selected && styles.employeeChoiceTitleActive]}>{emp.name}</Text>
+                        <Text style={styles.choiceChipSub}>{emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}</Text>
+                      </View>
+                      {selected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               {directSourceEmpId && (
                 directSourceSchedules.length === 0 ? (
@@ -3574,19 +3877,21 @@ function Main() {
 
               {/* Step 2: Target Replacement Employee */}
               <Text style={[styles.fieldLabel, { marginTop: 14 }]}>2. Karyawan Pengganti</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
-                {allEmployees.filter((e) => e.id !== directSourceEmpId).map((emp) => {
+              <TextInput value={directTargetQuery} onChangeText={setDirectTargetQuery} placeholder="Cari karyawan pengganti…" placeholderTextColor={colors.muted} style={[styles.input, { marginTop: 8 }]} accessibilityLabel="Cari karyawan pengganti" />
+              <View style={styles.employeeChoiceList}>
+                {allEmployees.filter((e) => e.id !== directSourceEmpId && `${e.name} ${nameOrString(e.department)} ${e.code ?? ''}`.toLowerCase().includes(directTargetQuery.trim().toLowerCase())).slice(0, 10).map((emp) => {
                   const selected = directTargetEmpId === emp.id;
                   return (
-                    <Pressable key={emp.id} onPress={() => selectDirectTargetEmp(emp.id)} style={[styles.choiceChip, selected && styles.choiceChipActive]}>
-                      <Text style={[styles.choiceChipTitle, selected && styles.choiceChipTitleActive]}>{emp.name}</Text>
-                      <Text style={[styles.choiceChipSub, selected && styles.choiceChipSubActive]}>
-                        {emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}
-                      </Text>
+                    <Pressable key={emp.id} onPress={() => selectDirectTargetEmp(emp.id)} style={[styles.employeeChoiceRow, selected && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected }}>
+                      <View style={styles.employeeChoiceCopy}>
+                        <Text style={[styles.choiceChipTitle, selected && styles.employeeChoiceTitleActive]}>{emp.name}</Text>
+                        <Text style={styles.choiceChipSub}>{emp.position ? `${nameOrString(emp.position)} · ${nameOrString(emp.department)}` : nameOrString(emp.department)}</Text>
+                      </View>
+                      {selected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               {/* Step 3: Swap Mode */}
               <Text style={[styles.fieldLabel, { marginTop: 14 }]}>3. Mode Pertukaran</Text>
@@ -3751,6 +4056,10 @@ function Main() {
             ? 'Jam Mulai Lembur'
             : clockTarget === 'otEnd'
             ? 'Jam Selesai Lembur'
+            : clockTarget === 'permissionLeave'
+            ? attendancePermissionType === 'early_departure' ? 'Rencana Jam Pulang' : 'Rencana Jam Keluar'
+            : clockTarget === 'permissionReturn'
+            ? 'Rencana Jam Kembali'
             : 'Target Jam Hadir'
         }
         selectedTime={
@@ -3758,6 +4067,10 @@ function Main() {
             ? otStartTime
             : clockTarget === 'otEnd'
             ? otEndTime
+            : clockTarget === 'permissionLeave'
+            ? (permissionLeaveAt ? permissionLeaveAt.slice(11, 16) : '10:30')
+            : clockTarget === 'permissionReturn'
+            ? (permissionReturnAt ? permissionReturnAt.slice(11, 16) : '10:30')
             : (allowedUntil ? allowedUntil.slice(11, 16) : '10:30')
         }
         onSelect={handleClockSelect}
@@ -3883,6 +4196,14 @@ const styles = StyleSheet.create({
   swapQuickText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
   listCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
   formCard: { padding: 18, marginTop: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
+  notificationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  notificationList: { gap: 8, marginTop: 12 },
+  notificationCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: '#fff' },
+  notificationCardUnread: { borderColor: '#9AB8A8', backgroundColor: '#F1F7F3' },
+  notificationContent: { flex: 1, gap: 3 },
+  notificationDate: { marginTop: 3, color: colors.muted, fontSize: 11.5 },
+  notificationReadButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
+  notificationExpandButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   field: { gap: 6, marginTop: 14 },
   fieldLabel: { color: colors.ink, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   fieldHint: { color: colors.muted, fontSize: 12.5, fontStyle: 'italic', marginTop: 4 },
@@ -3899,6 +4220,11 @@ const styles = StyleSheet.create({
   choiceCard: { padding: 13, marginTop: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
   choiceCardActive: { borderColor: colors.primary, backgroundColor: colors.successSoft },
   horizontalSelector: { flexDirection: 'row', marginTop: 8 },
+  employeeChoiceList: { gap: 7, marginTop: 8 },
+  employeeChoiceRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: '#fff' },
+  employeeChoiceRowActive: { borderColor: colors.primary, backgroundColor: colors.successSoft },
+  employeeChoiceCopy: { flex: 1 },
+  employeeChoiceTitleActive: { color: colors.primary },
   choiceChip: { paddingHorizontal: 14, paddingVertical: 10, marginRight: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: '#fff' },
   choiceChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
   choiceChipTitle: { color: colors.ink, fontSize: 14, fontWeight: '800' },
@@ -3963,6 +4289,7 @@ const styles = StyleSheet.create({
   adminAlertCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#F2D7B3', borderRadius: 14, backgroundColor: colors.warningSoft },
   adminAlertTitle: { color: colors.warning, fontSize: 14.5, fontWeight: '800' },
   adminBar: { marginTop: 4, marginBottom: 12 },
+  scheduleEmployeePagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 8 },
   empFilterScroll: { flexDirection: 'row', marginTop: 8 },
   filterChip: { paddingHorizontal: 14, paddingVertical: 9, marginRight: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
   filterChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },

@@ -60,7 +60,7 @@ class ScheduleTest extends TestCase
             ->assertJsonPath('data.scheduled_minutes', 480);
     }
 
-    public function test_custom_cycle_cannot_span_more_than_thirteen_hours(): void
+    public function test_custom_cycle_cannot_span_more_than_24_hours(): void
     {
         $this->postJson('/admin/api/schedule', [
             'employee_id' => $this->employee->id,
@@ -68,9 +68,56 @@ class ScheduleTest extends TestCase
             'name' => 'Split melewati batas siklus',
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
-                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '20:00', 'end_date' => '2026-10-26', 'end_time' => '00:01'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '07:00', 'end_date' => '2026-10-26', 'end_time' => '08:01'],
             ],
         ])->assertStatus(409)->assertJsonPath('code', 'CYCLE_SPAN_LIMIT');
+    }
+
+    public function test_special_cycle_allows_16_work_hours_over_24_clock_hours(): void
+    {
+        $response = $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split penuh dengan shift malam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '07:00', 'end_date' => '2026-10-25', 'end_time' => '15:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '23:00', 'end_date' => '2026-10-26', 'end_time' => '07:00'],
+            ],
+        ])->assertCreated()->assertJsonPath('data.scheduled_minutes', 960);
+
+        $this->assertSame(2, ShiftAssignment::query()->findOrFail($response->json('data.id'))->sessions()->count());
+    }
+
+    public function test_custom_cycle_rejects_more_than_16_scheduled_work_hours(): void
+    {
+        $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split melebihi batas kerja',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '07:00', 'end_date' => '2026-10-25', 'end_time' => '15:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '22:00', 'end_date' => '2026-10-26', 'end_time' => '07:00'],
+            ],
+        ])->assertStatus(409)->assertJsonPath('code', 'CYCLE_WORK_LIMIT');
+    }
+
+    public function test_schedule_calendar_can_request_one_employee_page_and_caps_ids_at_ten(): void
+    {
+        $other = $this->makeEmployee('FO-2', 'Front Office');
+        $this->assign('2026-10-25', 'Reguler');
+        $this->assign('2026-10-25', 'Malam', $other);
+
+        $query = http_build_query([
+            'from' => '2026-10-25',
+            'to' => '2026-10-25',
+            'employee_ids' => [$other->id],
+        ]);
+        $this->getJson("/admin/api/schedule?{$query}")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.employee_id', $other->id);
+
+        $ids = range(1, 11);
+        $oversized = http_build_query(['from' => '2026-10-25', 'to' => '2026-10-25', 'employee_ids' => $ids]);
+        $this->getJson("/admin/api/schedule?{$oversized}")->assertUnprocessable();
     }
 
     public function test_running_cycle_edit_keeps_attended_session_and_retires_stale_future_session(): void

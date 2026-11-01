@@ -64,11 +64,16 @@ class ScheduleController extends Controller
     public function index(Request $request): JsonResponse
     {
         $data = $this->range($request, 62);
-        $ids = EmployeeController::visibleTo($request->user())->pluck('id');
+        $visibleEmployeeIds = EmployeeController::visibleTo($request->user())->select('employees.id');
+        $employeeIds = $request->validate([
+            'employee_ids' => ['sometimes', 'array', 'max:10'],
+            'employee_ids.*' => ['integer', 'distinct'],
+        ])['employee_ids'] ?? null;
 
         $assignments = ShiftAssignment::query()
-            ->with('sessions')
-            ->whereIn('employee_id', $ids)
+            ->with(['employee.workLocation', 'sessions.attendanceRecord'])
+            ->whereIn('employee_id', $visibleEmployeeIds)
+            ->when($employeeIds !== null, fn ($query) => $query->whereIn('employee_id', $employeeIds))
             ->whereBetween('work_date', [$data['from'], $data['to']])
             ->where('status', '!=', 'CANCELLED')
             ->when($data['employee_id'] ?? null, fn ($q, $id) => $q->where('employee_id', $id))

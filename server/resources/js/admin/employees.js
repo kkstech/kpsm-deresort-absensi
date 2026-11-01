@@ -33,12 +33,27 @@ async function fields(withAccount, employee) {
         { name: 'code', label: 'Nomor induk / Kode (NIK)', required: true, maxlength: 32, placeholder: 'Contoh: FO-001' },
         { name: 'phone', label: 'No. HP / WhatsApp', type: 'tel', maxlength: 32, autocomplete: 'off', placeholder: 'Contoh: 081234567890' },
         { name: 'email', label: 'Alamat email', type: 'email', maxlength: 255, placeholder: 'Contoh: karyawan@deresort.id' },
+        { name: 'place_of_birth', label: 'Tempat lahir', maxlength: 120 },
+        { name: 'date_of_birth', label: 'Tanggal lahir', type: 'date', hint: 'Dipakai untuk menampilkan usia dan pengingat pensiun.' },
+        { name: 'religion', label: 'Agama', type: 'select', blank: 'Pilih agama', options: [
+            { value: 'islam', label: 'Islam' }, { value: 'protestant', label: 'Kristen Protestan' },
+            { value: 'catholic', label: 'Kristen Katolik' }, { value: 'hindu', label: 'Hindu' },
+            { value: 'buddhist', label: 'Buddha' }, { value: 'confucian', label: 'Konghucu' }, { value: 'other', label: 'Lainnya' },
+        ] },
+        { name: 'gender', label: 'Jenis kelamin', type: 'select', blank: 'Pilih jenis kelamin', options: [{ value: 'male', label: 'Laki-laki' }, { value: 'female', label: 'Perempuan' }] },
+        { name: 'marital_status', label: 'Status pernikahan', type: 'select', blank: 'Pilih status pernikahan', options: [
+            { value: 'single', label: 'Belum menikah' }, { value: 'married', label: 'Menikah' },
+            { value: 'divorced', label: 'Cerai hidup' }, { value: 'widowed', label: 'Cerai mati' },
+        ] },
+        { name: 'permanent_address', label: 'Alamat asal', type: 'textarea', maxlength: 2000, fullWidth: true },
+        { name: 'current_address', label: 'Alamat sekarang / domisili', type: 'textarea', maxlength: 2000, fullWidth: true },
 
         { name: 'sec_job', label: '2. Kepegawaian & Penempatan', hint: 'Pengaturan unit kerja, jabatan, dan kelompok tunjangan', icon: 'contract', type: 'section' },
         { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, required: true, blank: 'Pilih departemen', options: opts(departments) },
         { name: 'position_id', label: 'Jabatan', type: 'select', numeric: true, required: true, blank: 'Pilih jabatan', options: opts(positions) },
         { name: 'level_id', label: 'Level tunjangan', type: 'select', numeric: true, blank: 'Belum diatur / Tanpa level', options: opts(levels, (x) => `${x.name} (${x.code})`), hint: 'Wajib sebelum karyawan bisa absen. Dasar tunjangan makan dan transport.' },
         { name: 'work_location_id', label: 'Lokasi penempatan kerja', type: 'select', numeric: true, blank: 'Tidak diatur', options: opts(locations), hint: 'Wajib sebelum karyawan bisa absen. Titik GPS dipakai jika validasi lokasi aktif.' },
+        { name: 'base_salary', label: 'Gaji Pokok (Rp / bulan)', type: 'number', min: 0, step: 1, hint: 'Hanya dapat dilihat dan diubah Admin atau Superadmin.' },
         { name: 'status', label: 'Status karyawan', type: 'select', required: true, options: [{ value: 'active', label: 'Aktif' }, { value: 'inactive', label: 'Nonaktif' }], default: 'active' },
         { name: 'started_on', label: 'Tanggal mulai kerja', type: 'date', required: !employee },
     ];
@@ -103,7 +118,15 @@ function render() {
                 const tone = ['overdue', 'urgent'].includes(e.employment?.alert)
                     ? 'warning'
                     : (type === 'contract' ? 'blue' : 'neutral');
-                return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div></div>`;
+                const retirementLabel = e.retirement_status === 'reached'
+                    ? 'Usia pensiun tercapai'
+                    : e.retirement_status === 'soon'
+                        ? `Pensiun ≤12 bulan · ${e.retirement_date}`
+                        : e.current_age !== null && e.current_age !== undefined
+                            ? `Usia ${e.current_age} tahun`
+                            : 'Tanggal lahir belum diisi';
+                const retirementTone = e.retirement_status ? 'warning' : 'neutral';
+                return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div><small style="display:block;margin-top:5px;"><span class="status ${retirementTone}" style="font-size:10.5px;padding:1px 6px;">${esc(retirementLabel)}</span></small></div>`;
             } },
             { label: 'Akun app', cell: (e) => {
                 if (!e.user) return '<span class="status neutral">Belum ada</span>';
@@ -561,9 +584,9 @@ const templateBtn = $('#employee-template-btn');
 const templateModalBtn = $('#employee-template-modal-btn');
 
 const FALLBACK_CSV = '\uFEFF' + [
-    'kode_karyawan,nama_lengkap,departemen,jabatan,tanggal_mulai_kerja,status_kerja,tanggal_selesai_kontrak,email,no_telepon,level,lokasi_kerja,status,buat_akun,password_awal',
-    'FO-001,Nadia Anjani,Front Office,Receptionist,2026-01-01,tetap,,nadia@deresort.test,081234567801,Staff,Resort Utama,aktif,ya,password123',
-    'EN-001,Dimas Saputra,Engineering,Technician,2026-01-15,kontrak,2026-12-31,dimas@deresort.test,081234567802,Staff,,aktif,ya,password123',
+    'kode_karyawan,nama_lengkap,departemen,jabatan,tanggal_mulai_kerja,status_kerja,tanggal_selesai_kontrak,email,no_telepon,gaji_pokok,agama,tempat_lahir,tanggal_lahir,jenis_kelamin,status_pernikahan,alamat_asal,alamat_domisili,level,lokasi_kerja,status,buat_akun,password_awal',
+    'FO-001,Nadia Anjani,Front Office,Receptionist,2026-01-01,tetap,,nadia@deresort.test,081234567801,,islam,,,,,,,Staff,Resort Utama,aktif,ya,password123',
+    'EN-001,Dimas Saputra,Engineering,Technician,2026-01-15,kontrak,2026-12-31,dimas@deresort.test,081234567802,,islam,,,,,,,Staff,,aktif,ya,password123',
 ].join('\r\n');
 
 function triggerDownload(content, filename = 'template_import_karyawan.csv') {

@@ -85,7 +85,40 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $accessToken = $request->user()->currentAccessToken();
+        if (preg_match('/^device:(\d+)$/', (string) $accessToken?->name, $matches)) {
+            DeviceRegistration::query()
+                ->where('id', (int) $matches[1])
+                ->where('user_id', $request->user()->id)
+                ->update(['expo_push_token' => null]);
+        }
+        $accessToken?->delete();
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function pushToken(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'device_uuid' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9._:-]+$/'],
+            'expo_push_token' => ['present', 'nullable', 'string', 'max:255', 'regex:/^(Expo|Exponent)PushToken\[[^\]]+\]$/'],
+        ]);
+
+        $device = DeviceRegistration::query()
+            ->where('user_id', $request->user()->id)
+            ->where('device_uuid', $data['device_uuid'])
+            ->whereNull('revoked_at')
+            ->firstOrFail();
+
+        DB::transaction(function () use ($device, $data) {
+            if ($data['expo_push_token']) {
+                DeviceRegistration::query()
+                    ->where('expo_push_token', $data['expo_push_token'])
+                    ->where('id', '!=', $device->id)
+                    ->update(['expo_push_token' => null]);
+            }
+            $device->update(['expo_push_token' => $data['expo_push_token'], 'last_seen_at' => now()]);
+        });
 
         return response()->json(['ok' => true]);
     }
@@ -185,7 +218,7 @@ class AuthController extends Controller
             'image/webp' => 'webp',
             default => 'jpg',
         };
-        $filename = 'avatar_' . $user->id . '_' . time() . '.' . $ext;
+        $filename = 'avatar_'.$user->id.'_'.time().'.'.$ext;
         $path = $file->storeAs('avatars', $filename, 'public');
 
         if ($user->avatar_path && Storage::disk('public')->exists($user->avatar_path)) {
@@ -343,8 +376,8 @@ class AuthController extends Controller
             'email' => $user->email,
             'phone' => $user->phone ?? $employee?->phone,
             'role' => $user->role,
-            'avatar_path' => $avatarPath ? '/storage/' . ltrim($avatarPath, '/') : null,
-            'avatar_url' => $avatarPath ? url('storage/' . ltrim($avatarPath, '/')) : null,
+            'avatar_path' => $avatarPath ? '/storage/'.ltrim($avatarPath, '/') : null,
+            'avatar_url' => $avatarPath ? url('storage/'.ltrim($avatarPath, '/')) : null,
             'employee' => $employee ? [
                 'id' => $employee->id,
                 'code' => $employee->code,
@@ -353,8 +386,8 @@ class AuthController extends Controller
                 'position' => $employee->position?->name,
                 'email' => $employee->email,
                 'phone' => $employee->phone,
-                'avatar_path' => $employee->avatar_path ? '/storage/' . ltrim($employee->avatar_path, '/') : null,
-                'avatar_url' => $employee->avatar_path ? url('storage/' . ltrim($employee->avatar_path, '/')) : null,
+                'avatar_path' => $employee->avatar_path ? '/storage/'.ltrim($employee->avatar_path, '/') : null,
+                'avatar_url' => $employee->avatar_path ? url('storage/'.ltrim($employee->avatar_path, '/')) : null,
             ] : null,
         ];
     }

@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Actions\BulkImportEmployees;
 use App\Actions\RefreshOpenPolicySnapshots;
+use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\EmploymentTerm;
+use App\Models\SiteSetting;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\WorkTime;
@@ -55,7 +57,9 @@ class EmployeeController extends Controller
         $isAll = $request->boolean('all') || $request->input('per_page') === 'all' || (! $request->has('page') && ! $request->has('per_page'));
 
         $today = WorkTime::today();
-        $enrich = function (Employee $employee) use ($today) {
+        $retirementAge = SiteSetting::query()->value('retirement_age_years');
+        $canSeeHrFields = $request->user()->isAdmin();
+        $enrich = function (Employee $employee) use ($today, $retirementAge, $canSeeHrFields) {
             $term = $employee->employmentTerms->filter(fn (EmploymentTerm $term) => $term->starts_on->format('Y-m-d') <= $today)->sortByDesc('starts_on')->first();
             $employee->setAttribute('employment', $term ? [
                 'type' => $term->type,
@@ -65,6 +69,7 @@ class EmployeeController extends Controller
                     ? ($term->ends_on->lt($today) ? 'overdue' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(7)) ? 'urgent' : ($term->ends_on->lte(CarbonImmutable::parse($today)->addDays(30)) ? 'soon' : null)))
                     : null,
             ] : ['type' => 'unknown', 'starts_on' => null, 'ends_on' => null, 'alert' => null]);
+            $this->enrichRetirementData($employee, $today, $retirementAge === null ? null : (int) $retirementAge, $canSeeHrFields);
         };
 
         if ($isAll) {
@@ -94,8 +99,10 @@ class EmployeeController extends Controller
     public function show(Request $request, Employee $employee): JsonResponse
     {
         abort_unless($request->user()->canSeeEmployee($employee), 403);
+        $employee->load('department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,is_active', 'placements.department:id,name');
+        $this->enrichRetirementData($employee, WorkTime::today(), SiteSetting::query()->value('retirement_age_years'), $request->user()->isAdmin());
 
-        return response()->json(['data' => $employee->load('department:id,name', 'position:id,name', 'workLocation:id,name', 'user:id,email,is_active', 'placements.department:id,name')]);
+        return response()->json(['data' => $employee]);
     }
 
     public function store(Request $request): JsonResponse
@@ -166,6 +173,8 @@ class EmployeeController extends Controller
             return $employee;
         });
 
+        $this->enrichRetirementData($employee, WorkTime::today(), SiteSetting::query()->value('retirement_age_years'));
+
         return response()->json(['data' => $employee], 201);
     }
 
@@ -226,7 +235,10 @@ class EmployeeController extends Controller
         });
         app(RefreshOpenPolicySnapshots::class)->forEmployees([$employee->id]);
 
-        return response()->json(['data' => $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active'])]);
+        $updated = $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active']);
+        $this->enrichRetirementData($updated, WorkTime::today(), SiteSetting::query()->value('retirement_age_years'));
+
+        return response()->json(['data' => $updated]);
     }
 
     public function unlinkedUsers(): JsonResponse
@@ -383,7 +395,7 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $data = $request->validate(['ended_on' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:'.$employee->started_on]]);
 
-        DB::transaction(function () use ($employee, $data, $request) {
+        DB::transaction(function () use ($employee, $data) {
             $before = $employee->attributesToArray();
             $employee->update(['status' => 'inactive', 'ended_on' => $data['ended_on'] ?? WorkTime::today()]);
             if ($user = $employee->user) {
@@ -495,6 +507,14 @@ class EmployeeController extends Controller
             'rows.*.ends_on' => ['nullable', 'date_format:Y-m-d'],
             'rows.*.email' => ['nullable'],
             'rows.*.phone' => ['nullable', 'string'],
+            'rows.*.base_salary' => ['nullable', 'integer', 'min:0', 'max:999999999999'],
+            'rows.*.religion' => ['nullable', Rule::in(['islam', 'protestant', 'catholic', 'hindu', 'buddhist', 'confucian', 'other'])],
+            'rows.*.place_of_birth' => ['nullable', 'string', 'max:120'],
+            'rows.*.date_of_birth' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'rows.*.gender' => ['nullable', Rule::in(['male', 'female'])],
+            'rows.*.marital_status' => ['nullable', Rule::in(['single', 'married', 'divorced', 'widowed'])],
+            'rows.*.permanent_address' => ['nullable', 'string', 'max:2000'],
+            'rows.*.current_address' => ['nullable', 'string', 'max:2000'],
             'rows.*.level' => ['nullable', 'string'],
             'rows.*.work_location' => ['nullable', 'string'],
             'rows.*.status' => ['required', 'in:active,inactive'],
@@ -562,6 +582,14 @@ class EmployeeController extends Controller
             'status' => ['required', 'in:active,inactive'],
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
+            'base_salary' => ['nullable', 'integer', 'min:0', 'max:999999999999'],
+            'religion' => ['nullable', Rule::in(['islam', 'protestant', 'catholic', 'hindu', 'buddhist', 'confucian', 'other'])],
+            'place_of_birth' => ['nullable', 'string', 'max:120'],
+            'date_of_birth' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'gender' => ['nullable', Rule::in(['male', 'female'])],
+            'marital_status' => ['nullable', Rule::in(['single', 'married', 'divorced', 'widowed'])],
+            'permanent_address' => ['nullable', 'string', 'max:2000'],
+            'current_address' => ['nullable', 'string', 'max:2000'],
             'avatar' => ['nullable', 'file', 'image', 'max:5120'],
             'started_on' => [$employee ? 'nullable' : 'required', 'date_format:Y-m-d'],
         ];
@@ -576,7 +604,7 @@ class EmployeeController extends Controller
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');
             $ext = $file->getClientOriginalExtension() ?: 'jpg';
-            $filename = 'avatar_' . ($employee?->user_id ?? $employee?->id ?? time()) . '_' . time() . '.' . $ext;
+            $filename = 'avatar_'.($employee?->user_id ?? $employee?->id ?? time()).'_'.time().'.'.$ext;
             $path = $file->storeAs('avatars', $filename, 'public');
             $validated['avatar_path'] = $path;
             if ($employee?->avatar_path && Storage::disk('public')->exists($employee->avatar_path)) {
@@ -585,5 +613,24 @@ class EmployeeController extends Controller
         }
 
         return $validated;
+    }
+
+    private function enrichRetirementData(Employee $employee, string $today, ?int $retirementAge, bool $includeHrFields = true): void
+    {
+        if (! $includeHrFields) {
+            return;
+        }
+        $employee->makeVisible(['base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address']);
+        $birthDate = $employee->date_of_birth;
+        $todayDate = CarbonImmutable::parse($today);
+        $retirementDate = $birthDate && $retirementAge
+            ? CarbonImmutable::parse($birthDate)->addYears($retirementAge)
+            : null;
+
+        $employee->setAttribute('current_age', $birthDate ? CarbonImmutable::parse($birthDate)->diffInYears($todayDate) : null);
+        $employee->setAttribute('retirement_date', $retirementDate?->toDateString());
+        $employee->setAttribute('retirement_status', $retirementDate
+            ? ($retirementDate->lte($todayDate) ? 'reached' : ($retirementDate->lte($todayDate->addYear()) ? 'soon' : null))
+            : null);
     }
 }

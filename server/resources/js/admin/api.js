@@ -11,7 +11,13 @@ export class ApiError extends Error {
 
 export async function api(path, { method = 'GET', body, query } = {}) {
     const url = new URL(`/admin/api/${path}`, location.origin);
-    Object.entries(query ?? {}).forEach(([k, v]) => v !== '' && v != null && url.searchParams.set(k, v));
+    Object.entries(query ?? {}).forEach(([k, v]) => {
+        if (Array.isArray(v)) {
+            v.forEach((value) => url.searchParams.append(`${k}[]`, value));
+        } else if (v !== '' && v != null) {
+            url.searchParams.set(k, v);
+        }
+    });
     const isForm = body instanceof FormData;
 
     let response;

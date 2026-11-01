@@ -33,6 +33,32 @@ function setInitialDates(form) {
     form.elements.to.value = today;
 }
 
+function reviewReasonLabel(reason) {
+    return ({
+        OFFLINE_CLOCK_UNVERIFIED: 'Absensi offline perlu dicocokkan dengan waktu perangkat.',
+        OFFLINE_CLOCK_FUTURE: 'Waktu perangkat tercatat lebih jauh dari waktu server.',
+        OFFLINE_TOO_OLD: 'Waktu perangkat berada di luar batas sinkronisasi offline.',
+        GPS_ACCURACY_LOW: 'Akurasi GPS berada di luar batas aturan lokasi.',
+        GPS_REQUIRED: 'Data lokasi wajib belum tersedia.',
+        OUTSIDE_RADIUS: 'Lokasi tercatat di luar radius area kerja.',
+        FAKE_GPS_DETECTED: 'Absensi tercatat menggunakan lokasi tiruan.',
+        AUTO_CHECKOUT: 'Sesi ditutup otomatis karena checkout belum tercatat.',
+        CHECKOUT_AFTER_AUTO: 'Checkout dicatat setelah sistem menutup sesi otomatis.',
+        EARLY_CHECKOUT_NOT_APPROVED: 'Checkout lebih awal belum didukung izin yang disetujui.',
+        OUTSIDE_WINDOW: 'Waktu absensi berada di luar jendela sesi.',
+        NOT_CHECKED_IN: 'Checkout offline diterima sebelum check-in tercatat.',
+        SCHEDULE_CHANGED: 'Jadwal berubah saat event absensi disinkronkan.',
+        SCHEDULE_CANCELLED: 'Jadwal shift sudah dibatalkan.',
+        SCHEDULE_NOT_PUBLISHED: 'Jadwal belum diterbitkan saat event absensi diterima.',
+        PREVIOUS_PERIOD_LOCKED: 'Periode sebelumnya terkunci saat event diterima.',
+        PERIOD_LOCKED: 'Periode absensi sudah dikunci.',
+        ALREADY_CHECKED_IN: 'Check-in sudah tercatat sebelumnya untuk sesi ini.',
+        ALREADY_CHECKED_OUT: 'Check-out sudah tercatat sebelumnya untuk sesi ini.',
+        AUTO_CHECKOUT_DUE: 'Batas waktu sesi telah lewat sebelum event absensi diterima.',
+        OPEN_SESSION_EXISTS: 'Masih ada sesi sebelumnya yang belum diselesaikan.',
+    })[reason] ?? (reason || 'Periksa waktu, lokasi, dan bukti absensi.');
+}
+
 function populateFilters({ departments, employees }) {
     [dashboardForm, monitoringForm].forEach((form) => {
         const department = form.elements.department_id;
@@ -46,7 +72,7 @@ function stateLabel(row) {
     const state = row.attendance.state;
     if (state === 'NEEDS_REVIEW') {
         const reason = row.attendance.review_reason;
-        return { label: reason === 'AUTO_CHECKOUT' ? 'Auto checkout · review' : 'Perlu review', className: 'danger' };
+        return { label: `Perlu verifikasi · ${reviewReasonLabel(reason)}`, className: 'danger' };
     }
     return ({
         PRESENT_LATE: { label: 'Terlambat', className: 'warning' },
@@ -94,7 +120,7 @@ function renderReviewBox(reviewItems) {
         return;
     }
     box.innerHTML = `<div class="review-items-list">${reviewItems.map((item) => {
-        const reason = item.attendance?.review_reason || 'Perlu verifikasi';
+        const reason = reviewReasonLabel(item.attendance?.review_reason);
         return `
             <div class="review-alert-item">
                 <div class="review-item-main">
@@ -329,7 +355,7 @@ function renderMonitoring({ data, meta, summary }) {
                     </div>
                     ${renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy)}
                 </td>
-                <td data-label="Status"><span class="status ${status.className}">${status.label}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(attendance.review_reason)}</small>` : ''}</td>
+                <td data-label="Status"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
                 ${otCell}
                 ${actions}
@@ -427,7 +453,11 @@ function decisionModal(kind, item) {
     const isLate = kind === 'late';
     const path = isLate ? `late-permissions/${item.id}/decision` : `attendance-corrections/${item.id}/decision`;
     const target = isLate
-        ? (item.allowed_until ? `Target jam hadir: <strong>${formatClock(item.allowed_until)}</strong>` : `Durasi izin: <strong>${item.allowed_minutes} menit</strong>`)
+        ? (item.permission_type === 'temporary_exit'
+            ? `Keluar: <strong>${formatClock(item.leave_at)}</strong> · kembali: <strong>${formatClock(item.return_at)}</strong>`
+            : item.permission_type === 'early_departure'
+                ? `Pulang lebih awal: <strong>${formatClock(item.leave_at)}</strong>`
+                : item.allowed_until ? `Target jam hadir: <strong>${formatClock(item.allowed_until)}</strong>` : `Durasi izin: <strong>${item.allowed_minutes} menit</strong>`)
         : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
     const attachments = item.attachments?.length
         ? `<div class="workflow-modal-summary-row"><span class="modal-label">Lampiran Bukti:</span><div class="workflow-files">${item.attachments.map((file) => `<a href="/admin/api/attachments/${file.id}" target="_blank" class="workflow-file-chip">${icon('contract', 13)} <span>${esc(file.name)}</span></a>`).join('')}</div></div>`
@@ -437,7 +467,7 @@ function decisionModal(kind, item) {
         <div class="workflow-modal-summary">
             <div class="workflow-modal-summary-row"><span class="modal-label">Karyawan:</span> <strong>${esc(item.employee.name)}</strong> (${esc(item.employee.department ?? 'Tanpa departemen')})</div>
             <div class="workflow-modal-summary-row"><span class="modal-label">Jadwal:</span> ${formatDate(item.work_date)} · ${esc(item.shift)}</div>
-            <div class="workflow-modal-summary-row"><span class="modal-label">${isLate ? 'Permintaan Izin:' : 'Usulan Koreksi:'}</span> ${target}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">${isLate ? (item.permission_type === 'temporary_exit' ? 'Izin keluar sementara:' : item.permission_type === 'early_departure' ? 'Izin pulang lebih awal:' : 'Izin terlambat:') : 'Usulan Koreksi:'}</span> ${target}</div>
             <div class="workflow-modal-summary-row"><span class="modal-label">Alasan Karyawan:</span> <p class="modal-reason-text">"${esc(item.reason)}"</p></div>
             ${attachments}
         </div>
@@ -452,7 +482,7 @@ function decisionModal(kind, item) {
             <textarea name="decision_reason" rows="3" maxlength="1000" placeholder="Contoh: Disetujui sesuai bukti lampiran..." required></textarea>
         </label>`;
 
-    openWorkflowModal(isLate ? 'Putuskan Izin Terlambat' : 'Putuskan Koreksi Absensi', 'Tinjau rincian permohonan sebelum menetapkan keputusan.', summaryCard, (body) => api(path, { method: 'POST', body }), 'Simpan Keputusan');
+    openWorkflowModal(isLate ? 'Putuskan Izin Absensi' : 'Putuskan Koreksi Absensi', 'Tinjau rincian permohonan sebelum menetapkan keputusan.', summaryCard, (body) => api(path, { method: 'POST', body }), 'Simpan Keputusan');
 }
 
 function renderAttachments(items) {
@@ -465,9 +495,16 @@ function renderAttachments(items) {
 
 function renderQueueItem(item, kind) {
     const late = kind === 'late';
-    const targetLabel = late ? 'Izin Terlambat' : 'Usulan Koreksi';
+    const permissionType = item.permission_type ?? 'late_arrival';
+    const targetLabel = late
+        ? ({ late_arrival: 'Izin Terlambat', temporary_exit: 'Izin Keluar Sementara', early_departure: 'Izin Pulang Lebih Awal' })[permissionType] ?? 'Izin Absensi'
+        : 'Usulan Koreksi';
     const targetValue = late
-        ? (item.allowed_until ? `Target hadir pk <strong>${formatClock(item.allowed_until)}</strong>` : `Izin <strong>${item.allowed_minutes} menit</strong>`)
+        ? permissionType === 'temporary_exit'
+            ? `Rencana keluar <strong>${formatClock(item.leave_at)}</strong> · kembali <strong>${formatClock(item.return_at)}</strong>`
+            : permissionType === 'early_departure'
+                ? `Rencana pulang <strong>${formatClock(item.leave_at)}</strong>`
+                : (item.allowed_until ? `Target hadir pk <strong>${formatClock(item.allowed_until)}</strong>` : `Izin <strong>${item.allowed_minutes} menit</strong>`)
         : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
 
     const canDecide = late ? (role === 'super_admin' || role === 'admin' || (role === 'supervisor' && item.requester_id !== Number(document.body.dataset.userId))) : isAdmin;
@@ -616,9 +653,10 @@ export async function showApprovals() {
     const error = $('#workflow-error');
     error.hidden = true;
     try {
-        const [result, overtimeResult] = await Promise.all([
+        const [result, overtimeResult, recommendationResult] = await Promise.all([
             api('workflows', { query: { status: 'PENDING' } }),
-            api('overtimes', { query: $('#overtime-filter')?.value === 'all' ? {} : { status: $('#overtime-filter')?.value ?? 'PENDING' } }),
+            isAdmin ? api('overtimes', { query: $('#overtime-filter')?.value === 'all' ? {} : { status: $('#overtime-filter')?.value ?? 'PENDING' } }) : Promise.resolve({ data: [] }),
+            isAdmin ? api('overtimes/recommendations') : Promise.resolve({ data: [] }),
         ]);
 
         const lateCount = result.late_permissions.length;
@@ -696,6 +734,41 @@ export async function showApprovals() {
                     toast(err.message);
                 }
             }));
+        }
+
+        const recommendations = recommendationResult.data ?? [];
+        const recommendationCount = $('#overtime-recommendation-count');
+        const recommendationList = $('#overtime-recommendation-list');
+        if (recommendationCount) {
+            recommendationCount.textContent = recommendations.length
+                ? `${recommendations.length} karyawan sudah bekerja 11 jam atau lebih`
+                : 'Belum ada karyawan yang mendekati batas lembur.';
+        }
+        if (recommendationList) {
+            recommendationList.innerHTML = recommendations.length ? recommendations.map((item) => `
+                <article class="workflow-card">
+                    <div class="workflow-card-header">
+                        <div class="workflow-user-info">
+                            <div class="workflow-user-meta">
+                                <strong>${esc(item.employee.name)}</strong>
+                                <div class="workflow-sub-meta">
+                                    <span class="meta-pill">${esc(item.employee.department ?? 'Tanpa departemen')}</span>
+                                    <span>${esc(item.shift)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="status warning">${Math.floor(item.worked_minutes / 60)}j ${item.worked_minutes % 60}m</span>
+                    </div>
+                    <div class="workflow-card-footer">
+                        <span class="workflow-sub-meta">${item.minutes_to_threshold} menit menuju 12 jam</span>
+                        <button type="button" class="secondary-button" data-overtime-recommendation="${item.employee.id}" data-work-date="${esc(item.work_date)}">Siapkan SPL</button>
+                    </div>
+                </article>
+            `).join('') : `
+                <div class="workflow-empty-state">
+                    <strong>Belum ada rekomendasi lembur</strong>
+                    <span>Daftar muncul saat karyawan mencapai 11 jam kerja terverifikasi.</span>
+                </div>`;
         }
     } catch (failure) {
         error.textContent = failure.message;
@@ -805,6 +878,40 @@ function updateOvertimeCalcInfo() {
     infoEl.textContent = `Perkiraan durasi lembur: ${diff} menit (${Math.floor(diff / 60)} jam ${diff % 60} menit)`;
 }
 
+async function openOvertimeOrderModal(employeeId = null, workDate = today) {
+    const modal = $('#overtime-order-modal');
+    const form = $('#overtime-order-form');
+    const errorEl = $('#overtime-modal-error');
+    errorEl.hidden = true;
+    form.reset();
+    $('#overtime-work-date').value = workDate;
+    $('#overtime-start-time').value = '17:00';
+    $('#overtime-end-time').value = '20:00';
+    updateOvertimeCalcInfo();
+
+    if (!overtimeEmployees.length) {
+        try {
+            const res = await api('employees', { query: { status: 'active' } });
+            overtimeEmployees = res.data ?? [];
+            const depts = [...new Set(overtimeEmployees.map((e) => e.department?.name || e.dept).filter(Boolean))].sort();
+            const deptSelect = $('#overtime-dept-filter');
+            if (deptSelect) {
+                deptSelect.innerHTML = '<option value="all">Semua Departemen</option>' + depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+            }
+        } catch (err) {
+            toast(err.message);
+        }
+    }
+
+    renderOvertimeEmployeeList();
+    if (employeeId) {
+        const checkbox = $(`#overtime-emp-list input[name="ot_emp_id"][value="${employeeId}"]`);
+        if (checkbox) checkbox.checked = true;
+        updateOvertimeCounter();
+    }
+    modal.showModal();
+}
+
 function initOvertimeModal() {
     const modal = $('#overtime-order-modal');
     const openBtn = $('#open-overtime-order-btn');
@@ -812,30 +919,10 @@ function initOvertimeModal() {
     const errorEl = $('#overtime-modal-error');
     if (!modal || !openBtn || !form) return;
 
-    openBtn.addEventListener('click', async () => {
-        errorEl.hidden = true;
-        form.reset();
-        $('#overtime-work-date').value = today;
-        $('#overtime-start-time').value = '17:00';
-        $('#overtime-end-time').value = '20:00';
-        updateOvertimeCalcInfo();
-
-        if (!overtimeEmployees.length) {
-            try {
-                const res = await api('employees', { query: { status: 'active' } });
-                overtimeEmployees = res.data ?? [];
-                const depts = [...new Set(overtimeEmployees.map((e) => e.department?.name || e.dept).filter(Boolean))].sort();
-                const deptSelect = $('#overtime-dept-filter');
-                if (deptSelect) {
-                    deptSelect.innerHTML = '<option value="all">Semua Departemen</option>' + depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
-                }
-            } catch (err) {
-                toast(err.message);
-            }
-        }
-
-        renderOvertimeEmployeeList();
-        modal.showModal();
+    openBtn.addEventListener('click', () => openOvertimeOrderModal());
+    $('#overtime-recommendation-list')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-overtime-recommendation]');
+        if (button) openOvertimeOrderModal(Number(button.dataset.overtimeRecommendation), button.dataset.workDate);
     });
 
     $('#overtime-emp-search')?.addEventListener('input', (e) => {

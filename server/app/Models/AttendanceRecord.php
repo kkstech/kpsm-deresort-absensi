@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Support\WorkTime;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'overtime_order_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'check_in_photo_path', 'check_out_photo_path', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_overtime_minutes', 'verified_at', 'verified_by'])]
@@ -66,10 +68,27 @@ class AttendanceRecord extends Model
     /** Menit dibayar = irisan hadir dengan jendela sesi, maksimal panjang sesi dikurangi istirahat. */
     public static function paidMinutes(ShiftSession $session, $in, $out): int
     {
-        $from = max($session->start_at->getTimestamp(), $in->getTimestamp());
+        $checkinEarlyMinutes = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
+        $from = $checkinEarlyMinutes === 0
+            ? $session->start_at->getTimestamp()
+            : max($session->start_at->getTimestamp(), $in->getTimestamp());
         $to = min($session->end_at->getTimestamp(), $out->getTimestamp());
+        $minutes = min(max(0, intdiv($to - $from, 60)), $session->scheduledMinutes());
+        $approvedExits = DB::table('late_permissions')
+            ->where('shift_session_id', $session->id)
+            ->where('permission_type', 'temporary_exit')
+            ->where('status', 'APPROVED')
+            ->whereNotNull('leave_at')
+            ->whereNotNull('return_at')
+            ->get(['leave_at', 'return_at']);
 
-        return min(max(0, intdiv($to - $from, 60)), $session->scheduledMinutes());
+        foreach ($approvedExits as $exit) {
+            $exitFrom = max($from, CarbonImmutable::parse($exit->leave_at, 'UTC')->getTimestamp());
+            $exitTo = min($to, CarbonImmutable::parse($exit->return_at, 'UTC')->getTimestamp());
+            $minutes -= max(0, intdiv($exitTo - $exitFrom, 60));
+        }
+
+        return max(0, $minutes);
     }
 
     public function toApi(): array

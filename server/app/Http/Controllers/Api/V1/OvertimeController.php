@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\ManageOvertime;
+use App\Actions\WorkCycleMinutes;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
@@ -31,7 +32,7 @@ class OvertimeController extends Controller
         return response()->json(['data' => $items]);
     }
 
-    public function store(Request $request, ManageOvertime $action): JsonResponse
+    public function store(Request $request, ManageOvertime $action, WorkCycleMinutes $workCycleMinutes): JsonResponse
     {
         $employee = $this->employee($request);
         $data = $request->validate([
@@ -42,7 +43,7 @@ class OvertimeController extends Controller
             'is_cross_day' => ['nullable', 'boolean'],
         ]);
 
-        $order = $action->submitRequest($employee, $data);
+        $order = $action->submitRequest($employee, $data, $workCycleMinutes);
 
         return response()->json(['data' => $order->load(['session', 'employee.department'])->toApi()], 201);
     }

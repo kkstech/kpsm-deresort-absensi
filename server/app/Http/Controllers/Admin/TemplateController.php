@@ -117,8 +117,9 @@ class TemplateController extends Controller
         if ($lastEnd - $firstStart > 24 * 60) {
             throw ValidationException::withMessages(['sessions' => 'Rentang shift maksimal 24 jam.']);
         }
-        if ($totalWorkMinutes > 12 * 60) {
-            throw ValidationException::withMessages(['sessions' => 'Total kerja satu shift maksimal 12 jam.']);
+        $maxWorkMinutes = $data['type'] === 'special' ? 16 * 60 : 12 * 60;
+        if ($totalWorkMinutes > $maxWorkMinutes) {
+            throw ValidationException::withMessages(['sessions' => 'Total kerja satu shift maksimal '.($maxWorkMinutes / 60).' jam.']);
         }
         if ($data['type'] === 'special' && count($sessions) > 4) {
             throw ValidationException::withMessages(['sessions' => 'Shift split maksimal memiliki 4 sesi.']);

@@ -25,6 +25,14 @@ class BulkImportEmployees
         'ends_on' => ['tanggal_selesai_kontrak', 'selesai_kontrak', 'ends_on', 'end_date', 'akhir_kontrak'],
         'email' => ['email', 'email_pribadi', 'email_login'],
         'phone' => ['no_telepon', 'telepon', 'phone', 'no_hp', 'whatsapp', 'wa'],
+        'base_salary' => ['gaji_pokok', 'gaji', 'base_salary', 'basic_salary'],
+        'religion' => ['agama', 'religion'],
+        'place_of_birth' => ['tempat_lahir', 'kota_lahir', 'place_of_birth'],
+        'date_of_birth' => ['tanggal_lahir', 'tgl_lahir', 'date_of_birth', 'birth_date'],
+        'gender' => ['jenis_kelamin', 'gender', 'kelamin'],
+        'marital_status' => ['status_pernikahan', 'status_kawin', 'marital_status'],
+        'permanent_address' => ['alamat_asal', 'alamat_tetap', 'permanent_address'],
+        'current_address' => ['alamat_domisili', 'alamat_sekarang', 'current_address'],
         'level' => ['level', 'level_karyawan', 'golongan', 'grade'],
         'work_location' => ['lokasi_kerja', 'lokasi', 'location', 'work_location'],
         'status' => ['status', 'status_aktif'],
@@ -44,6 +52,14 @@ class BulkImportEmployees
             'tanggal_selesai_kontrak',
             'email',
             'no_telepon',
+            'gaji_pokok',
+            'agama',
+            'tempat_lahir',
+            'tanggal_lahir',
+            'jenis_kelamin',
+            'status_pernikahan',
+            'alamat_asal',
+            'alamat_domisili',
             'level',
             'lokasi_kerja',
             'status',
@@ -61,6 +77,14 @@ class BulkImportEmployees
             '',
             'nadia@deresort.test',
             '081234567801',
+            '',
+            'Islam',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
             'Staff',
             'Resort Utama',
             'aktif',
@@ -78,6 +102,14 @@ class BulkImportEmployees
             '2026-12-31',
             'dimas@deresort.test',
             '081234567802',
+            '',
+            'Islam',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
             'Staff',
             '',
             'aktif',
@@ -266,15 +298,101 @@ class BulkImportEmployees
             // 9. Phone
             $phone = trim((string) ($row['phone'] ?? '')) ?: null;
 
-            // 10. Status
+            // 10. HR profile fields
+            $salaryRaw = trim((string) ($row['base_salary'] ?? ''));
+            $baseSalary = null;
+            if ($salaryRaw !== '') {
+                if (! ctype_digit($salaryRaw) || (float) $salaryRaw > 999999999999) {
+                    $errors[] = 'Gaji pokok harus berupa angka rupiah tanpa pemisah ribuan.';
+                } else {
+                    $baseSalary = (int) $salaryRaw;
+                }
+            }
+
+            $religionRaw = Str::lower(trim((string) ($row['religion'] ?? '')));
+            $religionRaw = str_replace(['_', '-'], ' ', $religionRaw);
+            $religion = match ($religionRaw) {
+                '', 'islam' => $religionRaw === '' ? null : 'islam',
+                'protestant', 'protestan', 'kristen protestan' => 'protestant',
+                'catholic', 'katolik', 'kristen katolik' => 'catholic',
+                'hindu' => 'hindu',
+                'buddhist', 'buddha', 'budha' => 'buddhist',
+                'confucian', 'konghucu', 'kong hu cu' => 'confucian',
+                'other', 'lainnya' => 'other',
+                default => null,
+            };
+            if ($religionRaw !== '' && $religion === null) {
+                $errors[] = "Agama '{$row['religion']}' tidak dikenal.";
+            }
+
+            $placeOfBirth = trim((string) ($row['place_of_birth'] ?? '')) ?: null;
+            if ($placeOfBirth && mb_strlen($placeOfBirth) > 120) {
+                $errors[] = 'Tempat lahir maksimal 120 karakter.';
+            }
+
+            $birthDate = trim((string) ($row['date_of_birth'] ?? ''));
+            if ($birthDate !== '') {
+                try {
+                    $parsedBirthDate = CarbonImmutable::createFromFormat('!Y-m-d', $birthDate);
+                    if (! $parsedBirthDate || $parsedBirthDate->format('Y-m-d') !== $birthDate) {
+                        throw new \InvalidArgumentException;
+                    }
+                    if ($parsedBirthDate->gt(CarbonImmutable::now('Asia/Jakarta')->startOfDay())) {
+                        $errors[] = 'Tanggal lahir tidak boleh di masa depan.';
+                    }
+                    $birthDate = $parsedBirthDate->format('Y-m-d');
+                } catch (\Throwable) {
+                    $errors[] = "Format tanggal lahir '{$birthDate}' tidak valid (gunakan YYYY-MM-DD).";
+                    $birthDate = null;
+                }
+            } else {
+                $birthDate = null;
+            }
+
+            $genderRaw = Str::lower(trim((string) ($row['gender'] ?? '')));
+            $genderRaw = str_replace(['_', '-'], ' ', $genderRaw);
+            $gender = match ($genderRaw) {
+                '' => null,
+                'male', 'l', 'laki laki' => 'male',
+                'female', 'p', 'perempuan' => 'female',
+                default => null,
+            };
+            if ($genderRaw !== '' && $gender === null) {
+                $errors[] = "Jenis kelamin '{$row['gender']}' tidak dikenal.";
+            }
+
+            $maritalRaw = Str::lower(trim((string) ($row['marital_status'] ?? '')));
+            $maritalRaw = str_replace(['_', '-'], ' ', $maritalRaw);
+            $maritalStatus = match ($maritalRaw) {
+                '' => null,
+                'single', 'unmarried', 'belum menikah' => 'single',
+                'married', 'menikah' => 'married',
+                'divorced', 'cerai hidup' => 'divorced',
+                'widowed', 'cerai mati' => 'widowed',
+                default => null,
+            };
+            if ($maritalRaw !== '' && $maritalStatus === null) {
+                $errors[] = "Status pernikahan '{$row['marital_status']}' tidak dikenal.";
+            }
+
+            $permanentAddress = trim((string) ($row['permanent_address'] ?? '')) ?: null;
+            $currentAddress = trim((string) ($row['current_address'] ?? '')) ?: null;
+            if ($permanentAddress && mb_strlen($permanentAddress) > 2000) {
+                $errors[] = 'Alamat asal maksimal 2.000 karakter.';
+            }
+            if ($currentAddress && mb_strlen($currentAddress) > 2000) {
+                $errors[] = 'Alamat domisili maksimal 2.000 karakter.';
+            }
+
+            // 11. Status
             $rawStatus = Str::lower(trim((string) ($row['status'] ?? 'aktif')));
             $status = in_array($rawStatus, ['nonaktif', 'inactive', 'tidak'], true) ? 'inactive' : 'active';
 
-            // 11. Make account
+            // 12. Make account
             $rawMake = Str::lower(trim((string) ($row['make_account'] ?? '')));
             $makeAccount = in_array($rawMake, ['ya', '1', 'true', 'yes'], true) || (! empty($email) && $rawMake === '');
 
-            // 12. Password
+            // 13. Password
             $password = trim((string) ($row['password'] ?? '')) ?: 'password123';
             if ($makeAccount && mb_strlen($password) < 1) {
                 $errors[] = 'Password akun tidak boleh kosong.';
@@ -300,6 +418,14 @@ class BulkImportEmployees
                 'ends_on' => $endsOn,
                 'email' => $email,
                 'phone' => $phone,
+                'base_salary' => $baseSalary,
+                'religion' => $religion,
+                'place_of_birth' => $placeOfBirth,
+                'date_of_birth' => $birthDate,
+                'gender' => $gender,
+                'marital_status' => $maritalStatus,
+                'permanent_address' => $permanentAddress,
+                'current_address' => $currentAddress,
                 'level' => trim((string) ($row['level'] ?? '')) ?: null,
                 'work_location' => trim((string) ($row['work_location'] ?? '')) ?: null,
                 'status' => $status,
@@ -413,6 +539,14 @@ class BulkImportEmployees
                     'email' => $email,
                     'phone' => $phone,
                     'user_id' => $userId,
+                    'base_salary' => $row['base_salary'] ?? null,
+                    'religion' => $row['religion'] ?? null,
+                    'place_of_birth' => $row['place_of_birth'] ?? null,
+                    'date_of_birth' => $row['date_of_birth'] ?? null,
+                    'gender' => $row['gender'] ?? null,
+                    'marital_status' => $row['marital_status'] ?? null,
+                    'permanent_address' => $row['permanent_address'] ?? null,
+                    'current_address' => $row['current_address'] ?? null,
                 ]);
 
                 // 7. Initial Department Placement

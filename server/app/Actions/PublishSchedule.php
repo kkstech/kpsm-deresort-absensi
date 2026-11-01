@@ -428,11 +428,11 @@ class PublishSchedule
             throw new BusinessRuleException('SESSION_INVALID', 'Sesi terakhir harus berakhir setelah sesi pertama dimulai.');
         }
         $scheduled = array_sum(array_map(fn (array $session) => max(0, intdiv($session['end_at']->getTimestamp() - $session['start_at']->getTimestamp(), 60) - $session['unpaid_break_minutes']), $sessions));
-        if ($scheduled > 720) {
-            throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 12 jam.');
+        if ($scheduled > 960) {
+            throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 16 jam.');
         }
-        if ($last->getTimestamp() - $first->getTimestamp() > 13 * 60 * 60) {
-            throw new BusinessRuleException('CYCLE_SPAN_LIMIT', 'Rentang satu siklus maksimal 13 jam.');
+        if ($last->getTimestamp() - $first->getTimestamp() > 24 * 60 * 60) {
+            throw new BusinessRuleException('CYCLE_SPAN_LIMIT', 'Rentang kalender satu siklus maksimal 24 jam.');
         }
     }
 
