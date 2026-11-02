@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AllowanceController;
 use App\Http\Controllers\Admin\AttendanceMonitoringController;
 use App\Http\Controllers\Admin\AttendanceWorkflowController;
 use App\Http\Controllers\Admin\CatalogController;
+use App\Http\Controllers\Admin\DatabaseBackupController;
 use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Admin\EmployeeLevelController;
 use App\Http\Controllers\Admin\LeaveController;
@@ -41,6 +42,8 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('reports/summary', [ReportController::class, 'summary']);
         Route::get('reports/details', [ReportController::class, 'details']);
         Route::get('reports/overtime', [ReportController::class, 'overtime']);
+        Route::post('reports/finalize', [ReportController::class, 'finalize']);
+        Route::post('reports/reopen', [ReportController::class, 'reopen']);
         Route::get('reports/export/excel', [ReportController::class, 'exportExcel']);
         Route::get('reports/export/pdf', [ReportController::class, 'exportPdf']);
         Route::get('workflows', [AttendanceWorkflowController::class, 'index']);
@@ -61,6 +64,10 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::post('site-settings', [SiteSettingController::class, 'update']);
         Route::get('attendance-settings', [SiteSettingController::class, 'attendance']);
         Route::put('attendance-settings', [SiteSettingController::class, 'updateAttendance']);
+        Route::get('database-backup/status', [DatabaseBackupController::class, 'status']);
+        Route::get('database-backup', [DatabaseBackupController::class, 'download']);
+        Route::get('database-backup/safety', [DatabaseBackupController::class, 'downloadSafetyBackup']);
+        Route::post('database-backup/restore', [DatabaseBackupController::class, 'restore'])->middleware('throttle:3,1');
         Route::patch('me', [AuthController::class, 'updateProfile']);
         Route::post('me/avatar', [AuthController::class, 'uploadAvatar']);
         Route::delete('me/avatar', [AuthController::class, 'deleteAvatar']);

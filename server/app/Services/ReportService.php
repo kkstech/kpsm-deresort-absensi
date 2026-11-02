@@ -17,9 +17,15 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class ReportService
 {
+    public function visibleActiveEmployees(User $user): Builder
+    {
+        return EmployeeController::visibleTo($user)->where('employees.status', 'active');
+    }
+
     public function validatedFilters(Request $request): array
     {
         $today = WorkTime::today();
@@ -62,7 +68,7 @@ class ReportService
             $monthStr = $current->format('Y-m');
             $isFinalized = AttendancePeriod::query()
                 ->where('month', $monthStr)
-                ->where('status', 'FINALIZED')
+                ->where(fn (Builder $query) => $query->whereNotNull('finalized_at')->orWhere('status', 'FINALIZED'))
                 ->exists();
 
             if (! $isFinalized) {
@@ -71,12 +77,64 @@ class ReportService
             $current = $current->addMonth();
         }
 
+        if ($this->pendingReviewQuery($startMonth->toDateString(), $endMonth->endOfMonth()->toDateString())->exists()) {
+            return 'PROVISIONAL';
+        }
+
         return 'FINALIZED';
+    }
+
+    public function pendingReviewBlockers(string $from, string $to): array
+    {
+        $query = $this->pendingReviewQuery($from, $to);
+        $count = (clone $query)->count();
+        $blockers = $query->orderBy('shift_assignments.work_date')
+            ->orderBy('employees.name')
+            ->limit(50)
+            ->get([
+                'shift_assignments.work_date',
+                'employees.id as employee_id',
+                'employees.code as employee_code',
+                'employees.name as employee_name',
+            ])
+            ->map(fn ($row) => [
+                'work_date' => $row->work_date,
+                'employee' => [
+                    'id' => $row->employee_id,
+                    'code' => $row->employee_code,
+                    'name' => $row->employee_name,
+                ],
+            ])
+            ->all();
+
+        return ['count' => $count, 'blockers' => $blockers];
+    }
+
+    private function pendingReviewQuery(string $from, string $to): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('shift_sessions')
+            ->join('shift_assignments', 'shift_assignments.id', '=', 'shift_sessions.shift_assignment_id')
+            ->join('employees', 'employees.id', '=', 'shift_assignments.employee_id')
+            ->leftJoin('attendance_records', 'attendance_records.shift_session_id', '=', 'shift_sessions.id')
+            ->whereNull('shift_sessions.retired_at')
+            ->whereBetween('shift_assignments.work_date', [$from, $to])
+            ->whereIn('shift_assignments.status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
+            ->where(function ($query) {
+                $query->where('attendance_records.needs_review', true)
+                    ->orWhere(function ($query) {
+                        $query->whereNull('attendance_records.id')
+                            ->whereExists(fn ($events) => $events->selectRaw('1')
+                                ->from('attendance_events')
+                                ->whereColumn('attendance_events.shift_session_id', 'shift_sessions.id')
+                                ->where('attendance_events.result', 'REVIEW_REQUIRED'));
+                    });
+            })
+            ->select('shift_assignments.work_date', 'employees.id as employee_id', 'employees.code as employee_code', 'employees.name as employee_name');
     }
 
     public function getSummary(User $user, array $filters): array
     {
-        $employeeQuery = EmployeeController::visibleTo($user)
+        $employeeQuery = $this->visibleActiveEmployees($user)
             ->with(['department:id,name', 'position:id,name', 'level:id,code,name'])
             ->when(! empty($filters['department_id']), fn (Builder $q) => $q->where('department_id', $filters['department_id']))
             ->when(! empty($filters['employee_id']), fn (Builder $q) => $q->where('id', $filters['employee_id']))
@@ -291,7 +349,7 @@ class ReportService
             ->whereHas('assignment', function (Builder $q) use ($user, $filters) {
                 $q->whereBetween('work_date', [$filters['from'], $filters['to']])
                     ->whereIn('status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
-                    ->whereIn('employee_id', EmployeeController::visibleTo($user)->select('employees.id'))
+                    ->whereIn('employee_id', $this->visibleActiveEmployees($user)->select('employees.id'))
                     ->when(! empty($filters['department_id']), fn (Builder $sub) => $sub->whereHas('employee', fn (Builder $e) => $e->where('department_id', $filters['department_id'])))
                     ->when(! empty($filters['employee_id']), fn (Builder $sub) => $sub->where('employee_id', $filters['employee_id']))
                     ->when(! empty($filters['q']), function (Builder $sub) use ($filters) {
@@ -334,7 +392,7 @@ class ReportService
             ->whereHas('assignment', function (Builder $q) use ($user, $filters) {
                 $q->whereBetween('work_date', [$filters['from'], $filters['to']])
                     ->whereIn('status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
-                    ->whereIn('employee_id', EmployeeController::visibleTo($user)->select('employees.id'))
+                    ->whereIn('employee_id', $this->visibleActiveEmployees($user)->select('employees.id'))
                     ->when(! empty($filters['department_id']), fn (Builder $sub) => $sub->whereHas('employee', fn (Builder $e) => $e->where('department_id', $filters['department_id'])))
                     ->when(! empty($filters['employee_id']), fn (Builder $sub) => $sub->where('employee_id', $filters['employee_id']))
                     ->when(! empty($filters['q']), function (Builder $sub) use ($filters) {
@@ -366,7 +424,7 @@ class ReportService
 
     public function getOvertime(User $user, array $filters): Collection
     {
-        $employeeIds = EmployeeController::visibleTo($user)->select('employees.id');
+        $employeeIds = $this->visibleActiveEmployees($user)->select('employees.id');
 
         return OvertimeOrder::query()
             ->whereIn('employee_id', $employeeIds)

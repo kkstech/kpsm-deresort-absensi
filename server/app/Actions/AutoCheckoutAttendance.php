@@ -64,6 +64,7 @@ class AutoCheckoutAttendance
                     'review_reason' => 'AUTO_CHECKOUT',
                     'verified_minutes' => 0,
                 ]);
+                AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.auto_checkout');
                 $session->assignment->syncAttendanceStatus();
                 app(CalculateCycleAllowance::class)->refresh($session->assignment);
                 Audit::log('attendance.auto_checkout', $record);
@@ -129,6 +130,7 @@ class AutoCheckoutAttendance
                 'review_reason' => 'AUTO_CHECKOUT',
                 'verified_minutes' => 0,
             ]);
+            AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.auto_checkout');
             $session->assignment->syncAttendanceStatus();
             app(CalculateCycleAllowance::class)->refresh($session->assignment);
             Audit::log('attendance.auto_checkout', $record);

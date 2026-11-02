@@ -1,9 +1,10 @@
-import { api } from './api';
-import { $, $$, esc, toast } from './ui';
+import { api, isAdmin } from './api';
+import { $, $$, confirmDialog, esc, openForm, toast } from './ui';
 
 let initialized = false;
 let masterData = { departments: [], employees: [] };
 let activeTab = 'summary';
+let loadedStatus = { from: '', to: '', status: 'PROVISIONAL' };
 
 const state = {
     from: '',
@@ -132,6 +133,18 @@ function initReportsUi() {
     const toInput = $('#report-to');
     if (fromInput) fromInput.value = state.from;
     if (toInput) toInput.value = state.to;
+    const finalizeButton = $('#report-finalize-btn');
+    if (finalizeButton) {
+        finalizeButton.hidden = !isAdmin;
+        finalizeButton.addEventListener('click', finalizeReport);
+    }
+    const reopenButton = $('#report-reopen-btn');
+    if (reopenButton) {
+        reopenButton.hidden = !isAdmin;
+        reopenButton.addEventListener('click', reopenReport);
+    }
+    [fromInput, toInput].forEach((input) => input?.addEventListener('change', syncPeriodActionButtons));
+    syncPeriodActionButtons();
 
     // Preset buttons
     $$('[data-report-preset]').forEach((btn) => {
@@ -354,6 +367,12 @@ async function loadSummaryTab() {
 }
 
 function renderPeriodStatus(status, generatedAt) {
+    loadedStatus = { from: state.from, to: state.to, status };
+    const blockersBox = $('#report-finalize-blockers');
+    if (blockersBox) {
+        blockersBox.hidden = true;
+        blockersBox.textContent = '';
+    }
     const badge = $('#report-status-badge');
     const metaGen = $('#report-meta-generated');
 
@@ -369,6 +388,119 @@ function renderPeriodStatus(status, generatedAt) {
     if (metaGen && generatedAt) {
         metaGen.textContent = `Penarikan: ${generatedAt}`;
     }
+    syncPeriodActionButtons();
+}
+
+function isFullEndedMonthRange(from, to) {
+    if (!from || !to) return false;
+    const [fromYear, fromMonth, fromDay] = from.split('-').map(Number);
+    const [toYear, toMonth, toDay] = to.split('-').map(Number);
+    const start = new Date(Date.UTC(fromYear, fromMonth - 1, fromDay));
+    const end = new Date(Date.UTC(toYear, toMonth - 1, toDay));
+    const today = getTodayString();
+    const [todayYear, todayMonth] = today.split('-').map(Number);
+    const currentMonthStart = Date.UTC(todayYear, todayMonth - 1, 1);
+    const lastDay = new Date(Date.UTC(toYear, toMonth, 0)).getUTCDate();
+
+    return start.getUTCFullYear() === fromYear
+        && start.getUTCMonth() === fromMonth - 1
+        && start.getUTCDate() === 1
+        && end.getUTCFullYear() === toYear
+        && end.getUTCMonth() === toMonth - 1
+        && toDay === lastDay
+        && end.getTime() >= start.getTime()
+        && (end.getTime() - start.getTime()) / 86400000 <= 62
+        && end.getTime() < currentMonthStart;
+}
+
+function syncPeriodActionButtons() {
+    const from = $('#report-from')?.value || state.from;
+    const to = $('#report-to')?.value || state.to;
+    const statusMatchesRange = loadedStatus.from === state.from && loadedStatus.to === state.to;
+    const inputsMatchState = from === state.from && to === state.to;
+    const canAct = isAdmin && isFullEndedMonthRange(from, to) && inputsMatchState && statusMatchesRange;
+    const finalizeButton = $('#report-finalize-btn');
+    const reopenButton = $('#report-reopen-btn');
+    if (finalizeButton) {
+        finalizeButton.hidden = !isAdmin || loadedStatus.status === 'FINALIZED';
+        finalizeButton.disabled = !canAct
+            || loadedStatus.status !== 'PROVISIONAL';
+    }
+    if (reopenButton) {
+        reopenButton.hidden = !isAdmin || loadedStatus.status !== 'FINALIZED';
+        reopenButton.disabled = !canAct
+            || loadedStatus.status !== 'FINALIZED';
+    }
+}
+
+async function finalizeReport() {
+    const button = $('#report-finalize-btn');
+    if (!button || button.disabled) return;
+
+    const confirmed = await confirmDialog({
+        title: 'Finalkan laporan?',
+        message: 'Pemeriksaan mencakup semua departemen dan karyawan, termasuk yang tidak tampil karena filter. Laporan tetap membaca data terbaru dan absensi tetap bisa diedit.',
+        confirmLabel: 'Finalkan Laporan',
+    });
+    if (!confirmed) return;
+
+    const blockersBox = $('#report-finalize-blockers');
+    if (blockersBox) {
+        blockersBox.hidden = true;
+        blockersBox.textContent = '';
+    }
+    button.disabled = true;
+    try {
+        await api('reports/finalize', { method: 'POST', body: { from: state.from, to: state.to } });
+        toast('Laporan berhasil difinalkan.');
+        await loadCurrentTab();
+    } catch (error) {
+        const blockers = error.details?.blockers || [];
+        const count = Number(error.details?.count || 0);
+        if (blockersBox && blockers.length) {
+            const entries = blockers.slice(0, 10).map((item) => {
+                const employee = item.employee || {};
+                return `${item.work_date} · ${employee.name || 'Karyawan'}${employee.code ? ` (${employee.code})` : ''}`;
+            });
+            if (count > entries.length) entries.push(`dan ${count - entries.length} sesi lainnya`);
+            blockersBox.textContent = `Belum bisa difinalkan. Verifikasi absensi berikut: ${entries.join('; ')}.`;
+            blockersBox.hidden = false;
+        }
+        toast(error.message || 'Gagal memfinalkan laporan.', 'error');
+        syncPeriodActionButtons();
+    }
+}
+
+function reopenReport() {
+    const button = $('#report-reopen-btn');
+    if (!button || button.disabled) return;
+
+    openForm({
+        title: 'Buka ulang laporan',
+        hint: 'Laporan akan kembali berstatus draft dan masuk ke revisi baru. Tuliskan alasan untuk audit.',
+        fields: [{
+            name: 'reason',
+            label: 'Alasan buka ulang',
+            type: 'textarea',
+            rows: 3,
+            required: true,
+            hint: 'Minimal 3 karakter, maksimal 500 karakter.',
+        }],
+        submitLabel: 'Buka ulang',
+        onSubmit: async ({ reason }) => {
+            const normalizedReason = String(reason ?? '').trim();
+            if (normalizedReason.length < 3 || normalizedReason.length > 500) {
+                throw new Error('Alasan harus berisi 3 sampai 500 karakter.');
+            }
+
+            const result = await api('reports/reopen', {
+                method: 'POST',
+                body: { from: state.from, to: state.to, reason: normalizedReason },
+            });
+            toast(`Laporan dibuka ulang. Revisi ${Object.values(result.revisions ?? {}).join(', ')} siap diproses.`);
+            await loadCurrentTab();
+        },
+    });
 }
 
 function renderKpi(kpi) {
@@ -510,6 +642,7 @@ async function loadDetailsTab() {
             per_page: 50,
         };
         const res = await api('reports/details', { query });
+        renderPeriodStatus(res.period_status);
         renderDetailsTable(res.data);
         renderPagination(res.meta);
     } catch (e) {
@@ -626,6 +759,7 @@ async function loadOvertimeTab() {
             q: state.q,
         };
         const res = await api('reports/overtime', { query });
+        renderPeriodStatus(res.period_status);
         renderOvertimeTable(res.data);
     } catch (e) {
         if (tbody) {

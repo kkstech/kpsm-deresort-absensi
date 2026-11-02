@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Actions\AutoCheckoutAttendance;
 use App\Actions\PublishSchedule;
 use App\Models\AllowanceResult;
+use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
@@ -12,6 +14,7 @@ use App\Models\OvertimeOrder;
 use App\Models\Position;
 use App\Models\ShiftTemplate;
 use App\Models\User;
+use App\Services\ReportService;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -34,6 +37,7 @@ class ReportTest extends TestCase
 
         $emp1 = $this->createEmployee($engineering, 'ENG-001', 'Budi Teknik');
         $emp2 = $this->createEmployee($frontOffice, 'FO-001', 'Siti Resepsionis');
+        $emp2->update(['status' => 'inactive']);
 
         $admin = User::factory()->role('admin')->create();
         $supervisor = User::factory()->role('supervisor')->create(['department_id' => $engineering->id]);
@@ -42,8 +46,10 @@ class ReportTest extends TestCase
         $this->actingAs($admin)
             ->getJson('/admin/api/reports/filters')
             ->assertOk()
-            ->assertJsonCount(2, 'departments')
-            ->assertJsonCount(2, 'employees');
+            ->assertJsonCount(1, 'departments')
+            ->assertJsonPath('departments.0.id', $engineering->id)
+            ->assertJsonCount(1, 'employees')
+            ->assertJsonPath('employees.0.id', $emp1->id);
 
         // Supervisor sees only engineering
         $this->actingAs($supervisor)
@@ -53,6 +59,110 @@ class ReportTest extends TestCase
             ->assertJsonPath('departments.0.id', $engineering->id)
             ->assertJsonCount(1, 'employees')
             ->assertJsonPath('employees.0.id', $emp1->id);
+    }
+
+    public function test_reports_exclude_inactive_employees_from_historical_data(): void
+    {
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $frontOffice = Department::query()->where('name', 'Front Office')->firstOrFail();
+        $activeEmployee = $this->createEmployee($engineering, 'ENG-201', 'Karyawan Aktif');
+        $inactiveEmployee = $this->createEmployee($frontOffice, 'FO-201', 'Karyawan Nonaktif');
+        $activeSchedule = $this->schedule($activeEmployee, '2026-10-25');
+        $inactiveSchedule = $this->schedule($inactiveEmployee, '2026-10-25');
+        $activeSession = $activeSchedule->sessions->firstOrFail();
+        $inactiveSession = $inactiveSchedule->sessions->firstOrFail();
+
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $activeSession->id,
+            'employee_id' => $activeEmployee->id,
+            'check_in_at' => '2026-10-25 01:00:00',
+            'check_out_at' => '2026-10-25 10:00:00',
+            'status' => 'COMPLETE',
+            'verified_minutes' => 470,
+        ]);
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $inactiveSession->id,
+            'employee_id' => $inactiveEmployee->id,
+            'check_in_at' => '2026-10-25 01:00:00',
+            'check_out_at' => '2026-10-25 10:00:00',
+            'status' => 'COMPLETE',
+            'verified_minutes' => 300,
+        ]);
+
+        $admin = User::factory()->role('admin')->create();
+        foreach ([[$activeEmployee, 'SPL-20261025-201', $activeSession->id, 60], [$inactiveEmployee, 'SPL-20261025-202', $inactiveSession->id, 120]] as [$employee, $orderNumber, $sessionId, $minutes]) {
+            OvertimeOrder::query()->create([
+                'order_number' => $orderNumber,
+                'employee_id' => $employee->id,
+                'work_date' => '2026-10-25',
+                'shift_session_id' => $sessionId,
+                'initiator_type' => 'ADMIN',
+                'created_by' => $admin->id,
+                'title' => 'Perbaikan operasional',
+                'start_at' => '2026-10-25 10:00:00',
+                'end_at' => '2026-10-25 12:00:00',
+                'planned_minutes' => $minutes,
+                'actual_minutes' => $minutes,
+                'verified_minutes' => $minutes,
+                'status' => 'APPROVED',
+            ]);
+        }
+
+        $inactiveEmployee->update(['status' => 'inactive']);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/filters')
+            ->assertOk()
+            ->assertJsonCount(1, 'employees')
+            ->assertJsonPath('employees.0.id', $activeEmployee->id)
+            ->assertJsonCount(1, 'departments')
+            ->assertJsonPath('departments.0.id', $engineering->id);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/summary?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertJsonPath('kpi.total_employees', 1)
+            ->assertJsonPath('kpi.total_verified_minutes', 470)
+            ->assertJsonPath('kpi.total_overtime_minutes', 60)
+            ->assertJsonPath('rows.0.employee.id', $activeEmployee->id);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/summary?from=2026-10-01&to=2026-10-31&employee_id='.$inactiveEmployee->id)
+            ->assertOk()
+            ->assertJsonPath('kpi.total_employees', 0)
+            ->assertJsonCount(0, 'rows');
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/details?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee.id', $activeEmployee->id)
+            ->assertJsonPath('meta.total', 1);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/details?from=2026-10-01&to=2026-10-31&employee_id='.$inactiveEmployee->id)
+            ->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.total', 0);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee_id', $activeEmployee->id);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31&employee_id='.$inactiveEmployee->id)
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $exportDetails = app(ReportService::class)->getAllDetailsForExport($admin, [
+            'from' => '2026-10-01',
+            'to' => '2026-10-31',
+        ]);
+
+        $this->assertCount(1, $exportDetails);
+        $this->assertSame($activeEmployee->id, $exportDetails->first()['employee']['id']);
     }
 
     public function test_reports_summary_aggregates_attendance_metrics_and_allowances(): void
@@ -138,6 +248,116 @@ class ReportTest extends TestCase
             ->getJson('/admin/api/reports/summary?from=2026-10-01&to=2026-10-31')
             ->assertOk()
             ->assertJsonPath('period_status', 'FINALIZED');
+    }
+
+    public function test_admin_can_finalize_ended_months_without_locking_attendance(): void
+    {
+        $this->travelTo('2026-11-02 03:00:00');
+        $admin = User::factory()->role('admin')->create();
+
+        $this->actingAs($admin)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-09-01', 'to' => '2026-10-31'])
+            ->assertOk()
+            ->assertJsonPath('period_status', 'FINALIZED');
+
+        foreach (['2026-09', '2026-10'] as $month) {
+            $period = AttendancePeriod::query()->where('month', $month)->firstOrFail();
+            $this->assertSame('OPEN', $period->status);
+            $this->assertNotNull($period->finalized_at);
+            $this->assertSame($admin->id, $period->finalized_by);
+        }
+
+        AttendancePeriod::assertOpen('2026-10-25');
+        $this->assertSame('FINALIZED', app(ReportService::class)->determinePeriodStatus('2026-09-01', '2026-10-31'));
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/details?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertJsonPath('period_status', 'FINALIZED');
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertJsonPath('period_status', 'FINALIZED');
+    }
+
+    public function test_report_finalization_requires_admin_and_full_ended_months(): void
+    {
+        $this->travelTo('2026-11-02 03:00:00');
+        $admin = User::factory()->role('admin')->create();
+        $supervisor = User::factory()->role('supervisor')->create();
+
+        $this->actingAs($admin)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-02', 'to' => '2026-10-31'])
+            ->assertUnprocessable();
+        $this->actingAs($admin)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-11-01', 'to' => '2026-11-30'])
+            ->assertUnprocessable();
+        $this->actingAs($supervisor)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-01', 'to' => '2026-10-31'])
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('attendance_periods', 0);
+    }
+
+    public function test_report_finalization_lists_global_review_blockers_but_ignores_verified_events(): void
+    {
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $frontOffice = Department::query()->where('name', 'Front Office')->firstOrFail();
+        $blockedEmployee = $this->createEmployee($frontOffice, 'FO-301', 'Karyawan Perlu Verifikasi');
+        $verifiedEmployee = $this->createEmployee($engineering, 'ENG-301', 'Karyawan Sudah Diverifikasi');
+        $blockedSession = $this->schedule($blockedEmployee, '2026-10-25')->sessions->firstOrFail();
+        $verifiedSession = $this->schedule($verifiedEmployee, '2026-10-26')->sessions->firstOrFail();
+
+        $this->createReviewEvent($blockedEmployee, $blockedSession, 'report-review-blocked');
+        $verifiedEvent = $this->createReviewEvent($verifiedEmployee, $verifiedSession, 'report-review-verified');
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $verifiedSession->id,
+            'employee_id' => $verifiedEmployee->id,
+            'check_in_event_id' => $verifiedEvent->id,
+            'check_in_at' => '2026-10-26 01:00:00',
+            'check_out_at' => '2026-10-26 10:00:00',
+            'status' => 'COMPLETE',
+            'needs_review' => false,
+            'verified_minutes' => 480,
+        ]);
+
+        $this->travelTo('2026-11-02 03:00:00');
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-01', 'to' => '2026-10-31'])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'REPORT_HAS_PENDING_REVIEW')
+            ->assertJsonPath('details.count', 1)
+            ->assertJsonPath('details.blockers.0.work_date', '2026-10-25')
+            ->assertJsonPath('details.blockers.0.employee.name', 'Karyawan Perlu Verifikasi');
+
+        $this->assertDatabaseCount('attendance_periods', 0);
+    }
+
+    public function test_new_auto_checkout_review_reverts_report_to_provisional(): void
+    {
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $employee = $this->createEmployee($engineering, 'ENG-302', 'Karyawan Auto Checkout');
+        $session = $this->schedule($employee, '2026-10-25')->sessions->firstOrFail();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => '2026-10-25 01:00:00',
+            'status' => 'IN_PROGRESS',
+            'needs_review' => false,
+        ]);
+
+        $this->travelTo('2026-11-02 03:00:00');
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)
+            ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-01', 'to' => '2026-10-31'])
+            ->assertOk();
+
+        $this->assertSame(1, app(AutoCheckoutAttendance::class)->handle());
+        $this->assertNull(AttendancePeriod::query()->where('month', '2026-10')->value('finalized_at'));
+        $this->assertSame('OPEN', AttendancePeriod::query()->where('month', '2026-10')->value('status'));
+        $this->assertTrue(AttendanceRecord::query()->where('shift_session_id', $session->id)->value('needs_review'));
+        $this->assertSame('PROVISIONAL', app(ReportService::class)->determinePeriodStatus('2026-10-01', '2026-10-31'));
     }
 
     public function test_reports_details_returns_paginated_session_data(): void
@@ -263,5 +483,21 @@ class ReportTest extends TestCase
         app(PublishSchedule::class)->publish($workDate, $workDate, [$employee->id]);
 
         return $schedule->fresh(['sessions', 'employee']);
+    }
+
+    private function createReviewEvent(Employee $employee, $session, string $suffix): AttendanceEvent
+    {
+        return AttendanceEvent::query()->create([
+            'event_uuid' => $suffix,
+            'payload_hash' => hash('sha256', $suffix),
+            'employee_id' => $employee->id,
+            'shift_session_id' => $session->id,
+            'type' => 'CHECK_IN',
+            'source' => 'OFFLINE',
+            'server_received_at' => now(),
+            'effective_at' => now(),
+            'result' => 'REVIEW_REQUIRED',
+            'created_at' => now(),
+        ]);
     }
 }

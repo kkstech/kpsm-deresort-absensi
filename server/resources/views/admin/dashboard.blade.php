@@ -632,7 +632,10 @@
                                 <div class="report-status-wrap">
                                     <span class="report-status-badge" id="report-status-badge">Memeriksa...</span>
                                     <span class="report-meta-text" id="report-meta-generated"></span>
+                                    <button type="button" class="secondary-button" id="report-finalize-btn" data-requires="admin" disabled>Finalkan Laporan</button>
+                                    <button type="button" class="secondary-button" id="report-reopen-btn" data-requires="admin" hidden>Buka Ulang Laporan</button>
                                 </div>
+                                <p class="report-finalize-blockers" id="report-finalize-blockers" role="alert" hidden></p>
                             </div>
                             <div class="report-filter-fields">
                                 <label class="report-field report-field-date">
@@ -1090,6 +1093,7 @@
                                     <option value="allowances">Tarif tunjangan</option>
                                     <option value="allowance-overrides">Pengecualian individu</option>
                                     <option value="users">Akun admin</option>
+                                    <option value="backup">Backup database</option>
                                 </select>
                             </label>
                             <div class="tabs settings-vertical-tabs" role="tablist" aria-orientation="vertical" aria-label="Bagian pengaturan">
@@ -1104,6 +1108,7 @@
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg><span>Tarif tunjangan</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="allowance-overrides" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Pengecualian individu</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="users" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg><span>Akun admin</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="backup" data-requires="super_admin"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span>Backup database</span></button>
                             </div>
                         </aside>
                         <div class="panel settings-content-panel">
@@ -1166,6 +1171,41 @@
                                 </div>
                                 <div class="site-settings-actions"><button type="submit" class="primary-button" id="attendance-window-settings-save">Simpan perubahan</button></div>
                             </form>
+                            <div id="database-backup-section" class="database-backup-section" data-supported="{{ config('database.default') === 'mysql' ? 'true' : 'false' }}" hidden>
+                                <p id="database-backup-error" class="form-error" role="alert" hidden></p>
+                                <p id="database-backup-message" class="database-backup-message" role="status" aria-live="polite" hidden></p>
+                                <div id="database-backup-unsupported" class="database-backup-unsupported" hidden>
+                                    <h3>MySQL diperlukan</h3>
+                                    <p>Backup dan restore tersedia saat aplikasi terhubung ke MySQL. Database SQLite lokal tidak didukung.</p>
+                                </div>
+                                <div id="database-backup-controls" class="database-backup-grid">
+                                    <section class="database-backup-card">
+                                        <h3>Unduh backup</h3>
+                                        <p>File berisi seluruh database MySQL. Foto dan lampiran tersimpan terpisah dan tidak termasuk.</p>
+                                        <button type="button" class="primary-button" id="database-backup-download"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg> Unduh backup database</button>
+                                    </section>
+                                    <section class="database-backup-card database-restore-card">
+                                        <h3>Restore dari file</h3>
+                                        <p>Semua tabel dan data saat ini akan diganti. Admin dan API tidak dapat digunakan selama pemulihan.</p>
+                                        <form id="database-restore-form">
+                                            <label>File backup (.sql.gz)
+                                                <input id="database-restore-file" name="backup" type="file" accept=".gz,application/gzip" required>
+                                                <small class="field-hint">Maksimal 100 MB. Gunakan file backup database yang dibuat oleh aplikasi.</small>
+                                            </label>
+                                            <label>Ketik RESTORE untuk melanjutkan
+                                                <input id="database-restore-confirmation" name="confirmation" type="text" autocomplete="off" spellcheck="false" required>
+                                            </label>
+                                            <button type="submit" class="secondary-button" id="database-restore-submit" disabled>Restore database</button>
+                                        </form>
+                                    </section>
+                                </div>
+                                <div id="database-safety-backup" class="database-safety-backup" hidden>
+                                    <h3>Backup pengaman</h3>
+                                    <p>Salinan database sebelum restore terakhir disimpan privat di server sampai restore berikutnya.</p>
+                                    <a class="secondary-button" href="/admin/api/database-backup/safety" download>Unduh backup pengaman terakhir</a>
+                                </div>
+                                <p id="database-safety-empty" class="database-safety-empty" hidden>Belum ada backup pengaman. Salinan akan dibuat otomatis sebelum restore pertama.</p>
+                            </div>
                             <div id="settings-table" aria-live="polite"></div>
                         </div>
                     </div>

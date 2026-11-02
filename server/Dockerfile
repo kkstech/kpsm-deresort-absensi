@@ -9,7 +9,7 @@ RUN npm run build
 
 FROM php:8.4-apache AS php-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libfreetype6-dev libicu-dev libjpeg62-turbo-dev libonig-dev libpng-dev libxml2-dev libzip-dev \
+        default-mysql-client libfreetype6-dev libicu-dev libjpeg62-turbo-dev libonig-dev libpng-dev libxml2-dev libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" bcmath dom exif gd intl mbstring opcache pcntl pdo_mysql xml xmlreader xmlwriter zip \
     && rm -rf /var/lib/apt/lists/* \
@@ -20,7 +20,8 @@ RUN sed -ri "s!/var/www/html!${APACHE_DOCUMENT_ROOT}!g" /etc/apache2/sites-avail
     && printf '%s\n' '<Directory /var/www/html/public>' '    AllowOverride All' '    Require all granted' '</Directory>' > /etc/apache2/conf-available/laravel.conf \
     && a2enconf laravel \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
-    && printf '%s\n' 'opcache.enable=1' 'opcache.memory_consumption=128' 'opcache.max_accelerated_files=20000' 'opcache.validate_timestamps=0' > "$PHP_INI_DIR/conf.d/opcache.ini"
+    && printf '%s\n' 'opcache.enable=1' 'opcache.memory_consumption=128' 'opcache.max_accelerated_files=20000' 'opcache.validate_timestamps=0' > "$PHP_INI_DIR/conf.d/opcache.ini" \
+    && printf '%s\n' 'upload_max_filesize=100M' 'post_max_size=105M' 'max_execution_time=0' > "$PHP_INI_DIR/conf.d/database-backup.ini"
 
 FROM php-base AS vendor
 WORKDIR /var/www/html

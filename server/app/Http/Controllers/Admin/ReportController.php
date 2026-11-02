@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\FinalizeReportPeriod;
+use App\Actions\ReopenReportPeriod;
 use App\Exports\AttendanceReportSpout;
 use App\Http\Controllers\Controller;
 use App\Models\Department;
@@ -16,9 +18,9 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ReportController extends Controller
 {
-    public function filters(Request $request): JsonResponse
+    public function filters(Request $request, ReportService $reportService): JsonResponse
     {
-        $employees = EmployeeController::visibleTo($request->user())
+        $employees = $reportService->visibleActiveEmployees($request->user())
             ->orderBy('name')
             ->get(['id', 'name', 'code', 'department_id']);
 
@@ -49,6 +51,7 @@ class ReportController extends Controller
 
         return response()->json([
             'filters' => $filters,
+            'period_status' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
             'data' => $paginator->items(),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
@@ -66,7 +69,41 @@ class ReportController extends Controller
         $filters = $reportService->validatedFilters($request);
         $orders = $reportService->getOvertime($request->user(), $filters);
 
-        return response()->json(['data' => $orders]);
+        return response()->json([
+            'period_status' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
+            'data' => $orders,
+        ]);
+    }
+
+    public function finalize(Request $request, FinalizeReportPeriod $finalizer, ReportService $reportService): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isAdmin(), 403, 'Hanya admin yang dapat memfinalkan laporan.');
+
+        $data = $request->validate([
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        return response()->json($finalizer->execute($user, $data['from'], $data['to'], $reportService));
+    }
+
+    public function reopen(Request $request, ReopenReportPeriod $reopener): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user->isAdmin(), 403, 'Hanya admin yang dapat membuka ulang laporan.');
+
+        $reason = $request->input('reason');
+        if (is_string($reason)) {
+            $request->merge(['reason' => trim($reason)]);
+        }
+        $data = $request->validate([
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+
+        return response()->json($reopener->execute($user, $data['from'], $data['to'], $data['reason']));
     }
 
     public function exportExcel(Request $request, ReportService $reportService, AttendanceReportSpout $spout): BinaryFileResponse

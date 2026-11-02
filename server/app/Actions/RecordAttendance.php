@@ -101,7 +101,11 @@ class RecordAttendance
             'SCHEDULE_CHANGED', 'OPEN_SESSION_EXISTS', 'PREVIOUS_PERIOD_LOCKED', 'AUTO_CHECKOUT_DUE',
             'FAKE_GPS_DETECTED',
         ];
-        if ($result !== 'REJECTED' && ! in_array($problem, $nonProjectable, true)) {
+        $projectable = $result !== 'REJECTED' && ! in_array($problem, $nonProjectable, true);
+        if ($projectable) {
+            AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.event_projected');
+        }
+        if ($projectable) {
             if ($input['event_type'] === 'CHECK_IN' && $record?->check_in_at === null) {
                 $policySnapshot = $session->policy_snapshot ?? [];
                 $policySnapshot['checkin_early_minutes'] = SiteSetting::checkInEarlyMinutes();
@@ -258,6 +262,9 @@ class RecordAttendance
         }
         $record->needs_review = $needsReview;
         $record->save();
+        if ($record->needs_review) {
+            AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.needs_review');
+        }
         $this->syncAssignmentStatus($session);
         if ($event->type === 'CHECK_OUT') {
             app(ManageOvertime::class)->calculateRealization($session, $record);

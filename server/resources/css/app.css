@@ -1893,6 +1893,22 @@ main:focus { outline: none; }
 .workflow-actions .text-button { min-height: 36px; white-space: nowrap; }
 
 .site-settings-form { padding: 20px; }
+.database-backup-section { padding: 20px; }
+.database-backup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.database-backup-card, .database-backup-unsupported, .database-safety-backup { display: grid; align-content: start; gap: 12px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.database-backup-card h3, .database-backup-unsupported h3, .database-safety-backup h3 { margin: 0; font-size: 16px; }
+.database-backup-card p, .database-backup-unsupported p, .database-safety-backup p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.database-backup-card > button, .database-safety-backup > a { justify-self: start; min-height: 44px; text-decoration: none; }
+.database-restore-card form { display: grid; gap: 14px; }
+.database-restore-card label { display: grid; gap: 8px; font-size: 13px; font-weight: 700; }
+.database-restore-card input[type="file"], .database-restore-card input[type="text"] { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; font: inherit; }
+.database-restore-card input[type="file"] { padding: 6px; }
+.database-restore-card button { justify-self: start; min-height: 44px; }
+.database-restore-card button:disabled { cursor: not-allowed; opacity: .55; }
+.database-backup-unsupported { border-color: #d7b66d; background: #fff8e8; }
+.database-safety-backup { margin-top: 16px; background: var(--surface-soft); }
+.database-safety-empty { margin: 16px 0 0; color: var(--muted); font-size: 13px; }
+.database-backup-message { margin: 0 0 16px; padding: 12px 14px; border-radius: 8px; color: var(--primary); background: #edf5ef; font-size: 13px; }
 .site-settings-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, .72fr); align-items: start; gap: 20px; }
 .site-settings-fields { display: grid; min-width: 0; gap: 20px; }
 .site-settings-section { display: grid; gap: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
@@ -1960,6 +1976,7 @@ main:focus { outline: none; }
         min-width: 0;
         flex: 1 1 12rem;
     }
+    .database-backup-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {
@@ -2908,6 +2925,13 @@ main:focus { outline: none; }
 .report-meta-text {
     font-size: 11.5px;
     color: var(--muted);
+}
+
+.report-finalize-blockers {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--danger, #b91c1c);
+    font-size: 12px;
 }
 
 .report-filter-fields {

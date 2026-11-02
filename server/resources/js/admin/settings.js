@@ -6,6 +6,10 @@ const siteForm = $('#site-settings-form');
 const siteError = $('#site-settings-error');
 const attendanceWindowForm = $('#attendance-window-settings-form');
 const attendanceWindowError = $('#attendance-window-settings-error');
+const databaseBackupSection = $('#database-backup-section');
+const databaseBackupError = $('#database-backup-error');
+const databaseBackupMessage = $('#database-backup-message');
+const databaseRestoreForm = $('#database-restore-form');
 const opts = (list, label = (x) => x.code ? `${x.name} (${x.code})` : x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
 const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}${s.start_day_offset ? ' (+1)' : ''}–${hhmm(s.local_end)}${s.day_offset ? ` (+${s.day_offset})` : ''}`).join(', ');
@@ -160,6 +164,7 @@ const tabs = {
             { name: 'is_active', label: 'Akun aktif', type: 'checkbox', default: true },
         ],
     },
+    backup: { title: 'Backup database', hint: 'Buat dan pulihkan salinan database MySQL.', singular: 'database' },
 };
 
 function getInitialSettingsTab() {
@@ -280,6 +285,7 @@ async function loadGeneral() {
     $('#settings-hint').textContent = 'Identitas dan kontak yang tampil di website.';
     $('#settings-add').hidden = true;
     table.hidden = true;
+    databaseBackupSection.hidden = true;
     siteForm.hidden = false;
     attendanceWindowForm.hidden = true;
     siteError.textContent = 'Memuat pengaturan…';
@@ -300,6 +306,7 @@ async function loadAttendanceSettings() {
     siteForm.hidden = true;
     attendanceWindowForm.hidden = false;
     table.hidden = true;
+    databaseBackupSection.hidden = true;
     attendanceWindowError.hidden = true;
     $('#attendance-window-settings-save').disabled = true;
     try {
@@ -311,6 +318,64 @@ async function loadAttendanceSettings() {
     } finally {
         $('#attendance-window-settings-save').disabled = false;
     }
+}
+
+async function loadDatabaseBackup() {
+    $('#settings-title').textContent = tabs.backup.title;
+    $('#settings-hint').textContent = tabs.backup.hint;
+    $('#settings-add').hidden = true;
+    siteForm.hidden = true;
+    attendanceWindowForm.hidden = true;
+    table.hidden = true;
+    databaseBackupSection.hidden = false;
+    databaseBackupError.hidden = true;
+    databaseBackupMessage.textContent = 'Memeriksa dukungan database…';
+    databaseBackupMessage.hidden = false;
+    $('#database-backup-safety').hidden = true;
+    $('#database-safety-empty').hidden = true;
+    $('#database-backup-controls').hidden = true;
+    $('#database-backup-unsupported').hidden = true;
+
+    try {
+        const { data } = await api('database-backup/status');
+        const supported = Boolean(data.supported);
+        databaseBackupMessage.hidden = true;
+        $('#database-backup-unsupported').hidden = supported;
+        $('#database-backup-controls').hidden = !supported;
+        $('#database-backup-safety').hidden = !supported || !data.has_safety_backup;
+        $('#database-safety-empty').hidden = !supported || data.has_safety_backup;
+        if (!supported) return;
+    } catch (error) {
+        databaseBackupMessage.hidden = true;
+        databaseBackupError.textContent = error.message;
+        databaseBackupError.hidden = false;
+    }
+}
+
+async function downloadDatabaseBackup(path, filename) {
+    const response = await fetch(`/admin/api/${path}`, {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json, application/gzip' },
+    });
+
+    if (response.status === 401 || response.status === 419) {
+        location.assign('/login');
+        throw new Error('Sesi berakhir. Silakan masuk kembali.');
+    }
+    if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.message ?? 'Backup database gagal diunduh.');
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    const disposition = response.headers.get('content-disposition') ?? '';
+    link.download = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 function syncSettingsPicker() {
@@ -345,6 +410,7 @@ async function load() {
     syncSettingsPicker();
     if (active === 'general') return loadGeneral();
     if (active === 'attendance') return loadAttendanceSettings();
+    if (active === 'backup') return loadDatabaseBackup();
     const tab = tabs[active];
     const endpoint = tab.endpoint ?? active;
     $('#settings-title').textContent = tab.title;
@@ -353,6 +419,7 @@ async function load() {
     $('#settings-add').hidden = !isAdmin;
     siteForm.hidden = true;
     attendanceWindowForm.hidden = true;
+    databaseBackupSection.hidden = true;
     table.hidden = false;
     loadingInto(table);
     try {
@@ -541,6 +608,71 @@ $$('[data-settings-tab]').forEach((button) => button.addEventListener('click', (
 }));
 $('#settings-section-select')?.addEventListener('change', (event) => {
     activateSettingsTab(event.target.value);
+});
+
+$('#database-backup-download').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    databaseBackupError.hidden = true;
+    databaseBackupMessage.textContent = 'Menyiapkan backup database…';
+    databaseBackupMessage.hidden = false;
+    button.disabled = true;
+    try {
+        await downloadDatabaseBackup('database-backup', 'deresort-database-backup.sql.gz');
+        databaseBackupMessage.textContent = 'Backup database berhasil dibuat dan diunduh.';
+        databaseBackupMessage.hidden = false;
+    } catch (error) {
+        databaseBackupMessage.hidden = true;
+        databaseBackupError.textContent = error.message;
+        databaseBackupError.hidden = false;
+    } finally {
+        button.disabled = false;
+    }
+});
+
+const restoreFile = $('#database-restore-file');
+const restoreConfirmation = $('#database-restore-confirmation');
+const restoreSubmit = $('#database-restore-submit');
+const syncRestoreButton = () => {
+    restoreSubmit.disabled = databaseBackupSection.dataset.supported !== 'true'
+        || !restoreFile.files.length
+        || restoreConfirmation.value.trim() !== 'RESTORE';
+};
+restoreFile.addEventListener('change', syncRestoreButton);
+restoreConfirmation.addEventListener('input', syncRestoreButton);
+databaseRestoreForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    databaseBackupError.hidden = true;
+    databaseBackupMessage.hidden = true;
+
+    if (!await confirmDialog({
+        title: 'Ganti seluruh database?',
+        message: 'Data database saat ini akan diganti dari file yang dipilih. Sistem membuat backup pengaman sebelum memulai.',
+        confirmLabel: 'Mulai restore',
+        danger: true,
+    })) return;
+
+    restoreSubmit.disabled = true;
+    databaseBackupMessage.textContent = 'Restore berjalan. Halaman akan meminta Anda masuk kembali setelah selesai.';
+    databaseBackupMessage.hidden = false;
+    try {
+        await api('database-backup/restore', { method: 'POST', body: new FormData(databaseRestoreForm) });
+        location.assign('/login');
+    } catch (error) {
+        databaseBackupMessage.hidden = true;
+        databaseBackupError.textContent = error.message;
+        databaseBackupError.hidden = false;
+        const validationMessages = Object.values(error.details ?? {}).flat();
+        if (validationMessages.length) {
+            databaseBackupError.textContent = validationMessages.join(' ');
+        }
+        try {
+            const { data } = await api('database-backup/status');
+            $('#database-backup-safety').hidden = !data.has_safety_backup;
+            $('#database-safety-empty').hidden = data.has_safety_backup;
+        } catch (_) {
+        }
+        restoreSubmit.disabled = false;
+    }
 });
 
 export async function showSettings() {
