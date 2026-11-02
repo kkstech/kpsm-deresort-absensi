@@ -7,6 +7,7 @@ use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
+use App\Models\EmployeeLevel;
 use App\Models\OvertimeOrder;
 use App\Models\Position;
 use App\Models\ShiftSession;
@@ -103,8 +104,12 @@ class OvertimeTest extends TestCase
         ]);
     }
 
-    public function test_employee_can_submit_overtime_request_and_admin_approves(): void
+    public function test_manager_overtime_request_is_reserved_for_super_admin(): void
     {
+        $level = EmployeeLevel::query()->create([
+            'code' => 'MGR', 'name' => 'Manager', 'requires_super_admin_approval' => true,
+        ]);
+        $this->employee->update(['level_id' => $level->id]);
         $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
             'name' => 'Split 12 Jam',
             'sessions' => [
@@ -129,7 +134,7 @@ class OvertimeTest extends TestCase
             'start_time' => '21:00',
             'end_time' => '23:00',
             'title' => 'Pembersihan Banquet Tambahan',
-        ])->assertCreated();
+        ])->assertCreated()->assertJsonPath('data.approval_tier', 'super_admin');
 
         $orderId = $req->json('data.id');
         $this->assertDatabaseHas('overtime_orders', [
@@ -143,8 +148,15 @@ class OvertimeTest extends TestCase
         // Admin memeriksa dan menyetujui
         $this->actingAs($this->admin);
         $adminList = $this->getJson('/admin/api/overtimes?status=PENDING')->assertOk();
-        $adminList->assertJsonCount(1, 'data');
+        $adminList->assertJsonCount(0, 'data');
 
+        $this->postJson("/admin/api/overtimes/{$orderId}/decision", [
+            'decision' => 'APPROVED',
+            'notes' => 'Disetujui untuk banquet',
+        ])->assertForbidden();
+
+        $superAdmin = User::factory()->role('super_admin')->create();
+        $this->actingAs($superAdmin)->getJson('/admin/api/overtimes?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
         $this->postJson("/admin/api/overtimes/{$orderId}/decision", [
             'decision' => 'APPROVED',
             'notes' => 'Disetujui untuk banquet',

@@ -16,16 +16,18 @@ class AttendanceWorkflowController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        abort_unless($request->user()->isAdmin(), 403, 'Hanya Admin atau Super Admin yang dapat melihat antrean persetujuan.');
         $filters = $request->validate(['status' => ['nullable', 'in:PENDING,APPROVED,REJECTED,CANCELLED']]);
         $employeeIds = EmployeeController::visibleTo($request->user())->select('employees.id');
         $relations = ['employee.department:id,name', 'session.assignment', 'attachments'];
         $status = $filters['status'] ?? 'PENDING';
+        $adminTierOnly = $status === 'PENDING' && ! $request->user()->isSuperAdmin();
 
         return response()->json([
             'late_permissions' => LatePermission::query()->with($relations)->where('status', $status)
-                ->whereIn('employee_id', $employeeIds)->latest()->limit(100)->get()->map(fn (LatePermission $item) => $this->latePermissionData($item)),
+                ->whereIn('employee_id', $employeeIds)->when($adminTierOnly, fn ($query) => $query->where('approval_tier', 'admin'))->latest()->limit(100)->get()->map(fn (LatePermission $item) => $this->latePermissionData($item)),
             'corrections' => AttendanceCorrection::query()->with($relations)->where('status', $status)
-                ->whereIn('employee_id', $employeeIds)->latest()->limit(100)->get()->map(fn (AttendanceCorrection $item) => $this->correctionData($item)),
+                ->whereIn('employee_id', $employeeIds)->when($adminTierOnly, fn ($query) => $query->where('approval_tier', 'admin'))->latest()->limit(100)->get()->map(fn (AttendanceCorrection $item) => $this->correctionData($item)),
         ]);
     }
 
@@ -116,6 +118,7 @@ class AttendanceWorkflowController extends Controller
             'return_at' => WorkTime::iso($item->return_at),
             'reason' => $item->reason,
             'status' => $item->status,
+            'approval_tier' => $item->approval_tier,
             'requester_id' => $item->requester_id,
             'decision_reason' => $item->decision_reason,
             'attachments' => $item->attachments->map(fn ($attachment) => $this->attachmentData($attachment))->values(),
@@ -134,6 +137,7 @@ class AttendanceWorkflowController extends Controller
             'requested_check_out_at' => WorkTime::iso($item->requested_check_out_at),
             'reason' => $item->reason,
             'status' => $item->status,
+            'approval_tier' => $item->approval_tier,
             'before' => $item->before_json,
             'after' => $item->after_json,
             'decision_reason' => $item->decision_reason,

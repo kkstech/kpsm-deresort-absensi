@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Models\AttendancePolicy;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeLevel;
 use App\Models\Position;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class MasterCrudTest extends TestCase
@@ -57,7 +60,7 @@ class MasterCrudTest extends TestCase
         $employee = Employee::query()->where('code', 'FO-999')->firstOrFail();
         $this->assertNotNull($employee->user_id);
         $this->assertSame('fo-999', $employee->user->username);
-        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('1234', $employee->user->password));
+        $this->assertTrue(Hash::check('1234', $employee->user->password));
     }
 
     public function test_department_change_records_placement_and_deactivate_revokes_access(): void
@@ -80,8 +83,8 @@ class MasterCrudTest extends TestCase
 
     public function test_admin_creates_and_updates_employee_with_level_id(): void
     {
-        $level1 = \App\Models\EmployeeLevel::create(['code' => 'STF', 'name' => 'Staff']);
-        $level2 = \App\Models\EmployeeLevel::create(['code' => 'SPV', 'name' => 'Supervisor']);
+        $level1 = EmployeeLevel::create(['code' => 'STF', 'name' => 'Staff']);
+        $level2 = EmployeeLevel::create(['code' => 'SPV', 'name' => 'Supervisor']);
 
         $res = $this->asAdmin()->postJson('/admin/api/employees', $this->employeePayload([
             'code' => 'LVL-001',
@@ -120,7 +123,7 @@ class MasterCrudTest extends TestCase
 
     public function test_admin_can_upload_and_update_employee_avatar(): void
     {
-        \Illuminate\Support\Facades\Storage::fake('public');
+        Storage::fake('public');
 
         $file = UploadedFile::fake()->image('profile.jpg', 200, 200);
 
@@ -135,7 +138,7 @@ class MasterCrudTest extends TestCase
         $res->assertCreated();
         $employee = Employee::query()->where('code', 'FO-001')->firstOrFail();
         $this->assertNotNull($employee->avatar_path);
-        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($employee->avatar_path);
+        Storage::disk('public')->assertExists($employee->avatar_path);
         $this->assertSame($employee->avatar_path, $employee->user->fresh()->avatar_path);
 
         $listRes = $this->asAdmin()->getJson('/admin/api/employees');
@@ -156,8 +159,8 @@ class MasterCrudTest extends TestCase
         $employee->refresh();
         $this->assertSame('Rina Updated', $employee->name);
         $this->assertNotSame($oldPath, $employee->avatar_path);
-        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($employee->avatar_path);
-        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('public')->assertExists($employee->avatar_path);
+        Storage::disk('public')->assertMissing($oldPath);
     }
 
     public function test_supervisor_reads_only_own_department_and_cannot_write(): void
@@ -481,20 +484,26 @@ class MasterCrudTest extends TestCase
         $res1->assertCreated();
         $this->assertSame('STF', $res1->json('data.code'));
         $this->assertSame('Staff Regular', $res1->json('data.name'));
+        $this->assertFalse($res1->json('data.requires_super_admin_approval'));
 
         $res2 = $this->asAdmin()->postJson('/admin/api/levels', [
             'code' => 'SPV', 'name' => 'Supervisor Level',
         ]);
         $res2->assertCreated();
         $this->assertSame('SPV', $res2->json('data.code'));
+        $this->assertFalse($res2->json('data.requires_super_admin_approval'));
 
         $this->asAdmin()->getJson('/admin/api/employee-levels')->assertOk()->assertJsonCount(2, 'data');
         $this->asAdmin()->getJson('/admin/api/levels')->assertOk()->assertJsonCount(2, 'data');
 
         $levelId = $res1->json('data.id');
         $this->asAdmin()->putJson("/admin/api/employee-levels/{$levelId}", [
+            'code' => 'STF', 'name' => 'Staff Senior', 'requires_super_admin_approval' => true,
+        ])->assertOk()->assertJsonPath('data.name', 'Staff Senior')->assertJsonPath('data.requires_super_admin_approval', true);
+
+        $this->asAdmin()->putJson("/admin/api/employee-levels/{$levelId}", [
             'code' => 'STF', 'name' => 'Staff Senior',
-        ])->assertOk()->assertJsonPath('data.name', 'Staff Senior');
+        ])->assertOk()->assertJsonPath('data.requires_super_admin_approval', true);
 
         $this->asAdmin()->deleteJson("/admin/api/levels/{$levelId}")->assertOk();
         $this->asAdmin()->getJson('/admin/api/levels')->assertOk()->assertJsonCount(1, 'data');

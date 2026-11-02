@@ -187,16 +187,20 @@ async function openEmployee(employee) {
 
 async function openEmployment(employee) {
     const current = employee.employment ?? {};
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
     openForm({
         title: `Status Kerja · ${employee.name}`,
-        hint: 'Riwayat penempatan kerja dan masa berlaku kontrak karyawan.',
+        hint: 'Gunakan tanggal efektif sebenarnya. Tanggal kontrak boleh sebelum sistem digunakan.',
         fields: [
             { name: 'type', label: 'Jenis karyawan', type: 'select', required: true, options: [{ value: 'permanent', label: 'Tetap' }, { value: 'contract', label: 'Kontrak' }], default: current.type === 'contract' ? 'contract' : 'permanent' },
-            { name: 'starts_on', label: 'Berlaku mulai', type: 'date', required: true },
+            { name: 'starts_on', label: 'Berlaku mulai', type: 'date', required: true, hint: 'Bisa diisi dengan tanggal historis, minimal tanggal mulai kerja.' },
             { name: 'ends_on', label: 'Kontrak berakhir', type: 'date', required: true, showIf: (value) => value.type === 'contract' },
             { name: 'reason', label: 'Alasan perubahan', type: 'textarea', required: true, maxlength: 1000, placeholder: 'Keterangan perpanjangan kontrak atau pengangkatan karyawan...' },
         ],
-        values: { starts_on: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()), ends_on: current.ends_on ?? '' },
+        values: {
+            starts_on: current.type === 'unknown' ? (current.starts_on ?? employee.started_on ?? today) : today,
+            ends_on: current.ends_on ?? '',
+        },
         onSubmit: async (body) => {
             await api(`employees/${employee.id}/employment`, { method: 'POST', body });
             toast('Status kerja disimpan.');

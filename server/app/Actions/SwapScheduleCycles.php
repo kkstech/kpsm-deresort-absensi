@@ -265,7 +265,7 @@ class SwapScheduleCycles
                 continue;
             }
             if (! $decision) {
-                $blockers[] = ['code' => 'ROSTER_DECISION_REQUIRED', ...$row, 'message' => 'Pilih roster off, cuti reguler, atau day off untuk karyawan yang tidak mendapat shift pengganti.'];
+                $blockers[] = ['code' => 'ROSTER_DECISION_REQUIRED', ...$row, 'message' => 'Pilih roster off, cuti reguler, atau Deposit Off untuk karyawan yang tidak mendapat shift pengganti.'];
 
                 continue;
             }

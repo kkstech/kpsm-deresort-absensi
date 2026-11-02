@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\SwapScheduleCycles;
 use App\Exceptions\BusinessRuleException;
-use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\ShiftAssignment;
@@ -14,7 +13,6 @@ use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ShiftExchangeController extends Controller
 {
@@ -38,13 +36,12 @@ class ShiftExchangeController extends Controller
             ]);
 
         if ($scope === 'admin' || $scope === 'all') {
-            if (! $user->isAdmin() && ! $user->isSupervisor()) {
-                throw new BusinessRuleException('FORBIDDEN', 'Hanya admin atau supervisor yang dapat melihat daftar pengajuan HRD.', 403);
+            if (! $user->isAdmin()) {
+                throw new BusinessRuleException('FORBIDDEN', 'Hanya Admin atau Super Admin yang dapat melihat daftar pengajuan HRD.', 403);
             }
-            if ($user->isSupervisor() && ! $user->can_view_all && $user->department_id !== null) {
-                $query->where(function ($q) use ($user) {
-                    $q->whereHas('employee', fn ($e) => $e->where('department_id', $user->department_id))
-                        ->orWhereHas('targetEmployee', fn ($e) => $e->where('department_id', $user->department_id));
+            if (! $user->isSuperAdmin()) {
+                $query->where(function ($q) {
+                    $q->where('status', '!=', 'PENDING')->orWhere('approval_tier', 'admin');
                 });
             }
         } else {
@@ -156,6 +153,7 @@ class ShiftExchangeController extends Controller
             'vacancy_action' => $data['swap_mode'] === 'delegation' ? ($data['vacancy_action'] ?? 'roster_off') : null,
             'reason' => trim($data['reason']),
             'status' => 'PENDING',
+            'approval_tier' => $requesterEmployee->approvalTierFor($sourceAssignment->work_date),
         ]);
 
         Audit::log('shift_exchange.requested', $item, null, [
@@ -203,8 +201,8 @@ class ShiftExchangeController extends Controller
     public function decide(Request $request, ShiftExchangeRequest $shiftExchange, SwapScheduleCycles $swaps): JsonResponse
     {
         $user = $request->user();
-        if (! $user->isAdmin() && ! $user->isSupervisor()) {
-            throw new BusinessRuleException('FORBIDDEN', 'Hanya admin atau supervisor yang dapat memproses pengajuan tukar shift.', 403);
+        if (! $user->canApproveTier($shiftExchange->approval_tier)) {
+            throw new BusinessRuleException('FORBIDDEN', 'Pengajuan ini membutuhkan persetujuan Admin atau Super Admin.', 403);
         }
 
         if ($shiftExchange->status !== 'PENDING') {
@@ -328,6 +326,14 @@ class ShiftExchangeController extends Controller
 
     public function colleagues(Request $request): JsonResponse
     {
+        $filters = $request->validate([
+            'offset' => ['sometimes', 'integer', 'min:0'],
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'search' => ['nullable', 'string', 'max:100'],
+        ]);
+        $offset = (int) ($filters['offset'] ?? 0);
+        $limit = (int) ($filters['limit'] ?? 5);
+        $search = trim($filters['search'] ?? '');
         $user = $request->user();
         $currentEmployeeId = $user->employee?->id;
 
@@ -343,7 +349,19 @@ class ShiftExchangeController extends Controller
             $query->where('department_id', $user->department_id);
         }
 
-        $employees = $query->orderBy('name')->get()->map(fn (Employee $e) => [
+        if ($search !== '') {
+            $query->where(function ($query) use ($search) {
+                $like = '%'.$search.'%';
+                $query->where('name', 'like', $like)
+                    ->orWhere('code', 'like', $like)
+                    ->orWhereHas('department', fn ($department) => $department->where('name', 'like', $like))
+                    ->orWhereHas('position', fn ($position) => $position->where('name', 'like', $like));
+            });
+        }
+
+        $employees = $query->orderBy('name')->orderBy('id')->offset($offset)->limit($limit + 1)->get();
+        $hasMore = $employees->count() > $limit;
+        $employees = $employees->take($limit)->map(fn (Employee $e) => [
             'id' => $e->id,
             'code' => $e->code,
             'name' => $e->name,
@@ -351,7 +369,15 @@ class ShiftExchangeController extends Controller
             'position' => $e->position?->name,
         ]);
 
-        return response()->json(['data' => $employees]);
+        return response()->json([
+            'data' => $employees->values(),
+            'meta' => [
+                'offset' => $offset,
+                'limit' => $limit,
+                'next_offset' => $offset + $employees->count(),
+                'has_more' => $hasMore,
+            ],
+        ]);
     }
 
     public function employeeSchedules(Request $request): JsonResponse
@@ -384,6 +410,7 @@ class ShiftExchangeController extends Controller
             ->get()
             ->filter(function (ShiftAssignment $ass) {
                 $first = $ass->sessions->sortBy('seq')->first();
+
                 return $first && $first->start_at->gt(WorkTime::now());
             })
             ->values()
@@ -421,6 +448,7 @@ class ShiftExchangeController extends Controller
         return [
             'id' => $req->id,
             'status' => $req->status,
+            'approval_tier' => $req->approval_tier,
             'swap_mode' => $req->swap_mode,
             'vacancy_action' => $req->vacancy_action,
             'reason' => $req->reason,

@@ -807,7 +807,7 @@
                 <section class="view" data-view-panel="leaves" data-requires="admin">
                     <div class="page-heading">
                         <div>
-                            <h1>Cuti &amp; Day Off</h1>
+                            <h1>Cuti &amp; Deposit Off</h1>
                             <span>Pengelolaan permohonan cuti karyawan, monitoring kuota saldo tahunan, dan pencatatan cuti langsung.</span>
                         </div>
                         <div class="heading-actions">
@@ -876,7 +876,7 @@
                         <div class="panel">
                             <div class="panel-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;">
                                 <div>
-                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Daftar Pengajuan Cuti &amp; Day Off</h2>
+                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Daftar Pengajuan Cuti &amp; Deposit Off</h2>
                                     <p id="leave-list-count" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat data…</p>
                                 </div>
                                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
@@ -937,7 +937,7 @@
                                     <input type="number" name="regular_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
                                 </label>
                                 <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
-                                    <span>Day Off (Hari/Tahun)</span>
+                                    <span>Deposit Off (Hari/Tahun)</span>
                                     <input type="number" name="day_off_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
                                 </label>
                                 <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); grid-column: 1 / -1;">

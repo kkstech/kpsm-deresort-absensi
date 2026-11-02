@@ -168,14 +168,12 @@ class HrWorkflowTest extends TestCase
             ->assertOk()->assertJsonPath('data.regular.reserved', 1)->assertJsonPath('data.regular.available', 8);
 
         $requestId = LeaveRequest::query()->where('employee_id', $employee->id)->value('id');
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'admin']);
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
-        ])->assertForbidden();
-        $superAdmin = User::factory()->role('super_admin')->create();
-        $this->actingAs($superAdmin)->postJson("/admin/api/leaves/{$requestId}/decision", [
-            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
+        $superAdmin = User::factory()->role('super_admin')->create();
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.used', 1)->assertJsonPath('data.regular.reserved', 0);
@@ -191,6 +189,46 @@ class HrWorkflowTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->actingAs($superAdmin)->postJson("/admin/api/leaves/{$requestId}/cancel-approved", ['reason' => 'Ulangi'])
             ->assertStatus(409);
+    }
+
+    public function test_manager_level_leave_requires_super_admin_and_keeps_submitted_tier(): void
+    {
+        $user = User::factory()->create();
+        $employee = $this->employee('LEV-MGR', '2026-04-15', $user);
+        $level = EmployeeLevel::query()->create([
+            'code' => 'MGR',
+            'name' => 'Manager',
+            'requires_super_admin_approval' => true,
+        ]);
+        $employee->update(['level_id' => $level->id]);
+        $device = DeviceRegistration::query()->create(['user_id' => $user->id, 'device_uuid' => 'leave-manager-phone']);
+        $token = $user->createToken("device:{$device->id}")->plainTextToken;
+        $superAdmin = User::factory()->role('super_admin')->create();
+
+        $this->postJson('/admin/api/leave-settings/confirm', ['reason' => 'Saldo awal diperiksa HRD'])->assertOk();
+        $this->app['auth']->forgetGuards();
+        $request = $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-08',
+            'type' => 'regular',
+            'reason' => 'Keperluan keluarga',
+        ])->assertCreated()->assertJsonPath('data.approval_tier', 'super_admin');
+        $requestId = $request->json('data.id');
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $superAdmin->id]);
+        $this->assertDatabaseMissing('notifications', ['notifiable_id' => $this->admin->id]);
+
+        $level->update(['requires_super_admin_approval' => false]);
+        $this->assertSame('admin', $employee->fresh()->approvalTierFor('2026-11-08'));
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'super_admin']);
+
+        $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(0, 'data');
+        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        ])->assertForbidden();
+
+        $this->actingAs($superAdmin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
+        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
     }
 
     public function test_hr_can_open_next_year_leave_balance_before_employee_requests_it(): void
@@ -227,6 +265,34 @@ class HrWorkflowTest extends TestCase
         $this->assertDatabaseHas('employment_terms', ['employee_id' => $employee->id, 'type' => 'contract', 'ends_on' => '2026-11-01']);
         $this->getJson('/admin/api/employment-alerts?days=30')->assertOk()->assertJsonPath('data.0.status', 'soon');
         $this->assertSame('active', $employee->fresh()->status);
+    }
+
+    public function test_initial_contract_can_be_recorded_with_its_historical_start_date(): void
+    {
+        $this->postJson('/admin/api/employees', [
+            'code' => 'CON-HIST', 'name' => 'Pegawai Lama', 'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'), 'status' => 'active', 'started_on' => '2020-01-10',
+        ])->assertCreated();
+        $employee = Employee::query()->where('code', 'CON-HIST')->firstOrFail();
+
+        $this->postJson("/admin/api/employees/{$employee->id}/employment", [
+            'type' => 'contract', 'starts_on' => '2020-01-10', 'ends_on' => '2026-12-31', 'reason' => 'Input kontrak sebelum sistem dibuat',
+        ])->assertOk()
+            ->assertJsonPath('data.type', 'contract')
+            ->assertJsonPath('data.starts_on', '2020-01-10');
+
+        $this->assertDatabaseCount('employment_terms', 1);
+        $this->assertDatabaseHas('employment_terms', [
+            'employee_id' => $employee->id,
+            'type' => 'contract',
+            'starts_on' => '2020-01-10',
+            'ends_on' => '2026-12-31',
+        ]);
+        $this->assertSame('2026-12-31', $employee->fresh()->ended_on);
+
+        $this->postJson("/admin/api/employees/{$employee->id}/employment", [
+            'type' => 'contract', 'starts_on' => '2020-01-09', 'ends_on' => '2026-12-31', 'reason' => 'Tanggal sebelum mulai kerja',
+        ])->assertUnprocessable();
     }
 
     public function test_multi_day_leave_request_reserves_quota_detects_conflicts_and_approves_all_days(): void

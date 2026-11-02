@@ -24,8 +24,12 @@ class EmployeeLevelController extends Controller
     public function store(Request $request): JsonResponse
     {
         Gate::authorize('admin');
-        $data = $request->validate(['code' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9._-]+$/', 'unique:employee_levels,code'], 'name' => ['required', 'string', 'max:100', 'unique:employee_levels,name']]);
-        $level = EmployeeLevel::query()->create(['code' => strtoupper($data['code']), 'name' => $data['name']]);
+        $data = $request->validate(['code' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9._-]+$/', 'unique:employee_levels,code'], 'name' => ['required', 'string', 'max:100', 'unique:employee_levels,name'], 'requires_super_admin_approval' => ['sometimes', 'boolean']]);
+        $level = EmployeeLevel::query()->create([
+            'code' => strtoupper($data['code']),
+            'name' => $data['name'],
+            'requires_super_admin_approval' => $data['requires_super_admin_approval'] ?? false,
+        ]);
         Audit::log('employee_levels.created', $level);
 
         return response()->json(['data' => $level], 201);
@@ -34,9 +38,13 @@ class EmployeeLevelController extends Controller
     public function update(Request $request, EmployeeLevel $level): JsonResponse
     {
         Gate::authorize('admin');
-        $data = $request->validate(['code' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9._-]+$/', Rule::unique('employee_levels', 'code')->ignore($level->id)], 'name' => ['required', 'string', 'max:100', Rule::unique('employee_levels', 'name')->ignore($level->id)]]);
+        $data = $request->validate(['code' => ['required', 'string', 'max:32', 'regex:/^[A-Za-z0-9._-]+$/', Rule::unique('employee_levels', 'code')->ignore($level->id)], 'name' => ['required', 'string', 'max:100', Rule::unique('employee_levels', 'name')->ignore($level->id)], 'requires_super_admin_approval' => ['sometimes', 'boolean']]);
         $before = $level->attributesToArray();
-        $level->update(['code' => strtoupper($data['code']), 'name' => $data['name']]);
+        $level->update([
+            'code' => strtoupper($data['code']),
+            'name' => $data['name'],
+            'requires_super_admin_approval' => $data['requires_super_admin_approval'] ?? $level->requires_super_admin_approval,
+        ]);
         Audit::log('employee_levels.updated', $level, $before);
 
         return response()->json(['data' => $level]);

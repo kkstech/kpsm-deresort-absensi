@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'vacancy_action',
     'reason',
     'status',
+    'approval_tier',
     'decided_by',
     'decided_at',
     'decision_reason',

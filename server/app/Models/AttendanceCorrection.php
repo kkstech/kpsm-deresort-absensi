@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
-#[Fillable(['shift_session_id', 'employee_id', 'requester_id', 'requested_check_in_at', 'requested_check_out_at', 'reason', 'status', 'decided_by', 'decided_at', 'decision_reason', 'applied_by', 'before_json', 'after_json'])]
+#[Fillable(['shift_session_id', 'employee_id', 'requester_id', 'requested_check_in_at', 'requested_check_out_at', 'reason', 'status', 'approval_tier', 'decided_by', 'decided_at', 'decision_reason', 'applied_by', 'before_json', 'after_json'])]
 class AttendanceCorrection extends Model
 {
     public function session(): BelongsTo

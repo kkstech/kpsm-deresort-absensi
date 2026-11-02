@@ -142,6 +142,7 @@ class ManageOvertime
                 'order_number' => $orderNumber,
                 'employee_id' => $employee->id,
                 'work_date' => $workDate,
+                'approval_tier' => $employee->approvalTierFor($workDate),
                 'shift_session_id' => $session?->id,
                 'initiator_type' => 'employee',
                 'created_by' => $employee->user_id,
@@ -194,6 +195,10 @@ class ManageOvertime
     {
         return DB::transaction(function () use ($order, $decision, $notes, $actor) {
             $order = OvertimeOrder::query()->lockForUpdate()->findOrFail($order->id);
+
+            if (! $actor->canApproveTier($order->approval_tier)) {
+                throw new BusinessRuleException('FORBIDDEN', 'Pengajuan lembur ini membutuhkan persetujuan Super Admin.', 403);
+            }
 
             if (! in_array($decision, ['APPROVED', 'REJECTED'], true)) {
                 throw new BusinessRuleException('VALIDATION_ERROR', 'Keputusan harus APPROVED atau REJECTED.', 422);

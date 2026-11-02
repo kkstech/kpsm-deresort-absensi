@@ -88,10 +88,11 @@ const tabs = {
     levels: {
         endpoint: 'employee-levels',
         title: 'Level karyawan', hint: 'Level terpisah dari jabatan dan menjadi dasar tarif tunjangan.', singular: 'level',
-        columns: [{ label: 'Nama level', cell: (x) => `<b>${esc(x.name)}</b><small>${esc(x.code)}</small>` }, { label: 'Karyawan', cell: (x) => esc(x.employees_count ?? 0) }],
+        columns: [{ label: 'Nama level', cell: (x) => `<b>${esc(x.name)}</b><small>${esc(x.code)}</small>` }, { label: 'Persetujuan', cell: (x) => x.requires_super_admin_approval ? 'Super Admin' : 'Admin' }, { label: 'Karyawan', cell: (x) => esc(x.employees_count ?? 0) }],
         fields: async () => [
             { name: 'code', label: 'Kode level', required: true, maxlength: 32 },
             { name: 'name', label: 'Nama level', required: true, maxlength: 100 },
+            { name: 'requires_super_admin_approval', label: 'Pengajuan level ini perlu persetujuan Super Admin', type: 'checkbox', default: false, hint: 'Jika dicentang, cuti, izin, koreksi absensi, lembur, dan tukar shift dari level ini hanya dapat diputuskan Super Admin.' },
         ], deletable: true,
     },
     allowances: {

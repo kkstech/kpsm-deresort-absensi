@@ -22,7 +22,7 @@ let allRequests = [];
 let allBalances = [];
 
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
-const typeLabel = { regular: 'Cuti Reguler', day_off: 'Day Off' };
+const typeLabel = { regular: 'Cuti Reguler', day_off: 'Deposit Off' };
 const statusLabel = {
     PENDING: ['warning', 'Menunggu Persetujuan'],
     APPROVED: ['success', 'Disetujui'],
@@ -339,7 +339,7 @@ function renderBalancesTable() {
                         ${item.regular.used} dipakai · ${item.regular.reserved} dipesan
                     </small>
                 </td>
-                <td data-label="Day Off">
+                <td data-label="Deposit Off">
                     <div class="quota-meter">
                         <span class="quota-meter-badge ${doTone}">${doAvail} / ${doEntitled} hari</span>
                     </div>
@@ -363,7 +363,7 @@ function renderBalancesTable() {
                     <tr>
                         <th scope="col" style="min-width:220px;">Karyawan</th>
                         <th scope="col" style="min-width:180px;">Cuti Reguler</th>
-                        <th scope="col" style="min-width:180px;">Day Off</th>
+                        <th scope="col" style="min-width:180px;">Deposit Off</th>
                         <th scope="col" style="min-width:80px;text-align:right;">Atur</th>
                     </tr>
                 </thead>
@@ -395,7 +395,7 @@ async function adjustQuota(employeeId) {
         title: `Atur Kuota · ${employee.name}`,
         hint: 'Penyesuaian kuota tercatat terpisah dan dapat diaudit secara riil.',
         fields: [
-            { name: 'type', label: 'Jenis kuota', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Day Off' }] },
+            { name: 'type', label: 'Jenis kuota', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Deposit Off' }] },
             { name: 'year', label: 'Tahun kuota', type: 'number', required: true, min: 2000, max: 2100 },
             { name: 'delta', label: 'Perubahan hari (+ / -)', type: 'number', required: true, min: -60, max: 60, hint: 'Gunakan angka positif untuk menambah, negatif untuk mengurangi.' },
             { name: 'reason', label: 'Alasan penyesuaian', required: true, maxlength: 1000 },
@@ -417,7 +417,7 @@ function openDirectLeave() {
             { name: 'employee_id', label: 'Karyawan', type: 'select', numeric: true, required: true, blank: 'Pilih karyawan…', options: employees.map((item) => ({ value: item.id, label: `${item.name} (${item.code})` })) },
             { name: 'work_date', label: 'Tanggal mulai', type: 'date', required: true, default: todayKey() },
             { name: 'end_date', label: 'Tanggal akhir (opsional, jika > 1 hari)', type: 'date' },
-            { name: 'type', label: 'Jenis cuti', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Day Off' }] },
+            { name: 'type', label: 'Jenis cuti', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Deposit Off' }] },
             { name: 'reason', label: 'Alasan pencatatan', required: true, maxlength: 1000 },
         ],
         onSubmit: async (body) => {

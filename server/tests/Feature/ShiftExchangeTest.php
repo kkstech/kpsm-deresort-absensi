@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
+use App\Models\EmployeeLevel;
 use App\Models\Position;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftExchangeRequest;
@@ -19,9 +20,13 @@ class ShiftExchangeTest extends TestCase
     use RefreshDatabase;
 
     private Employee $emp1;
+
     private Employee $emp2;
+
     private User $user1;
+
     private User $user2;
+
     private User $adminUser;
 
     protected function setUp(): void
@@ -111,6 +116,72 @@ class ShiftExchangeTest extends TestCase
         $this->assertSame($ass2->id, $schedulesRes->json('data.0.id'));
     }
 
+    public function test_colleague_list_is_paginated_and_searches_all_matching_employees(): void
+    {
+        $token = $this->mobileLogin($this->user1, 'phone-1');
+        for ($index = 1; $index <= 14; $index++) {
+            Employee::query()->create([
+                'code' => sprintf('COL-%02d', $index),
+                'name' => sprintf('Colleague %02d', $index),
+                'status' => 'active',
+                'started_on' => '2026-01-01',
+                'department_id' => $this->emp1->department_id,
+                'position_id' => $this->emp1->position_id,
+            ]);
+        }
+
+        $firstPage = $this->withToken($token)->getJson('/api/v1/shift-exchanges/colleagues?offset=0&limit=5')
+            ->assertOk()->assertJsonCount(5, 'data')->assertJsonPath('meta.next_offset', 5)->assertJsonPath('meta.has_more', true);
+        $this->assertSame(5, $firstPage->json('meta.limit'));
+
+        $secondPage = $this->withToken($token)->getJson('/api/v1/shift-exchanges/colleagues?offset=5&limit=10')
+            ->assertOk()->assertJsonCount(10, 'data')->assertJsonPath('meta.next_offset', 15)->assertJsonPath('meta.has_more', false);
+        $loadedIds = collect($firstPage->json('data'))->pluck('id')->merge(collect($secondPage->json('data'))->pluck('id'));
+        $this->assertCount(15, $loadedIds->unique());
+
+        $this->withToken($token)->getJson('/api/v1/shift-exchanges/colleagues?offset=0&limit=5&search=COL-14')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'COL-14');
+    }
+
+    public function test_manager_shift_exchange_is_visible_and_decidable_only_by_super_admin(): void
+    {
+        $level = EmployeeLevel::query()->create([
+            'code' => 'MGR', 'name' => 'Manager', 'requires_super_admin_approval' => true,
+        ]);
+        $this->emp1->update(['level_id' => $level->id]);
+        $token = $this->mobileLogin($this->user1, 'phone-1');
+        $source = $this->createAssignment($this->emp1, '2026-10-26', 'Reguler');
+        $target = $this->createAssignment($this->emp2, '2026-10-27', 'Reguler');
+        $request = $this->withToken($token)->postJson('/api/v1/shift-exchanges', [
+            'shift_assignment_id' => $source->id,
+            'target_employee_id' => $this->emp2->id,
+            'swap_mode' => 'direct',
+            'target_assignment_id' => $target->id,
+            'reason' => 'Tukar jadwal manager',
+        ])->assertCreated()->assertJsonPath('data.approval_tier', 'super_admin');
+        $requestId = $request->json('data.id');
+
+        $admin = User::factory()->role('admin')->create();
+        $adminToken = $this->mobileLogin($admin, 'admin-phone');
+        $this->withToken($adminToken)->getJson('/api/v1/shift-exchanges?scope=admin&status=PENDING')
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->withToken($adminToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
+            'decision' => 'REJECTED', 'reason' => 'Tidak dapat diproses oleh Admin',
+        ])->assertForbidden();
+        $supervisor = User::factory()->role('supervisor')->create();
+        $supervisorToken = $this->mobileLogin($supervisor, 'supervisor-phone');
+        $this->withToken($supervisorToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
+            'decision' => 'REJECTED', 'reason' => 'Supervisor tidak dapat memutuskan',
+        ])->assertForbidden();
+
+        $superAdminToken = $this->mobileLogin($this->adminUser, 'hr-phone');
+        $this->withToken($superAdminToken)->getJson('/api/v1/shift-exchanges?scope=admin&status=PENDING')
+            ->assertOk()->assertJsonCount(1, 'data');
+        $this->withToken($superAdminToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
+            'decision' => 'REJECTED', 'reason' => 'Ditolak Super Admin',
+        ])->assertOk()->assertJsonPath('data.status', 'REJECTED');
+    }
+
     public function test_employee_can_submit_and_cancel_direct_shift_exchange(): void
     {
         $token1 = $this->mobileLogin($this->user1, 'phone-1');
@@ -129,6 +200,7 @@ class ShiftExchangeTest extends TestCase
 
         $res->assertCreated()
             ->assertJsonPath('data.status', 'PENDING')
+            ->assertJsonPath('data.approval_tier', 'admin')
             ->assertJsonPath('data.swap_mode', 'direct')
             ->assertJsonPath('data.is_requester', true)
             ->assertJsonPath('data.employee.name', 'Alice Foster')
@@ -166,7 +238,8 @@ class ShiftExchangeTest extends TestCase
         $requestId = $createRes->json('data.id');
 
         $this->app['auth']->forgetGuards();
-        $adminToken = $this->mobileLogin($this->adminUser, 'hr-phone');
+        $admin = User::factory()->role('admin')->create();
+        $adminToken = $this->mobileLogin($admin, 'hr-phone');
 
         // Admin lists requests
         $this->app['auth']->forgetGuards();

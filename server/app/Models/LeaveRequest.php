@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'days_count',
     'type',
     'status',
+    'approval_tier',
     'reason',
     'decision_reason',
     'shift_assignment_id',

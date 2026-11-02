@@ -14,7 +14,7 @@ class WorkflowNotifier
     {
         $leave->loadMissing('employee');
         $this->sendTo(
-            User::query()->where('role', 'super_admin')->where('is_active', true)->get(),
+            $this->approversFor($leave->approval_tier),
             'leave_requested',
             'Pengajuan cuti baru',
             $leave->employee->name.' mengajukan cuti '.$leave->work_date.($leave->end_date ? ' sampai '.$leave->end_date : '').'.',
@@ -40,12 +40,8 @@ class WorkflowNotifier
     {
         $permission->loadMissing('employee', 'session.assignment');
         $workDate = $permission->session?->assignment?->work_date ?? 'tanggal kerja';
-        $approvers = User::query()
-            ->whereIn('role', ['admin', 'super_admin', 'supervisor'])
-            ->where('is_active', true)
-            ->get()
-            ->filter(fn (User $user) => $user->id !== $permission->requester_id
-                && ($user->isAdmin() || ($user->isSupervisor() && $user->canSeeEmployee($permission->employee))));
+        $approvers = $this->approversFor($permission->approval_tier)
+            ->reject(fn (User $user) => $user->id === $permission->requester_id);
         $this->sendTo(
             $approvers,
             'permission_requested',
@@ -75,5 +71,12 @@ class WorkflowNotifier
         foreach ($users as $user) {
             $user->notify(new WorkflowNotification($kind, $title, $body, $context, $sendPush));
         }
+    }
+
+    private function approversFor(string $approvalTier): Collection
+    {
+        $roles = $approvalTier === 'super_admin' ? ['super_admin'] : ['admin', 'super_admin'];
+
+        return User::query()->whereIn('role', $roles)->where('is_active', true)->get();
     }
 }

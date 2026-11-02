@@ -78,6 +78,11 @@ class User extends Authenticatable
         return $this->role === 'supervisor';
     }
 
+    public function canApproveTier(string $approvalTier): bool
+    {
+        return $this->isSuperAdmin() || ($approvalTier === 'admin' && $this->role === 'admin');
+    }
+
     public function seesAllEmployees(): bool
     {
         return $this->isAdmin() || $this->can_view_all;

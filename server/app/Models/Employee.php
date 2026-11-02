@@ -97,6 +97,18 @@ class Employee extends Model
         return $this->level_id ? (int) $this->level_id : null;
     }
 
+    public function approvalTierFor(?string $date = null): string
+    {
+        $levelId = $this->effectiveLevelId($date);
+        if (! $levelId) {
+            return 'admin';
+        }
+
+        return EmployeeLevel::query()->whereKey($levelId)->value('requires_super_admin_approval')
+            ? 'super_admin'
+            : 'admin';
+    }
+
     /** @return array<string, string> */
     public function attendanceGaps(?string $workDate = null): array
     {

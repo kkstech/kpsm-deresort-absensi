@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
-#[Fillable(['shift_session_id', 'permission_type', 'employee_id', 'requester_id', 'direct_by', 'allowed_until', 'allowed_minutes', 'leave_at', 'return_at', 'reason', 'status', 'decided_by', 'decided_at', 'decision_reason'])]
+#[Fillable(['shift_session_id', 'permission_type', 'employee_id', 'requester_id', 'direct_by', 'allowed_until', 'allowed_minutes', 'leave_at', 'return_at', 'reason', 'status', 'approval_tier', 'decided_by', 'decided_at', 'decision_reason'])]
 class LatePermission extends Model
 {
     public function session(): BelongsTo

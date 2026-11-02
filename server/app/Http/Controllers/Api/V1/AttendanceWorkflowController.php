@@ -118,6 +118,7 @@ class AttendanceWorkflowController extends Controller
             'return_at' => WorkTime::iso($item->return_at),
             'reason' => $item->reason,
             'status' => $item->status,
+            'approval_tier' => $item->approval_tier,
             'decision_reason' => $item->decision_reason,
             'attachments' => $item->attachments->map(fn ($attachment) => $this->attachmentData($attachment))->values(),
         ];
@@ -134,6 +135,7 @@ class AttendanceWorkflowController extends Controller
             'requested_check_out_at' => WorkTime::iso($item->requested_check_out_at),
             'reason' => $item->reason,
             'status' => $item->status,
+            'approval_tier' => $item->approval_tier,
             'decision_reason' => $item->decision_reason,
             'attachments' => $item->attachments->map(fn ($attachment) => $this->attachmentData($attachment))->values(),
         ];

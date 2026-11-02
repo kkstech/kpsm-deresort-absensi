@@ -16,6 +16,7 @@ use App\Models\AuditLog;
 use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
+use App\Models\EmployeeLevel;
 use App\Models\LatePermission;
 use App\Models\Position;
 use App\Models\ShiftSession;
@@ -69,9 +70,14 @@ class AttendanceWorkflowTest extends TestCase
         $this->session = $assignment->sessions()->firstOrFail();
     }
 
-    public function test_late_permission_requires_configured_evidence_and_supervisor_approval_preserves_raw_time(): void
+    public function test_manager_late_permission_requires_super_admin_and_preserves_raw_time(): void
     {
         Storage::fake('local');
+        $level = EmployeeLevel::query()->create([
+            'code' => 'MGR', 'name' => 'Manager', 'requires_super_admin_approval' => true,
+        ]);
+        $this->employee->update(['level_id' => $level->id]);
+        $superAdmin = User::factory()->role('super_admin')->create();
         $this->session->update(['policy_snapshot' => [...$this->session->policy_snapshot, 'late_permission_proof_required' => true]]);
         $input = [
             'shift_session_id' => $this->session->id,
@@ -86,8 +92,10 @@ class AttendanceWorkflowTest extends TestCase
             ...$input,
             'evidence' => UploadedFile::fake()->create('surat.pdf', 24, 'application/pdf'),
         ]);
-        $response->assertCreated()->assertJsonPath('data.status', 'PENDING')->assertJsonMissingPath('data.attachments.0.path');
+        $response->assertCreated()->assertJsonPath('data.status', 'PENDING')
+            ->assertJsonPath('data.approval_tier', 'super_admin')->assertJsonMissingPath('data.attachments.0.path');
         $permissionId = $response->json('data.id');
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $superAdmin->id]);
         $attachment = AttendanceAttachment::query()->firstOrFail();
         Storage::disk('local')->assertExists($attachment->path);
         $this->withToken($this->token)->get("/api/v1/attendance/attachments/{$attachment->id}")->assertOk();
@@ -111,6 +119,14 @@ class AttendanceWorkflowTest extends TestCase
 
         $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
         $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Bukti sesuai',
+        ])->assertForbidden();
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)->getJson('/admin/api/workflows?status=PENDING')->assertOk()->assertJsonCount(0, 'late_permissions');
+        $this->actingAs($admin)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Bukti sesuai',
+        ])->assertForbidden();
+        $this->actingAs($superAdmin)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Bukti sesuai',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
         $this->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
@@ -155,8 +171,8 @@ class AttendanceWorkflowTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.permission_type', 'temporary_exit');
 
         $permissionId = $response->json('data.id');
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
-        $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui oleh atasan',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
 
@@ -197,8 +213,8 @@ class AttendanceWorkflowTest extends TestCase
             'leave_at' => now()->toIso8601String(),
             'reason' => 'Kondisi keluarga mendesak',
         ])->assertCreated()->json('data');
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
-        $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permission['id']}/decision", [
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)->postJson("/admin/api/late-permissions/{$permission['id']}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk();
 
@@ -245,6 +261,10 @@ class AttendanceWorkflowTest extends TestCase
 
     public function test_correction_approval_updates_projection_once_and_keeps_raw_events_unchanged(): void
     {
+        $level = EmployeeLevel::query()->create([
+            'code' => 'MGR', 'name' => 'Manager', 'requires_super_admin_approval' => true,
+        ]);
+        $this->employee->update(['level_id' => $level->id]);
         $checkIn = $this->session->start_at->addMinutes(20);
         $checkOut = $this->session->end_at->subMinutes(30);
         $inEvent = $this->rawEvent($this->session, 'correction-checkin', 'CHECK_IN', $checkIn);
@@ -264,12 +284,20 @@ class AttendanceWorkflowTest extends TestCase
             'shift_session_id' => $this->session->id,
             'requested_check_in_at' => $requestedCheckIn->toIso8601String(),
             'reason' => 'Perangkat gagal mencatat waktu dengan benar',
-        ])->assertCreated()->assertJsonPath('data.status', 'PENDING');
+        ])->assertCreated()->assertJsonPath('data.status', 'PENDING')->assertJsonPath('data.approval_tier', 'super_admin');
         $correctionId = $response->json('data.id');
 
         $admin = User::factory()->role('admin')->create();
         $url = "/admin/api/attendance-corrections/{$correctionId}/decision";
         $this->actingAs($admin)->postJson($url, [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui berdasarkan bukti',
+        ])->assertForbidden();
+        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
+        $this->actingAs($supervisor)->postJson($url, [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui berdasarkan bukti',
+        ])->assertForbidden();
+        $superAdmin = User::factory()->role('super_admin')->create();
+        $this->actingAs($superAdmin)->postJson($url, [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui berdasarkan bukti',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
         $auditCount = AuditLog::query()->count();
@@ -279,7 +307,7 @@ class AttendanceWorkflowTest extends TestCase
         $correction = AttendanceCorrection::query()->findOrFail($correctionId);
         $this->assertTrue($record->check_in_at->equalTo($requestedCheckIn));
         $this->assertSame(480, $record->verified_minutes);
-        $this->assertSame($admin->id, $correction->applied_by);
+        $this->assertSame($superAdmin->id, $correction->applied_by);
         $this->assertSame(480, $correction->after_json['verified_minutes']);
         $this->assertSame($auditCount, AuditLog::query()->count());
         $this->assertDatabaseHas('attendance_events', ['id' => $inEvent->id, 'effective_at' => $checkIn->format('Y-m-d H:i:s')]);

@@ -66,6 +66,12 @@ class OvertimeAdminController extends Controller
             ->with(['session', 'employee.department', 'decisionMaker'])
             ->whereIn('employee_id', $visibleIds);
 
+        if (! $request->user()->isSuperAdmin()) {
+            $query->where(function ($query) {
+                $query->where('status', '!=', 'PENDING')->orWhere('approval_tier', 'admin');
+            });
+        }
+
         if ($request->filled('from') && $request->filled('to')) {
             $query->whereBetween('work_date', [$request->input('from'), $request->input('to')]);
         } elseif ($request->filled('month')) {

@@ -48,6 +48,7 @@ class ManageAttendanceWorkflow
                 'shift_session_id' => $session->id,
                 'permission_type' => $permissionType,
                 'employee_id' => $lockedEmployee->id,
+                'approval_tier' => $lockedEmployee->approvalTierFor($session->assignment->work_date),
                 'requester_id' => $actor->id,
                 'allowed_until' => isset($data['allowed_until']) ? CarbonImmutable::parse($data['allowed_until'])->utc() : null,
                 'allowed_minutes' => $data['allowed_minutes'] ?? null,
@@ -107,9 +108,9 @@ class ManageAttendanceWorkflow
         $item = LatePermission::query()->findOrFail($permissionId);
 
         return DB::transaction(function () use ($actor, $item, $permissionId, $decision, $reason) {
-            [$employee, $session, $record] = $this->lockedSession($item->shift_session_id);
+            [, $session, $record] = $this->lockedSession($item->shift_session_id);
             $permission = LatePermission::query()->lockForUpdate()->findOrFail($permissionId);
-            $this->authorizeApprover($actor, $employee, $permission->requester_id);
+            $this->authorizeApprover($actor, $permission->requester_id, $permission->approval_tier);
             $this->assertOpen($session);
 
             if ($permission->status !== 'PENDING') {
@@ -161,6 +162,7 @@ class ManageAttendanceWorkflow
             $correction = AttendanceCorrection::query()->create([
                 'shift_session_id' => $session->id,
                 'employee_id' => $lockedEmployee->id,
+                'approval_tier' => $lockedEmployee->approvalTierFor($session->assignment->work_date),
                 'requester_id' => $actor->id,
                 'requested_check_in_at' => isset($data['requested_check_in_at']) ? CarbonImmutable::parse($data['requested_check_in_at'])->utc() : null,
                 'requested_check_out_at' => isset($data['requested_check_out_at']) ? CarbonImmutable::parse($data['requested_check_out_at'])->utc() : null,
@@ -176,14 +178,12 @@ class ManageAttendanceWorkflow
 
     public function decideCorrection(User $actor, int $correctionId, string $decision, string $reason): AttendanceCorrection
     {
-        if (! $actor->isAdmin()) {
-            throw new BusinessRuleException('FORBIDDEN', 'Koreksi absensi hanya dapat diputuskan Admin.', 403);
-        }
         $item = AttendanceCorrection::query()->findOrFail($correctionId);
 
         return DB::transaction(function () use ($actor, $item, $correctionId, $decision, $reason) {
             [, $session, $record] = $this->lockedSession($item->shift_session_id);
             $correction = AttendanceCorrection::query()->lockForUpdate()->findOrFail($correctionId);
+            $this->authorizeApprover($actor, $correction->requester_id, $correction->approval_tier);
             $this->assertOpen($session);
 
             if ($correction->status !== 'PENDING') {
@@ -412,15 +412,12 @@ class ManageAttendanceWorkflow
         }
     }
 
-    private function authorizeApprover(User $actor, Employee $employee, ?int $requesterId): void
+    private function authorizeApprover(User $actor, ?int $requesterId, string $approvalTier): void
     {
         if ($actor->id === $requesterId) {
             throw new BusinessRuleException('SELF_APPROVAL', 'Pengaju tidak dapat menyetujui permintaannya sendiri.', 403);
         }
-        if ($actor->isAdmin()) {
-            return;
-        }
-        if ($actor->isSupervisor() && $actor->canSeeEmployee($employee)) {
+        if ($actor->canApproveTier($approvalTier)) {
             return;
         }
         throw new BusinessRuleException('FORBIDDEN', 'Tidak berwenang menyetujui izin ini.', 403);

@@ -72,6 +72,10 @@ type Profile = {
     avatar_url?: string | null;
   } | null;
 };
+type ColleaguePage = {
+  data: Colleague[];
+  meta?: { offset?: number; limit?: number; next_offset?: number; has_more?: boolean };
+};
 type LeaveBalance = { year: number; opening_confirmed: boolean; regular: { entitled: number; used: number; reserved: number; available: number }; day_off: { entitled: number; used: number; reserved: number; available: number } };
 type WorkRequest = {
   id: number;
@@ -315,10 +319,10 @@ function TextField({ label, value, onChangeText, placeholder, multiline = false,
   );
 }
 
-function PickerTrigger({ label, value, placeholder, icon, onPress }: { label: string; value?: string; placeholder: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {
+function PickerTrigger({ label, optionalLabel, value, placeholder, icon, onPress }: { label: string; optionalLabel?: string; value?: string; placeholder: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={styles.fieldLabel}>{label}{optionalLabel && <Text style={styles.fieldLabelOptional}> {optionalLabel}</Text>}</Text>
       <Pressable onPress={onPress} style={styles.pickerTrigger}>
         <Text style={[styles.pickerTriggerValue, !value && styles.pickerTriggerPlaceholder]}>
           {value || placeholder}
@@ -750,11 +754,14 @@ async function appendFileToFormData(
 }
 
 function Main() {
-  const [baseUrl, setBaseUrl] = useState(process.env.EXPO_PUBLIC_API_URL || 'http://192.168.106.188:8000');
+  const configuredBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+  const [baseUrl, setBaseUrl] = useState(configuredBaseUrl || 'http://192.168.106.188:8000');
   const [token, setToken] = useState<string | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
   const sessionEpochRef = useRef(0);
   const activeUserIdRef = useRef<number | null>(null);
+  const colleagueRequestRef = useRef(0);
+  const colleagueSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -816,6 +823,12 @@ function Main() {
   const [shiftExchanges, setShiftExchanges] = useState<ShiftExchangeItem[]>([]);
   const [adminShiftExchanges, setAdminShiftExchanges] = useState<ShiftExchangeItem[]>([]);
   const [colleagues, setColleagues] = useState<Colleague[]>([]);
+  const [selectedColleagueDetail, setSelectedColleagueDetail] = useState<Colleague | null>(null);
+  const [colleagueNextOffset, setColleagueNextOffset] = useState(0);
+  const [colleagueHasMore, setColleagueHasMore] = useState(false);
+  const [colleagueLoading, setColleagueLoading] = useState(false);
+  const [colleagueLoadingMore, setColleagueLoadingMore] = useState(false);
+  const [colleagueError, setColleagueError] = useState('');
   const [allEmployees, setAllEmployees] = useState<Colleague[]>([]);
   const [adminSchedules, setAdminSchedules] = useState<Assignment[]>([]);
   const [adminScheduleEmpFilter, setAdminScheduleEmpFilter] = useState<number | null>(null);
@@ -876,6 +889,7 @@ function Main() {
 
   useEffect(() => () => {
     if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
+    if (colleagueSearchTimerRef.current) clearTimeout(colleagueSearchTimerRef.current);
   }, []);
 
   // Decision Modal state (for HRD to reject or review approval)
@@ -1006,7 +1020,15 @@ function Main() {
           await clearCache();
         }
         if (!alive) return;
-        if (storedUrl) setBaseUrl(storedUrl);
+        if (configuredBaseUrl) {
+          setBaseUrl(configuredBaseUrl);
+          if (storedUrl !== configuredBaseUrl) {
+            await authStore.saveUrl(configuredBaseUrl).catch(() => {});
+          }
+        } else if (storedUrl) {
+          setBaseUrl(storedUrl);
+        }
+        if (!alive) return;
         sessionTokenRef.current = storedToken;
         activeUserIdRef.current = storedUserId;
         setDeviceId(device);
@@ -1032,6 +1054,8 @@ function Main() {
   const handleSessionExpired = useCallback(async (msg?: string, expiredToken?: string | null, clearUserId = false) => {
     if (expiredToken && sessionTokenRef.current !== expiredToken && !(clearUserId && sessionTokenRef.current === null)) return;
     sessionEpochRef.current += 1;
+    colleagueRequestRef.current += 1;
+    if (colleagueSearchTimerRef.current) clearTimeout(colleagueSearchTimerRef.current);
     sessionTokenRef.current = null;
     if (clearUserId) {
       activeUserIdRef.current = null;
@@ -1055,6 +1079,12 @@ function Main() {
     setAdminSchedules([]);
     setOvertimes([]);
     setColleagues([]);
+    setSelectedColleagueDetail(null);
+    setColleagueNextOffset(0);
+    setColleagueHasMore(false);
+    setColleagueLoading(false);
+    setColleagueLoadingMore(false);
+    setColleagueError('');
     setAllEmployees([]);
     setError(msg || 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
   }, []);
@@ -1240,7 +1270,7 @@ function Main() {
         { key: 'corrections', promise: request<{ data: WorkRequest[] }>(url, 'attendance-corrections', authToken) },
         { key: 'shiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges', authToken) },
         { key: 'overtimes', promise: fetchOvertimes(url, authToken) },
-        { key: 'colleagues', promise: request<{ data: Colleague[] }>(url, 'shift-exchanges/colleagues', authToken) },
+        { key: 'colleagues', promise: request<ColleaguePage>(url, 'shift-exchanges/colleagues?offset=0&limit=5', authToken) },
       ] : []),
       ...(isAdminAccount ? [
         { key: 'adminShiftExchanges', promise: request<{ data: ShiftExchangeItem[] }>(url, 'shift-exchanges?scope=admin', authToken) },
@@ -1268,12 +1298,15 @@ function Main() {
           const value = result.value;
           let normalized: any = task.key === 'profile'
             ? (value as { user: Profile }).user
-            : task.key === 'notifications' ? value : (value as { data: unknown }).data;
+            : task.key === 'notifications' || task.key === 'colleagues' ? value : (value as { data: unknown }).data;
           if (task.key === 'profile') {
             normalized = normalizeProfile(normalized as Profile);
           } else if (task.key === 'shiftExchanges' || task.key === 'adminShiftExchanges') {
             normalized = Array.isArray(normalized) ? normalized.map(normalizeExchangeItem) : [];
-          } else if (task.key === 'colleagues' || task.key === 'allEmployees') {
+          } else if (task.key === 'colleagues') {
+            const page = normalized as ColleaguePage;
+            normalized = { ...page, data: Array.isArray(page.data) ? page.data.map(normalizeColleague) : [] };
+          } else if (task.key === 'allEmployees') {
             normalized = Array.isArray(normalized) ? normalized.map(normalizeColleague) : [];
           }
           if (task.key === 'profile' && normalized?.id !== sessionUserId) {
@@ -1334,8 +1367,13 @@ function Main() {
     }
     if (key === 'overtimes') setOvertimes(Array.isArray(value) ? value as OvertimeItem[] : []);
     if (key === 'colleagues') {
-      const list = Array.isArray(value) ? value : [];
+      const page = Array.isArray(value)
+        ? { data: value.slice(0, 5), meta: { next_offset: Math.min(value.length, 5), has_more: value.length >= 5 } }
+        : value as ColleaguePage;
+      const list = Array.isArray(page?.data) ? page.data : [];
       setColleagues(list.map(normalizeColleague));
+      setColleagueNextOffset(page?.meta?.next_offset ?? list.length);
+      setColleagueHasMore(page?.meta?.has_more ?? list.length >= 5);
     }
     if (key === 'adminShiftExchanges') {
       const list = Array.isArray(value) ? value : [];
@@ -1347,6 +1385,55 @@ function Main() {
       setAllEmployees(list.map(normalizeColleague));
     }
     if (key === 'notifications') setNotificationFeed(value as NotificationFeed);
+  }
+
+  async function loadColleaguePage(offset: number, limit: number, search: string, append: boolean) {
+    if (!token || !baseUrl) return;
+    const authToken = token;
+    const requestId = ++colleagueRequestRef.current;
+    const query = search.trim();
+    const path = `shift-exchanges/colleagues?offset=${offset}&limit=${limit}${query ? `&search=${encodeURIComponent(query)}` : ''}`;
+    if (append) setColleagueLoadingMore(true);
+    else setColleagueLoading(true);
+    setColleagueError('');
+
+    try {
+      const page = await request<ColleaguePage>(baseUrl, path, authToken);
+      if (requestId !== colleagueRequestRef.current || sessionTokenRef.current !== authToken) return;
+      const rows = Array.isArray(page.data) ? page.data.map(normalizeColleague) : [];
+      setColleagues((current) => {
+        if (!append) return rows;
+        const byId = new Map(current.map((colleague) => [colleague.id, colleague]));
+        rows.forEach((colleague) => byId.set(colleague.id, colleague));
+        return [...byId.values()];
+      });
+      setColleagueNextOffset(page.meta?.next_offset ?? offset + rows.length);
+      setColleagueHasMore(Boolean(page.meta?.has_more));
+    } catch (failure) {
+      if (requestId === colleagueRequestRef.current && failure instanceof Error) {
+        setColleagueError(failure.message);
+      }
+    } finally {
+      if (requestId === colleagueRequestRef.current) {
+        setColleagueLoading(false);
+        setColleagueLoadingMore(false);
+      }
+    }
+  }
+
+  function searchColleagues(value: string) {
+    setColleagueQuery(value);
+    setColleagues([]);
+    setColleagueNextOffset(0);
+    setColleagueHasMore(false);
+    setColleagueLoading(true);
+    setColleagueLoadingMore(false);
+    setColleagueError('');
+    colleagueRequestRef.current += 1;
+    if (colleagueSearchTimerRef.current) clearTimeout(colleagueSearchTimerRef.current);
+    colleagueSearchTimerRef.current = setTimeout(() => {
+      loadColleaguePage(0, 5, value, false);
+    }, 300);
   }
 
   async function refreshNotificationFeed(authToken = token, url = baseUrl) {
@@ -1652,6 +1739,7 @@ function Main() {
 
   async function selectColleague(empId: number) {
     setSwapTargetEmpId(empId);
+    setSelectedColleagueDetail(colleagues.find((colleague) => colleague.id === empId) ?? null);
     setSwapTargetAssId(null);
     setLoadingTargetSchedules(true);
     try {
@@ -1689,6 +1777,7 @@ function Main() {
 
       setSwapSourceAssId(null);
       setSwapTargetEmpId(null);
+      setSelectedColleagueDetail(null);
       setSwapTargetAssId(null);
       setTargetEmpSchedules([]);
       setReason('');
@@ -2599,7 +2688,7 @@ function Main() {
             </View>
             <View style={styles.balanceDivider} />
             <View>
-              <Text style={styles.cardEyebrow}>DAY OFF</Text>
+              <Text style={styles.cardEyebrow}>DEPOSIT OFF</Text>
               <Text style={styles.balanceValue}>{balance.day_off.available}<Text style={styles.balanceUnit}> hari</Text></Text>
               <Text style={styles.cardCopy}>{balance.day_off.used} terpakai</Text>
             </View>
@@ -2760,7 +2849,8 @@ function Main() {
 
   function renderSwapForm() {
     const selectedSource = myUpcomingAssignments.find((a) => a.id === swapSourceAssId);
-    const selectedColleague = colleagues.find((c) => c.id === swapTargetEmpId);
+    const selectedColleague = colleagues.find((c) => c.id === swapTargetEmpId)
+      ?? (selectedColleagueDetail?.id === swapTargetEmpId ? selectedColleagueDetail : null);
     const selectedTargetSchedule = targetEmpSchedules.find((s) => s.id === swapTargetAssId);
 
     return (
@@ -2847,14 +2937,14 @@ function Main() {
             <Text style={styles.fieldLabel}>Pilih Rekan Pengganti:</Text>
             <TextInput
               value={colleagueQuery}
-              onChangeText={setColleagueQuery}
-              placeholder="Cari nama rekan…"
+              onChangeText={searchColleagues}
+              placeholder="Cari nama, jabatan, departemen, atau kode…"
               placeholderTextColor={colors.muted}
               style={[styles.input, { marginTop: 8 }]}
               accessibilityLabel="Cari rekan pengganti"
             />
             <View style={styles.employeeChoiceList}>
-              {colleagues.filter((col) => `${col.name} ${nameOrString(col.department)} ${col.code ?? ''}`.toLowerCase().includes(colleagueQuery.trim().toLowerCase())).map((col) => {
+              {colleagues.map((col) => {
                 const selected = swapTargetEmpId === col.id;
                 return <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.employeeChoiceRow, selected && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected }}>
                   <View style={styles.employeeChoiceCopy}>
@@ -2864,7 +2954,27 @@ function Main() {
                   {selected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                 </Pressable>;
               })}
-              {colleagues.length > 0 && !colleagues.some((col) => `${col.name} ${nameOrString(col.department)} ${col.code ?? ''}`.toLowerCase().includes(colleagueQuery.trim().toLowerCase())) && <Text style={styles.fieldHint}>Rekan tidak ditemukan.</Text>}
+              {colleagueLoading && <View style={styles.inlineLoadingRow}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.fieldHint}>Memuat daftar rekan…</Text></View>}
+              {!!colleagueError && (
+                <View>
+                  <Text style={styles.errorText}>{colleagueError}</Text>
+                  <Pressable onPress={() => loadColleaguePage(0, 5, colleagueQuery, false)} style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }]} accessibilityRole="button">
+                    <Text style={styles.wizardNextText}>Coba lagi</Text>
+                  </Pressable>
+                </View>
+              )}
+              {!colleagueLoading && !colleagueError && colleagues.length === 0 && <Text style={styles.fieldHint}>{colleagueQuery.trim() ? 'Karyawan tidak ditemukan. Coba kata kunci lain.' : 'Belum ada karyawan lain yang dapat dipilih.'}</Text>}
+              {colleagueHasMore && (
+                <Pressable
+                  disabled={colleagueLoading || colleagueLoadingMore}
+                  onPress={() => loadColleaguePage(colleagueNextOffset, 10, colleagueQuery, true)}
+                  style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }, (colleagueLoading || colleagueLoadingMore) && styles.disabled]}
+                  accessibilityRole="button"
+                >
+                  {colleagueLoadingMore ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+                  <Text style={styles.wizardNextText}>{colleagueLoadingMore ? 'Memuat…' : 'Lihat 10 lainnya'}</Text>
+                </Pressable>
+              )}
             </View>
 
             {swapMode === 'direct' ? (
@@ -2905,7 +3015,7 @@ function Main() {
                   {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
                     <Pressable key={opt} onPress={() => setSwapVacancyAction(opt)} style={[styles.segment, swapVacancyAction === opt && styles.segmentActive]}>
                       <Text style={[styles.segmentText, swapVacancyAction === opt && styles.segmentTextActive]}>
-                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Day Off'}
+                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Deposit Off'}
                       </Text>
                     </Pressable>
                   ))}
@@ -2958,7 +3068,7 @@ function Main() {
                 <Text style={styles.wizardSummaryVal}>
                   {swapMode === 'direct'
                     ? (selectedTargetSchedule ? `${localDate(selectedTargetSchedule.work_date)} (${selectedTargetSchedule.template_name})` : '—')
-                    : `Pelepasan (${swapVacancyAction === 'roster_off' ? 'Roster Off' : swapVacancyAction === 'regular' ? 'Cuti' : 'Day Off'})`}
+                    : `Pelepasan (${swapVacancyAction === 'roster_off' ? 'Roster Off' : swapVacancyAction === 'regular' ? 'Cuti' : 'Deposit Off'})`}
                 </Text>
               </View>
             </View>
@@ -3155,7 +3265,8 @@ function Main() {
               </View>
               <View style={{ flex: 1 }}>
                 <PickerTrigger
-                  label="Tanggal Akhir (Opsional)"
+                  label="Tanggal Akhir"
+                  optionalLabel="(Opsional)"
                   value={endDate ? localDate(endDate) : ''}
                   placeholder="Pilih tanggal"
                   icon="calendar"
@@ -3175,7 +3286,7 @@ function Main() {
                 <Text style={[styles.segmentText, leaveType === 'regular' && styles.segmentTextActive]}>Cuti reguler</Text>
               </Pressable>
               <Pressable onPress={() => setLeaveType('day_off')} style={[styles.segment, leaveType === 'day_off' && styles.segmentActive]}>
-                <Text style={[styles.segmentText, leaveType === 'day_off' && styles.segmentTextActive]}>Day off</Text>
+                <Text style={[styles.segmentText, leaveType === 'day_off' && styles.segmentTextActive]}>Deposit Off</Text>
               </Pressable>
             </View>
 
@@ -3370,7 +3481,7 @@ function Main() {
                   <Text style={styles.metaLabel}>Jadwal pengganti: <Text style={styles.metaValue}>{localDate(item.target_assignment.work_date)} ({item.target_assignment.template_name})</Text></Text>
                 )}
                 {item.swap_mode === 'delegation' && item.vacancy_action && (
-                  <Text style={styles.metaLabel}>Status roster pemohon: <Text style={styles.metaValue}>{item.vacancy_action === 'roster_off' ? 'Roster Off' : item.vacancy_action === 'regular' ? 'Potong Cuti' : 'Potong Day Off'}</Text></Text>
+                  <Text style={styles.metaLabel}>Status roster pemohon: <Text style={styles.metaValue}>{item.vacancy_action === 'roster_off' ? 'Roster Off' : item.vacancy_action === 'regular' ? 'Potong Cuti' : 'Potong Deposit Off'}</Text></Text>
                 )}
                 <Text style={styles.metaLabel}>Alasan pemohon: <Text style={styles.metaValue}>"{item.reason}"</Text></Text>
                 {item.decision_reason && (
@@ -3518,7 +3629,7 @@ function Main() {
             {balance && (
               <View style={styles.balanceStrip}>
                 <Text style={styles.cardTitle}>Tersedia tahun {balance.year}</Text>
-                <Text style={styles.cardCopy}>Cuti reguler {balance.regular.available} hari · Day off {balance.day_off.available} hari{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
+                <Text style={styles.cardCopy}>Cuti reguler {balance.regular.available} hari · Deposit Off {balance.day_off.available} hari{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
               </View>
             )}
 
@@ -3800,7 +3911,6 @@ function Main() {
             <Text style={styles.loginHeading}>Masuk ke akun</Text>
             <Text style={styles.intro}>Gunakan username (kode karyawan) dan password akun untuk mengakses jadwal dan absensi.</Text>
             <View style={styles.formCard}>
-              <TextField label="Alamat server" value={baseUrl} onChangeText={setBaseUrl} placeholder="https://domain-anda.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
               <TextField label="Username (Kode Karyawan)" value={username} onChangeText={setUsername} placeholder="contoh: FO-001" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="username" textContentType="username" />
               <TextField label="Password" value={password} onChangeText={setPassword} placeholder="Password akun" secureTextEntry autoCapitalize="none" autoCorrect={false} />
               {!!error && (
@@ -3917,7 +4027,7 @@ function Main() {
                   {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
                     <Pressable key={opt} onPress={() => setDecisionVacancyAction(opt)} style={[styles.segment, decisionVacancyAction === opt && styles.segmentActive]}>
                       <Text style={[styles.segmentText, decisionVacancyAction === opt && styles.segmentTextActive]}>
-                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Day Off'}
+                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Deposit Off'}
                       </Text>
                     </Pressable>
                   ))}
@@ -4071,7 +4181,7 @@ function Main() {
                     {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
                       <Pressable key={opt} onPress={() => { setDirectVacancyAction(opt); setDirectPreview(null); }} style={[styles.segment, directVacancyAction === opt && styles.segmentActive]}>
                         <Text style={[styles.segmentText, directVacancyAction === opt && styles.segmentTextActive]}>
-                          {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti Reguler' : 'Day Off'}
+                          {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti Reguler' : 'Deposit Off'}
                         </Text>
                       </Pressable>
                     ))}
@@ -4345,6 +4455,7 @@ const styles = StyleSheet.create({
   notificationExpandButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   field: { gap: 6, marginTop: 14 },
   fieldLabel: { color: colors.ink, fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  fieldLabelOptional: { color: colors.muted, fontSize: 10, fontWeight: '500' },
   fieldHint: { color: colors.muted, fontSize: 12.5, fontStyle: 'italic', marginTop: 4 },
   inputWrapper: { position: 'relative', justifyContent: 'center' },
   input: { minHeight: 52, paddingHorizontal: 14, borderWidth: 1.5, borderColor: '#C4CDC6', borderRadius: 10, color: colors.ink, fontSize: 15, fontWeight: '500', backgroundColor: '#fff' },

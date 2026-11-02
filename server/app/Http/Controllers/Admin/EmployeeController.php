@@ -415,17 +415,41 @@ class EmployeeController extends Controller
         Gate::authorize('admin');
         $data = $request->validate([
             'type' => ['required', 'in:permanent,contract'],
-            'starts_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.WorkTime::today()],
+            'starts_on' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.$employee->started_on],
             'ends_on' => ['required_if:type,contract', 'nullable', 'date_format:Y-m-d', 'after_or_equal:starts_on', 'prohibited_unless:type,contract'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
         $term = DB::transaction(function () use ($employee, $data, $request) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
-            $existingFuture = $employee->employmentTerms()->where('starts_on', '>=', $data['starts_on'])->exists();
+            $existingFuture = $employee->employmentTerms()->where('starts_on', '>', $data['starts_on'])->exists();
             if ($existingFuture) {
                 abort(409, 'Sudah ada perubahan status kerja pada tanggal tersebut atau sesudahnya.');
             }
+
+            $existingAtStart = $employee->employmentTerms()
+                ->where('starts_on', $data['starts_on'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingAtStart) {
+                if ($existingAtStart->type !== 'unknown' || $data['starts_on'] !== $employee->started_on) {
+                    abort(409, 'Sudah ada status kerja pada tanggal tersebut.');
+                }
+
+                $before = $existingAtStart->attributesToArray();
+                $existingAtStart->update([
+                    'type' => $data['type'],
+                    'ends_on' => $data['type'] === 'contract' ? $data['ends_on'] : null,
+                    'reason' => $data['reason'],
+                    'created_by' => $request->user()->id,
+                ]);
+                $employee->update(['ended_on' => $data['type'] === 'contract' ? $data['ends_on'] : null]);
+                Audit::log('employment.term_created', $existingAtStart, $before, [...$existingAtStart->attributesToArray(), 'reason' => $data['reason']]);
+
+                return $existingAtStart;
+            }
+
             $current = $employee->employmentTerms()->where('starts_on', '<', $data['starts_on'])->orderByDesc('starts_on')->lockForUpdate()->first();
             $before = $current?->attributesToArray();
             if ($current && (! $current->ends_on || $current->ends_on->format('Y-m-d') >= $data['starts_on'])) {
