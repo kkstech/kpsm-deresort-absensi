@@ -71,9 +71,26 @@ class AuthController extends Controller
                 throw new BusinessRuleException('NO_EMPLOYEE', 'Akun ini belum terhubung ke data karyawan.', 403);
             }
 
+            $deviceInUse = DeviceRegistration::query()
+                ->where('device_uuid', $data['device_uuid'])
+                ->whereNull('revoked_at')
+                ->where('user_id', '!=', $user->id)
+                ->exists();
+            if ($deviceInUse) {
+                throw new BusinessRuleException(
+                    'DEVICE_IN_USE',
+                    'Perangkat ini masih terhubung ke akun lain. Masuk dengan akun yang terdaftar lalu keluar. Jika tidak bisa, hubungi admin untuk melepas perangkat.',
+                    409,
+                );
+            }
+
             $device = DeviceRegistration::query()->updateOrCreate(
                 ['user_id' => $user->id, 'device_uuid' => $data['device_uuid']],
-                ['name' => $data['device_name'] ?? null, 'last_seen_at' => now(), 'revoked_at' => null],
+                [
+                    'name' => $data['device_name'] ?? null,
+                    'last_seen_at' => now(),
+                    'revoked_at' => null,
+                ],
             );
             $user->tokens()->where('name', "device:{$device->id}")->delete();
 
@@ -86,13 +103,22 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $accessToken = $request->user()->currentAccessToken();
-        if (preg_match('/^device:(\d+)$/', (string) $accessToken?->name, $matches)) {
-            DeviceRegistration::query()
-                ->where('id', (int) $matches[1])
-                ->where('user_id', $request->user()->id)
-                ->update(['expo_push_token' => null]);
-        }
-        $accessToken?->delete();
+        DB::transaction(function () use ($request, $accessToken) {
+            if (preg_match('/^device:(\d+)$/', (string) $accessToken?->name, $matches)) {
+                $device = DeviceRegistration::query()
+                    ->where('id', (int) $matches[1])
+                    ->where('user_id', $request->user()->id)
+                    ->first();
+
+                if ($device) {
+                    DeviceRegistration::query()
+                        ->where('device_uuid', $device->device_uuid)
+                        ->whereNull('revoked_at')
+                        ->update(['revoked_at' => now(), 'expo_push_token' => null]);
+                }
+            }
+            $accessToken?->delete();
+        });
 
         return response()->json(['ok' => true]);
     }

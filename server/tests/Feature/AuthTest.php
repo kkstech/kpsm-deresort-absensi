@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Department;
+use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\Position;
 use App\Models\User;
@@ -60,6 +61,58 @@ class AuthTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->withToken($newToken)->postJson('/api/v1/auth/logout')->assertOk();
         $this->assertSame(0, $user->tokens()->count());
+        $this->assertNotNull($user->devices()->where('device_uuid', 'phone-1')->firstOrFail()->revoked_at);
+    }
+
+    public function test_a_device_can_switch_accounts_only_after_logout(): void
+    {
+        $firstUser = $this->employeeUser();
+        $secondUser = User::factory()->create();
+        Employee::query()->create([
+            'code' => 'EMP-002',
+            'name' => $secondUser->name,
+            'user_id' => $secondUser->id,
+            'status' => 'active',
+            'started_on' => '2026-01-01',
+            'department_id' => Department::query()->value('id'),
+            'position_id' => Position::query()->value('id'),
+        ]);
+
+        $firstToken = $this->postJson('/api/v1/auth/login', [
+            'email' => $firstUser->email,
+            'password' => 'password',
+            'device_uuid' => 'shared-phone',
+        ])->assertOk()->json('token');
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => $secondUser->email,
+            'password' => 'password',
+            'device_uuid' => 'shared-phone',
+        ])->assertStatus(409)->assertJsonPath('code', 'DEVICE_IN_USE');
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($firstToken)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $firstUser->id);
+        $this->app['auth']->forgetGuards();
+
+        $legacyRegistration = DeviceRegistration::query()->create([
+            'user_id' => $secondUser->id,
+            'device_uuid' => 'shared-phone',
+            'name' => 'Android',
+            'last_seen_at' => now(),
+        ]);
+        $legacyToken = $secondUser->createToken("device:{$legacyRegistration->id}")->plainTextToken;
+
+        $this->withToken($firstToken)->postJson('/api/v1/auth/logout')->assertOk();
+        $this->assertNotNull($legacyRegistration->fresh()->revoked_at);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($legacyToken)->getJson('/api/v1/me')->assertUnauthorized();
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => $secondUser->email,
+            'password' => 'password',
+            'device_uuid' => 'shared-phone',
+        ])->assertOk()->assertJsonPath('user.id', $secondUser->id);
     }
 
     public function test_employee_can_use_mobile_api_on_multiple_devices_at_once(): void

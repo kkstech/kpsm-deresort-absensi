@@ -752,6 +752,9 @@ async function appendFileToFormData(
 function Main() {
   const [baseUrl, setBaseUrl] = useState(process.env.EXPO_PUBLIC_API_URL || 'http://192.168.106.188:8000');
   const [token, setToken] = useState<string | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
+  const sessionEpochRef = useRef(0);
+  const activeUserIdRef = useRef<number | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -765,6 +768,7 @@ function Main() {
   const [online, setOnline] = useState(true);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [logoutBusy, setLogoutBusy] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('Hari ini');
   const tabFade = useRef(new Animated.Value(1)).current;
@@ -995,9 +999,16 @@ function Main() {
     let alive = true;
     (async () => {
       try {
-        const [storedUrl, storedToken, device] = await Promise.all([authStore.url(), authStore.token(), authStore.device()]);
+        const [storedUrl, storedToken, storedUserId, device] = await Promise.all([
+          authStore.url(), authStore.token(), authStore.userId(), authStore.device(),
+        ]);
+        if (storedToken && !storedUserId) {
+          await clearCache();
+        }
         if (!alive) return;
         if (storedUrl) setBaseUrl(storedUrl);
+        sessionTokenRef.current = storedToken;
+        activeUserIdRef.current = storedUserId;
         setDeviceId(device);
         setToken(storedToken);
         setOutbox(await outboxRows());
@@ -1018,9 +1029,19 @@ function Main() {
     return () => subscription.remove();
   }, []);
 
-  const handleSessionExpired = useCallback(async (msg?: string) => {
-    await authStore.clearToken();
-    await clearCache();
+  const handleSessionExpired = useCallback(async (msg?: string, expiredToken?: string | null, clearUserId = false) => {
+    if (expiredToken && sessionTokenRef.current !== expiredToken && !(clearUserId && sessionTokenRef.current === null)) return;
+    sessionEpochRef.current += 1;
+    sessionTokenRef.current = null;
+    if (clearUserId) {
+      activeUserIdRef.current = null;
+    }
+    setLoading(false);
+    await Promise.all([
+      authStore.clearToken(),
+      clearCache(),
+      clearUserId ? authStore.saveUserId(null) : Promise.resolve(),
+    ]);
     setToken(null);
     setProfile(null);
     setAssignments([]);
@@ -1068,11 +1089,12 @@ function Main() {
     setAdminScheduleLoading(true);
     setAdminSchedules([]);
     setError('');
+    const requestUserId = activeUserIdRef.current;
     request<{ data: Assignment[] }>(baseUrl, `admin/schedule?${query.toString()}`, token)
       .then(async (result) => {
         if (!active) return;
         setAdminSchedules(result.data ?? []);
-        await saveCache('adminSchedules', result.data ?? []);
+        await saveUserCache('adminSchedules', result.data ?? [], requestUserId);
       })
       .catch((failure) => {
         if (active) setError(failure instanceof Error ? failure.message : 'Jadwal karyawan belum bisa dimuat.');
@@ -1141,28 +1163,70 @@ function Main() {
 
   async function loadData(authToken = token, url = baseUrl) {
     if (!authToken || !url) return;
+    const sessionEpoch = sessionEpochRef.current;
+    const isCurrentSession = () => sessionEpochRef.current === sessionEpoch && sessionTokenRef.current === authToken;
     setLoading(true);
     setError('');
     const range = dateRange();
     const cacheKeys = ['profile', 'assignments', 'balance', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
-    const cachedValues = await Promise.all(cacheKeys.map((key) => readCache<unknown>(key)));
-    cacheKeys.forEach((key, index) => {
-      const value = cachedValues[index];
-      if (value !== null && value !== undefined) applyCached(key, value);
-    });
-    let knownProfile = normalizeProfile(cachedValues[0] as Profile | null) ?? profile;
-    let initialProfileResponse: { user: Profile } | null = null;
-    if (!knownProfile) {
-      try {
-        initialProfileResponse = await request<{ user: Profile }>(url, 'me', authToken);
-        knownProfile = normalizeProfile(initialProfileResponse.user);
-        if (knownProfile) {
-          await saveCache('profile', knownProfile);
-          applyCached('profile', knownProfile);
-        }
-      } catch {}
+    const cacheUserId = activeUserIdRef.current;
+    const cachedValues = await Promise.all(cacheKeys.map((key) => readUserCache<unknown>(key, cacheUserId)));
+    if (!isCurrentSession()) return;
+
+    const cachedProfile = normalizeProfile(cachedValues[0] as Profile | null);
+    const cachedProfileMatchesUser = Boolean(cacheUserId && cachedProfile?.id === cacheUserId);
+    if (cachedProfileMatchesUser) {
+      cacheKeys.forEach((key, index) => {
+        const value = cachedValues[index];
+        if (value !== null && value !== undefined) applyCached(key, value);
+      });
+    } else if (cachedProfile) {
+      await clearCache();
+      if (!isCurrentSession()) return;
     }
 
+    let knownProfile = cachedProfileMatchesUser
+      ? cachedProfile
+      : (profile?.id === cacheUserId ? profile : null);
+    let initialProfileResponse: { user: Profile } | null = null;
+    if (!knownProfile || !cacheUserId) {
+      try {
+        initialProfileResponse = await request<{ user: Profile }>(url, 'me', authToken);
+        if (!isCurrentSession()) return;
+
+        knownProfile = normalizeProfile(initialProfileResponse.user);
+        if (knownProfile) {
+          if (cacheUserId && cacheUserId !== knownProfile.id) {
+            const rows = await outboxRows();
+            const unresolved = rows.some((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
+            if (unresolved) {
+              await handleSessionExpired('Ada absensi yang belum selesai untuk akun sebelumnya. Masuk kembali dengan akun tersebut untuk menyinkronkan atau menyelesaikan antreannya.', authToken);
+              return;
+            }
+            await clearCache();
+          }
+          activeUserIdRef.current = knownProfile.id;
+          await authStore.saveUserId(knownProfile.id);
+          if (!isCurrentSession()) return;
+          await saveUserCache('profile', knownProfile, knownProfile.id);
+          applyCached('profile', knownProfile);
+        }
+      } catch (failure) {
+        if (!isCurrentSession()) return;
+        if (!knownProfile) {
+          setLoading(false);
+          if (failure instanceof Error) setError(failure.message);
+          setOutbox(await outboxRows());
+          return;
+        }
+      }
+    }
+
+    if (!knownProfile || !isCurrentSession()) {
+      setLoading(false);
+      return;
+    }
+    const sessionUserId = activeUserIdRef.current;
     const isEmployeeAccount = Boolean(knownProfile?.employee);
     const isAdminAccount = ['super_admin', 'admin', 'supervisor'].includes(knownProfile?.role ?? '');
     const tasks: Array<{ key: string; promise: Promise<any> }> = [
@@ -1185,16 +1249,17 @@ function Main() {
     ];
 
     const results = await Promise.allSettled(tasks.map((t) => t.promise));
+    if (!isCurrentSession()) return;
     const isUnauthorized = results.some(
       (r) => r.status === 'rejected' && r.reason instanceof ApiError && r.reason.status === 401
     );
     if (isUnauthorized) {
-      await handleSessionExpired('Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
-      setLoading(false);
+      await handleSessionExpired('Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.', authToken);
       return;
     }
 
     for (let index = 0; index < results.length; index += 1) {
+      if (!isCurrentSession()) return;
       const result = results[index];
       const task = tasks[index];
       if (!result || !task) continue;
@@ -1211,10 +1276,16 @@ function Main() {
           } else if (task.key === 'colleagues' || task.key === 'allEmployees') {
             normalized = Array.isArray(normalized) ? normalized.map(normalizeColleague) : [];
           }
-          await saveCache(task.key, normalized);
+          if (task.key === 'profile' && normalized?.id !== sessionUserId) {
+            await handleSessionExpired('Identitas akun tidak cocok dengan sesi perangkat. Silakan masuk kembali.', authToken);
+            return;
+          }
+          await saveUserCache(task.key, normalized, sessionUserId);
+          if (!isCurrentSession()) return;
           applyCached(task.key, normalized);
         } else {
-          const cached = await readCache<unknown>(task.key);
+          const cached = await readUserCache<unknown>(task.key, sessionUserId);
+          if (!isCurrentSession()) return;
           if (cached) applyCached(task.key, cached);
           const isPermittedError = result.reason instanceof ApiError && (result.reason.status === 403 || result.reason.status === 404);
           if (task.key === 'notifications') continue;
@@ -1224,8 +1295,24 @@ function Main() {
         }
       } catch { /* Cache failure must not hide server data. */ }
     }
+    if (!isCurrentSession()) return;
     setLoading(false);
-    setOutbox(await outboxRows());
+    const latestOutbox = await outboxRows();
+    if (isCurrentSession()) setOutbox(latestOutbox);
+  }
+
+  function sessionCacheKey(key: string, userId: number | null): string | null {
+    return userId ? `user:${userId}:${key}` : null;
+  }
+
+  async function saveUserCache(key: string, value: unknown, userId = activeUserIdRef.current): Promise<void> {
+    const cacheKey = sessionCacheKey(key, userId);
+    if (cacheKey) await saveCache(cacheKey, value);
+  }
+
+  async function readUserCache<T>(key: string, userId = activeUserIdRef.current): Promise<T | null> {
+    const cacheKey = sessionCacheKey(key, userId);
+    return cacheKey ? readCache<T>(cacheKey) : null;
   }
 
   function applyCached(key: string, value: unknown) {
@@ -1264,10 +1351,12 @@ function Main() {
 
   async function refreshNotificationFeed(authToken = token, url = baseUrl) {
     if (!authToken || !url) return;
+    const userId = activeUserIdRef.current;
     try {
       const feed = await request<NotificationFeed>(url, 'notifications', authToken);
+      if (sessionTokenRef.current !== authToken) return;
       setNotificationFeed(feed);
-      await saveCache('notifications', feed);
+      await saveUserCache('notifications', feed, userId);
     } catch {
       // Keep the last cached feed available while offline.
     }
@@ -1275,10 +1364,13 @@ function Main() {
 
   async function markNotificationRead(id: string) {
     if (!token) return;
+    const authToken = token;
+    const userId = activeUserIdRef.current;
     try {
-      const feed = await request<NotificationFeed>(baseUrl, `notifications/${encodeURIComponent(id)}/read`, token, { method: 'POST' });
+      const feed = await request<NotificationFeed>(baseUrl, `notifications/${encodeURIComponent(id)}/read`, authToken, { method: 'POST' });
+      if (sessionTokenRef.current !== authToken) return;
       setNotificationFeed(feed);
-      await saveCache('notifications', feed);
+      await saveUserCache('notifications', feed, userId);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Notifikasi belum bisa diperbarui.');
     }
@@ -1325,19 +1417,53 @@ function Main() {
       if (!receivedToken) {
         throw new ApiError(0, 'INVALID_RESPONSE', 'Respon server tidak valid atau bukan backend Laravel. Pastikan alamat server mengarah ke port 8000.');
       }
-      await Promise.all([authStore.saveToken(receivedToken), authStore.saveUrl(url)]);
+      const loginProfile = normalizeProfile(result.user);
+      if (!loginProfile?.id) {
+        throw new ApiError(0, 'INVALID_RESPONSE', 'Server tidak mengirim identitas akun yang valid.');
+      }
+
+      sessionEpochRef.current += 1;
+      await clearCache();
+      sessionTokenRef.current = receivedToken;
+      activeUserIdRef.current = loginProfile.id;
+      await Promise.all([
+        authStore.saveToken(receivedToken),
+        authStore.saveUrl(url),
+        authStore.saveUserId(loginProfile.id),
+      ]);
       setBaseUrl(url);
       setPassword('');
       setToken(receivedToken);
-      if (result.user) setProfile(normalizeProfile(result.user));
+      setProfile(loginProfile);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Login gagal.');
     } finally { setLoginBusy(false); }
   }
 
   async function logout() {
-    try { if (token && online) await request(baseUrl, 'auth/logout', token, { method: 'POST' }); } catch {}
-    await handleSessionExpired('');
+    if (!token || logoutBusy) return;
+    setLogoutBusy(true);
+    try {
+      const rows = await outboxRows();
+      const unresolved = rows.filter((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
+      if (unresolved.length > 0) {
+        Alert.alert(
+          'Absensi belum selesai',
+          `Selesaikan sinkronisasi atau hubungi HRD untuk ${unresolved.length} event yang belum selesai sebelum keluar.`,
+        );
+        return;
+      }
+
+      await request(baseUrl, 'auth/logout', token, { method: 'POST' });
+      await handleSessionExpired('', token, true);
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 401) return;
+      const message = failure instanceof Error ? failure.message : 'Perangkat belum berhasil dilepas dari akun.';
+      setError(message);
+      Alert.alert('Belum bisa keluar', `Perangkat belum berhasil dilepas. Periksa koneksi lalu coba lagi. ${message}`);
+    } finally {
+      setLogoutBusy(false);
+    }
   }
 
   async function syncOutbox(authToken = token, url = baseUrl) {
@@ -1376,11 +1502,15 @@ function Main() {
       }
     } catch (failure) {
       if (failure instanceof ApiError && failure.status === 401) {
-        await handleSessionExpired('Sesi login sudah habis. Masuk kembali untuk menyinkronkan data.');
+        await handleSessionExpired('Sesi login sudah habis. Masuk kembali untuk menyinkronkan data.', authToken);
       }
     } finally {
-      setOutbox(await outboxRows());
-      syncingOutbox = false;
+      try {
+        const latestOutbox = await outboxRows();
+        if (sessionTokenRef.current === authToken) setOutbox(latestOutbox);
+      } finally {
+        syncingOutbox = false;
+      }
     }
   }
 
@@ -2018,6 +2148,8 @@ function Main() {
     try {
       setEditProfileBusy(true);
       setEditProfileError('');
+      const authToken = token;
+      const userId = activeUserIdRef.current;
       const body: Record<string, string> = {
         name: editName.trim(),
         email: editEmail.trim(),
@@ -2028,13 +2160,14 @@ function Main() {
         body.password = editNewPassword;
         body.password_confirmation = editConfirmPassword;
       }
-      const res = await request<{ message: string; user: Profile }>(baseUrl, 'me', token, {
+      const res = await request<{ message: string; user: Profile }>(baseUrl, 'me', authToken, {
         method: 'PATCH',
         body,
       });
+      if (!authToken || sessionTokenRef.current !== authToken) return;
       const normalized = normalizeProfile(res.user);
       setProfile(normalized);
-      await saveCache('profile', normalized);
+      await saveUserCache('profile', normalized, userId);
       setEditProfileOpen(false);
       showFeedback('success', res.message || 'Profil berhasil diperbarui.');
       Alert.alert('Sukses', res.message || 'Profil berhasil diperbarui.');
@@ -2048,6 +2181,8 @@ function Main() {
   }
 
   async function uploadAvatarAsset(asset: ImagePicker.ImagePickerAsset) {
+    const authToken = token;
+    const userId = activeUserIdRef.current;
     try {
       setAvatarUploading(true);
 
@@ -2069,15 +2204,16 @@ function Main() {
       const form = new FormData();
       await appendFileToFormData(form, 'avatar', asset.uri, fileName, mimeType);
 
-      const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', token, {
+      const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', authToken, {
         method: 'POST',
         body: form,
       });
+      if (!authToken || sessionTokenRef.current !== authToken) return;
 
       if (res?.user) {
         const normalized = normalizeProfile(res.user);
         setProfile(normalized);
-        await saveCache('profile', normalized);
+        await saveUserCache('profile', normalized, userId);
       }
       showFeedback('success', res.message || 'Foto profil berhasil diperbarui.');
       Alert.alert('Sukses', res.message || 'Foto profil berhasil diperbarui.');
@@ -2146,12 +2282,15 @@ function Main() {
         onPress: async () => {
           try {
             setAvatarUploading(true);
-            const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', token, {
+            const authToken = token;
+            const userId = activeUserIdRef.current;
+            const res = await request<{ message: string; user: Profile }>(baseUrl, 'me/avatar', authToken, {
               method: 'DELETE',
             });
+            if (!authToken || sessionTokenRef.current !== authToken) return;
             const normalized = normalizeProfile(res.user);
             setProfile(normalized);
-            await saveCache('profile', normalized);
+            await saveUserCache('profile', normalized, userId);
             showFeedback('success', res.message || 'Foto profil berhasil dihapus.');
             Alert.alert('Sukses', res.message || 'Foto profil berhasil dihapus.');
           } catch (err) {
@@ -3632,8 +3771,8 @@ function Main() {
               <Text style={styles.secondaryButtonText}>{loading ? 'Memperbarui…' : 'Perbarui data'}</Text>
             </View>
           </Pressable>
-          <Pressable onPress={logout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Keluar dari akun</Text>
+          <Pressable disabled={logoutBusy} onPress={logout} style={[styles.logoutButton, logoutBusy && styles.disabled]} accessibilityRole="button" accessibilityState={{ disabled: logoutBusy }}>
+            <Text style={styles.logoutText}>{logoutBusy ? 'Mengeluarkan…' : 'Keluar dari akun'}</Text>
           </Pressable>
         </View>
       </ScrollView>

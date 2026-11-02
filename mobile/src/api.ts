@@ -7,7 +7,7 @@ export class ApiError extends Error {
   }
 }
 
-type UnauthorizedCallback = (message?: string) => void;
+type UnauthorizedCallback = (message?: string, token?: string | null) => void;
 let unauthorizedHandler: UnauthorizedCallback | null = null;
 
 export function onUnauthorized(handler: UnauthorizedCallback | null): void {
@@ -68,14 +68,14 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
     }
     if (response.status === 401 && path !== 'auth/login') {
       const sessionMsg = 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.';
-      unauthorizedHandler?.(sessionMsg);
+      unauthorizedHandler?.(sessionMsg, token);
     }
     throw new ApiError(response.status, data?.code, msg);
   }
   return data as T;
 }
 
-const keys = { token: 'auth-token', url: 'api-url', device: 'device-uuid' };
+const keys = { token: 'auth-token', url: 'api-url', device: 'device-uuid', userId: 'auth-user-id' };
 export const authStore = {
   token: async (): Promise<string | null> => {
     try {
@@ -97,6 +97,24 @@ export const authStore = {
     try {
       await SecureStore.deleteItemAsync(keys.token);
     } catch {}
+  },
+  userId: async (): Promise<number | null> => {
+    try {
+      const value = await SecureStore.getItemAsync(keys.userId);
+      const userId = Number(value);
+      return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
+    } catch {
+      return null;
+    }
+  },
+  saveUserId: async (value?: number | null): Promise<void> => {
+    if (!value || !Number.isSafeInteger(value) || value < 1) {
+      try {
+        await SecureStore.deleteItemAsync(keys.userId);
+      } catch {}
+      return;
+    }
+    await SecureStore.setItemAsync(keys.userId, String(value));
   },
   url: async (): Promise<string | null> => {
     try {
