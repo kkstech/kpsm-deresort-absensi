@@ -242,6 +242,7 @@
                                 <button type="button" class="text-button" data-view-link="attendance">Buka monitoring</button>
                             </div>
                             <div id="dashboard-activity" aria-live="polite"><p class="list-empty">Memuat data…</p></div>
+                            <div id="dashboard-activity-pagination" class="table-pagination"></div>
                         </div>
 
                         <div class="dashboard-side-col">
@@ -411,26 +412,26 @@
 
                     <!-- Summary Stats Counter Strip -->
                     <div class="monitoring-stats-strip" id="monitoring-stats" style="margin-bottom: 20px;">
-                        <div class="monitoring-stat-pill">
+                        <button type="button" class="monitoring-stat-pill" data-monitoring-state="" aria-pressed="true" aria-label="Tampilkan semua sesi absensi">
                             <span class="stat-num" id="stat-total-sessions">0</span>
                             <span class="stat-label">Total Sesi</span>
-                        </div>
-                        <div class="monitoring-stat-pill success">
+                        </button>
+                        <button type="button" class="monitoring-stat-pill success" data-monitoring-state="complete" aria-pressed="false" aria-label="Filter sesi hadir atau selesai">
                             <span class="stat-num" id="stat-complete-sessions">0</span>
                             <span class="stat-label">Hadir / Selesai</span>
-                        </div>
-                        <div class="monitoring-stat-pill blue">
+                        </button>
+                        <button type="button" class="monitoring-stat-pill blue" data-monitoring-state="in_progress" aria-pressed="false" aria-label="Filter sesi yang sedang bekerja">
                             <span class="stat-num" id="stat-inprogress-sessions">0</span>
                             <span class="stat-label">Sedang Bekerja</span>
-                        </div>
-                        <div class="monitoring-stat-pill warning">
+                        </button>
+                        <button type="button" class="monitoring-stat-pill warning" data-monitoring-state="late" aria-pressed="false" aria-label="Filter sesi terlambat">
                             <span class="stat-num" id="stat-late-sessions">0</span>
                             <span class="stat-label">Terlambat</span>
-                        </div>
-                        <div class="monitoring-stat-pill danger">
+                        </button>
+                        <button type="button" class="monitoring-stat-pill danger" data-monitoring-state="review" aria-pressed="false" aria-label="Filter sesi yang perlu review">
                             <span class="stat-num" id="stat-review-sessions">0</span>
                             <span class="stat-label">Perlu Review</span>
-                        </div>
+                        </button>
                     </div>
 
                     <p class="form-error" id="monitoring-error" role="alert" hidden></p>

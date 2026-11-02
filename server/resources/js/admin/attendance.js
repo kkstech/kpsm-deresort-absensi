@@ -6,6 +6,7 @@ const dashboardForm = $('#dashboard-filters');
 const monitoringForm = $('#monitoring-filters');
 let monitoringFilters = {};
 let monitoringPage = 1;
+let monitoringState = '';
 let initialized = false;
 let monitoringRows = new Map();
 
@@ -26,6 +27,12 @@ function renderGpsMeta(lat, lng, distance, accuracy) {
 
 function filterValues(form) {
     return Object.fromEntries(new FormData(form).entries());
+}
+
+function syncMonitoringStateButtons() {
+    $$('[data-monitoring-state]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.monitoringState === monitoringState));
+    });
 }
 
 function setInitialDates(form) {
@@ -85,19 +92,20 @@ function stateLabel(row) {
     })[state] ?? { label: 'Tidak ada data', className: 'neutral' };
 }
 
-function renderRecent(rows) {
+function renderRecent(rows, meta) {
     const container = $('#dashboard-activity');
     if (!rows.length) {
         container.innerHTML = '<p class="list-empty">Belum ada event absensi pada rentang ini.</p>';
-        return;
+    } else {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table attendance-data-table"><thead><tr><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th></tr></thead><tbody>${rows.map((row) => {
+            const status = stateLabel(row);
+            const checkout = row.attendance.check_out_at ?? row.attendance.provisional_out_at;
+            const inGps = renderGpsMeta(row.attendance.check_in_latitude, row.attendance.check_in_longitude, row.attendance.check_in_distance, row.attendance.check_in_accuracy);
+            const outGps = renderGpsMeta(row.attendance.check_out_latitude, row.attendance.check_out_longitude, row.attendance.check_out_distance, row.attendance.check_out_accuracy);
+            return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(row.attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${row.attendance.provisional_out_at && !row.attendance.check_out_at ? ' · provisional' : ''}` : '—'}${outGps}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
+        }).join('')}</tbody></table></div>`;
     }
-    container.innerHTML = `<div class="table-scroll"><table class="data-table attendance-data-table"><thead><tr><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th></tr></thead><tbody>${rows.map((row) => {
-        const status = stateLabel(row);
-        const checkout = row.attendance.check_out_at ?? row.attendance.provisional_out_at;
-        const inGps = renderGpsMeta(row.attendance.check_in_latitude, row.attendance.check_in_longitude, row.attendance.check_in_distance, row.attendance.check_in_accuracy);
-        const outGps = renderGpsMeta(row.attendance.check_out_latitude, row.attendance.check_out_longitude, row.attendance.check_out_distance, row.attendance.check_out_accuracy);
-        return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(row.attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${row.attendance.provisional_out_at && !row.attendance.check_out_at ? ' · provisional' : ''}` : '—'}${outGps}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
-    }).join('')}</tbody></table></div>`;
+    renderPagination($('#dashboard-activity-pagination'), meta, (page) => loadDashboard(filterValues(dashboardForm), page));
 }
 
 function showError(selector, message) {
@@ -134,7 +142,7 @@ function renderReviewBox(reviewItems) {
     }).join('')}</div>`;
 }
 
-async function loadDashboard(filters = filterValues(dashboardForm)) {
+async function loadDashboard(filters = filterValues(dashboardForm), recentPage = 1) {
     const error = $('#dashboard-error');
     error.hidden = true;
     const actEl = $('#dashboard-activity');
@@ -161,7 +169,7 @@ async function loadDashboard(filters = filterValues(dashboardForm)) {
     }
 
     try {
-        const { summary, recent, review_items } = await api('dashboard/attendance', { query: filters });
+        const { summary, recent, recent_meta, review_items } = await api('dashboard/attendance', { query: { ...filters, recent_page: recentPage } });
 
         // 1. Metric Cards
         const rate = Number(summary.attendance_rate ?? 0);
@@ -223,7 +231,7 @@ async function loadDashboard(filters = filterValues(dashboardForm)) {
         if (totalSessionsEl) totalSessionsEl.textContent = `${total} Total Sesi`;
 
         // 3. Render Recent Table
-        renderRecent(recent);
+        renderRecent(recent, recent_meta);
 
         // 4. Render Review Box
         renderReviewBox(review_items);
@@ -291,6 +299,7 @@ function renderMonitoring({ data, meta, summary }) {
     if (statLate) statLate.textContent = summary?.late ?? lateCount;
     const statReview = $('#stat-review-sessions');
     if (statReview) statReview.textContent = summary?.review ?? reviewCount;
+    syncMonitoringStateButtons();
 
     const container = $('#monitoring-table');
     if (!data.length) {
@@ -377,7 +386,9 @@ async function loadMonitoring(page = 1) {
         monTable.innerHTML = renderSkeletonTable(6, 8);
     }
     try {
-        renderMonitoring(await api('attendance', { query: { ...monitoringFilters, page, per_page: 15 } }));
+        const query = { ...monitoringFilters, page, per_page: 15 };
+        if (monitoringState) query.state = monitoringState;
+        renderMonitoring(await api('attendance', { query }));
     } catch (failure) {
         showError('#monitoring-error', failure.message);
         $('#monitoring-table').innerHTML = '<p class="list-empty">Data monitoring gagal dimuat.</p>';
@@ -1128,6 +1139,15 @@ export async function initAttendance() {
         event.preventDefault();
         monitoringFilters = filterValues(monitoringForm);
         loadMonitoring(1);
+    });
+
+    $$('[data-monitoring-state]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const selectedState = button.dataset.monitoringState;
+            monitoringState = selectedState && selectedState !== monitoringState ? selectedState : '';
+            syncMonitoringStateButtons();
+            loadMonitoring(1);
+        });
     });
 
     const monitoringPresets = $$('[data-monitoring-preset]', monitoringForm);

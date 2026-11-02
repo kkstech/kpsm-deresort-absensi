@@ -31,6 +31,7 @@ class AttendanceMonitoringController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $filters = $this->validatedFilters($request);
+        $recentPage = $request->validate(['recent_page' => ['sometimes', 'integer', 'min:1']])['recent_page'] ?? 1;
         $sessions = $this->sessions($request->user(), $filters);
         $sessionIds = (clone $sessions)->select('shift_sessions.id');
         $records = AttendanceRecord::query()->whereIn('shift_session_id', clone $sessionIds);
@@ -51,7 +52,7 @@ class AttendanceMonitoringController extends Controller
             ->orderByDesc('attendance_events_max_effective_at')
             ->orderByDesc('start_at')
             ->orderByDesc('id')
-            ->limit(8)->get();
+            ->paginate(8, ['*'], 'recent_page', $recentPage);
 
         $reviewItems = (clone $review)
             ->with($this->eagerRelations())
@@ -78,7 +79,15 @@ class AttendanceMonitoringController extends Controller
                 'completed_count' => (clone $records)->whereNotNull('check_out_at')->count(),
                 'pending_leaves_count' => $pendingLeavesCount,
             ],
-            'recent' => $recent->map(fn (ShiftSession $session) => $this->row($session))->values(),
+            'recent' => $recent->getCollection()->map(fn (ShiftSession $session) => $this->row($session))->values(),
+            'recent_meta' => [
+                'current_page' => $recent->currentPage(),
+                'last_page' => $recent->lastPage(),
+                'per_page' => $recent->perPage(),
+                'total' => $recent->total(),
+                'from' => $recent->firstItem(),
+                'to' => $recent->lastItem(),
+            ],
             'review_items' => $reviewItems->map(fn (ShiftSession $session) => $this->row($session))->values(),
         ]);
     }
@@ -86,17 +95,20 @@ class AttendanceMonitoringController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = $this->validatedFilters($request);
+        $state = $request->validate(['state' => ['sometimes', 'nullable', 'in:complete,in_progress,late,review']])['state'] ?? null;
         $perPage = min(max($request->integer('per_page', 15), 1), 100);
         $sessions = $this->sessions($request->user(), $filters);
         $sessionIds = (clone $sessions)->select('shift_sessions.id');
         $records = AttendanceRecord::query()->whereIn('shift_session_id', clone $sessionIds);
+        $filteredSessions = $this->filterSessionsByState(clone $sessions, $state);
+        $totalSessions = (clone $sessions)->count();
         $reviewCount = (clone $sessions)->where(fn (Builder $query) => $query
             ->whereHas('attendanceRecord', fn (Builder $record) => $record->where('needs_review', true))
             ->orWhere(fn (Builder $query) => $query
                 ->whereDoesntHave('attendanceRecord')
                 ->whereHas('attendanceEvents', fn (Builder $event) => $event->where('result', 'REVIEW_REQUIRED'))))->count();
 
-        $paginator = (clone $sessions)
+        $paginator = $filteredSessions
             ->with($this->eagerRelations())
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
@@ -108,7 +120,7 @@ class AttendanceMonitoringController extends Controller
             'filters' => $filters,
             'data' => $paginator->getCollection()->map(fn (ShiftSession $session) => $this->row($session))->values(),
             'summary' => [
-                'total' => $paginator->total(),
+                'total' => $totalSessions,
                 'complete' => (clone $records)->where('needs_review', false)->where('is_late', false)->whereNotNull('check_out_at')->count(),
                 'in_progress' => (clone $records)->where('needs_review', false)->where('is_late', false)->whereNotNull('check_in_at')->whereNull('check_out_at')->count(),
                 'late' => (clone $records)->where('needs_review', false)->where('is_late', true)->count(),
@@ -123,6 +135,24 @@ class AttendanceMonitoringController extends Controller
                 'to' => $paginator->lastItem(),
             ],
         ]);
+    }
+
+    private function filterSessionsByState(Builder $sessions, ?string $state): Builder
+    {
+        return match ($state) {
+            'complete' => $sessions->whereHas('attendanceRecord', fn (Builder $record) => $record
+                ->where('needs_review', false)->where('is_late', false)->whereNotNull('check_out_at')),
+            'in_progress' => $sessions->whereHas('attendanceRecord', fn (Builder $record) => $record
+                ->where('needs_review', false)->where('is_late', false)->whereNotNull('check_in_at')->whereNull('check_out_at')),
+            'late' => $sessions->whereHas('attendanceRecord', fn (Builder $record) => $record
+                ->where('needs_review', false)->where('is_late', true)),
+            'review' => $sessions->where(fn (Builder $query) => $query
+                ->whereHas('attendanceRecord', fn (Builder $record) => $record->where('needs_review', true))
+                ->orWhere(fn (Builder $query) => $query
+                    ->whereDoesntHave('attendanceRecord')
+                    ->whereHas('attendanceEvents', fn (Builder $event) => $event->where('result', 'REVIEW_REQUIRED')))),
+            default => $sessions,
+        };
     }
 
     private function eagerRelations(): array

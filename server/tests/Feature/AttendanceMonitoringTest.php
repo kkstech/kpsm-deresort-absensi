@@ -83,6 +83,77 @@ class AttendanceMonitoringTest extends TestCase
         $this->assertNotSame($visible->employee_id, $hidden->employee_id);
     }
 
+    public function test_monitoring_status_filter_matches_the_summary_cards(): void
+    {
+        $department = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $cases = [
+            ['code' => 'MON-COMP', 'name' => 'Hadir Selesai', 'state' => 'complete', 'expected' => 'COMPLETE', 'record' => [
+                'check_in_at' => '2026-10-25 01:00:00', 'check_out_at' => '2026-10-25 10:00:00', 'is_late' => false, 'needs_review' => false,
+            ]],
+            ['code' => 'MON-PROG', 'name' => 'Sedang Bekerja', 'state' => 'in_progress', 'expected' => 'IN_PROGRESS', 'record' => [
+                'check_in_at' => '2026-10-25 01:00:00', 'check_out_at' => null, 'is_late' => false, 'needs_review' => false,
+            ]],
+            ['code' => 'MON-LATE', 'name' => 'Terlambat', 'state' => 'late', 'expected' => 'PRESENT_LATE', 'record' => [
+                'check_in_at' => '2026-10-25 01:30:00', 'check_out_at' => null, 'is_late' => true, 'needs_review' => false,
+            ]],
+            ['code' => 'MON-REV', 'name' => 'Perlu Review', 'state' => 'review', 'expected' => 'NEEDS_REVIEW', 'record' => [
+                'check_in_at' => '2026-10-25 01:00:00', 'check_out_at' => null, 'is_late' => false, 'needs_review' => true,
+            ]],
+        ];
+
+        foreach ($cases as $case) {
+            $schedule = $this->schedule($department, $case['code'], $case['name']);
+            AttendanceRecord::query()->create([
+                'shift_session_id' => $schedule->sessions->first()->id,
+                'employee_id' => $schedule->employee_id,
+                'status' => 'IN_PROGRESS',
+                'verified_minutes' => 0,
+                ...$case['record'],
+            ]);
+        }
+
+        $admin = User::factory()->role('admin')->create();
+        foreach ($cases as $case) {
+            $this->actingAs($admin)
+                ->getJson('/admin/api/attendance?from=2026-10-25&to=2026-10-25&state='.$case['state'])
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.attendance.state', $case['expected'])
+                ->assertJsonPath('summary.total', 4);
+        }
+
+        $this->getJson('/admin/api/attendance?from=2026-10-25&to=2026-10-25&state=unknown')->assertUnprocessable();
+    }
+
+    public function test_dashboard_recent_attendance_list_is_paginated(): void
+    {
+        $department = Department::query()->where('name', 'Engineering')->firstOrFail();
+        for ($index = 1; $index <= 9; $index++) {
+            $schedule = $this->schedule($department, sprintf('MON-PAGE-%02d', $index), sprintf('Karyawan %02d', $index));
+            AttendanceRecord::query()->create([
+                'shift_session_id' => $schedule->sessions->first()->id,
+                'employee_id' => $schedule->employee_id,
+                'check_in_at' => '2026-10-25 01:00:00',
+                'status' => 'IN_PROGRESS',
+                'is_late' => false,
+                'needs_review' => false,
+            ]);
+        }
+
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)
+            ->getJson('/admin/api/dashboard/attendance?from=2026-10-25&to=2026-10-25&recent_page=1')
+            ->assertOk()
+            ->assertJsonCount(8, 'recent')
+            ->assertJsonPath('recent_meta.total', 9)
+            ->assertJsonPath('recent_meta.last_page', 2);
+
+        $this->getJson('/admin/api/dashboard/attendance?from=2026-10-25&to=2026-10-25&recent_page=2')
+            ->assertOk()
+            ->assertJsonCount(1, 'recent')
+            ->assertJsonPath('recent_meta.current_page', 2);
+    }
+
     public function test_admin_screen_uses_dashboard_and_monitoring_controls_without_demo_data(): void
     {
         $supervisor = User::factory()->role('supervisor')->create();
@@ -91,6 +162,8 @@ class AttendanceMonitoringTest extends TestCase
             ->assertSee('id="dashboard-filters"', false)
             ->assertSee('id="monitoring-filters"', false)
             ->assertSee('id="dashboard-activity"', false)
+            ->assertSee('id="dashboard-activity-pagination"', false)
+            ->assertSee('data-monitoring-state="review"', false)
             ->assertSee('data-user-id="'.$supervisor->id.'"', false)
             ->assertDontSee('Data contoh');
     }

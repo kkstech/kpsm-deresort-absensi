@@ -1681,14 +1681,25 @@ main:focus { outline: none; }
     gap: 10px;
 }
 .monitoring-stat-pill {
+    appearance: none;
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    min-height: 44px;
     padding: 8px 14px;
     border: 1px solid var(--line);
     border-radius: 10px;
+    color: var(--ink);
     background: #fff;
     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    transition: border-color .16s ease, box-shadow .16s ease;
+}
+.monitoring-stat-pill:focus-visible {
+    outline: 3px solid var(--primary);
+    outline-offset: 2px;
 }
 .monitoring-stat-pill .stat-num {
     font-size: 15px;
@@ -1712,6 +1723,11 @@ main:focus { outline: none; }
 .monitoring-stat-pill.danger { background: #fdf2f2; border-color: #fad2d2; }
 .monitoring-stat-pill.danger .stat-num { color: #c53030; }
 .monitoring-stat-pill.danger .stat-label { color: #ba2626; }
+.monitoring-stat-pill:hover,
+.monitoring-stat-pill[aria-pressed="true"] {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+}
 .allowance-metric-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
