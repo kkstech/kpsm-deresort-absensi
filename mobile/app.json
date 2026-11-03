@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deresort Attendance",
     "slug": "deresort-attendance",
-    "version": "0.1.5",
+    "version": "0.1.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -37,7 +37,7 @@
     ],
     "android": {
       "package": "id.deresort.attendance",
-      "versionCode": 6,
+      "versionCode": 8,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -54,6 +54,7 @@
       "bundleIdentifier": "id.deresort.attendance"
     },
     "web": {
+      "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
     "extra": {

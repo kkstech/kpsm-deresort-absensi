@@ -2444,9 +2444,9 @@ function Main() {
         </View>
         {eventType && (
           allowAction ? (
-            <Pressable accessibilityRole="button" onPress={() => setIntent({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-              <Text style={styles.actionButtonText}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
-              <Text style={styles.actionHint}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server saat online'}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setIntent({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+              <Text style={[styles.actionButtonText, styles.eventButtonText]}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
+              <Text style={[styles.actionHint, styles.eventButtonText]}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server saat online'}</Text>
             </Pressable>
           ) : profileBlock ? (
             <View style={styles.sessionBlockNotice}>
@@ -2672,9 +2672,9 @@ function Main() {
               <Text style={styles.sessionBlockText}>{activeAssignment.attendance_block_message}</Text>
             </View>
           ) : activeIntent ? (
-            <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, pressed && styles.pressed]}>
-              <Text style={styles.attendanceButtonText}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
-              <Text style={styles.attendanceHint}>Sesi {activeIntent.session.seq} · {shortClock(activeIntent.session.local_start)}–{shortClock(activeIntent.session.local_end)}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+              <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
+              <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {shortClock(activeIntent.session.local_start)}–{shortClock(activeIntent.session.local_end)}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -4003,7 +4003,7 @@ function Main() {
             )}
             <View style={styles.modalActions}>
               <Pressable onPress={() => { setIntent(null); setAttendancePhoto(null); }} style={styles.cancelButton}><Text style={styles.cancelButtonText}>Batal</Text></Pressable>
-              <Pressable disabled={busy || !attendancePhoto} onPress={recordAttendance} style={[styles.confirmButton, (busy || !attendancePhoto) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : 'Kirim Presensi'}</Text></Pressable>
+              <Pressable disabled={busy || !attendancePhoto} onPress={recordAttendance} style={[styles.confirmButton, intent?.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, (busy || !attendancePhoto) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : intent?.eventType === 'CHECK_IN' ? 'Kirim Check-in' : 'Kirim Check-out'}</Text></Pressable>
             </View>
           </View>
         </View>
@@ -4394,6 +4394,9 @@ const styles = StyleSheet.create({
   attendanceButton: { minHeight: 60, justifyContent: 'center', alignItems: 'center', marginTop: 20, borderRadius: 14, backgroundColor: colors.accent },
   attendanceButtonText: { color: colors.primary, fontSize: 16, fontWeight: '800' },
   attendanceHint: { color: '#3A4D1A', fontSize: 12.5, marginTop: 4, fontWeight: '600' },
+  checkInButton: { backgroundColor: colors.primary },
+  checkOutButton: { backgroundColor: colors.danger },
+  eventButtonText: { color: '#FFFFFF' },
   pressed: { opacity: 0.82, transform: [{ scale: 0.97 }] },
   disabled: { opacity: .55 },
   btnContentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
