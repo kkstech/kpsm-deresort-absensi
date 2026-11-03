@@ -50,11 +50,15 @@ DB_PORT=3306
 DB_DATABASE=<database>
 DB_USERNAME=<user>
 DB_PASSWORD=<password>
+# Optional: absolute path to the provider CA PEM file mounted in the app container.
+MYSQL_ATTR_SSL_CA=/run/secrets/mysql-ca.pem
 ADMIN_NAME="Super Admin"
 ADMIN_EMAIL=<email-admin>
 ADMIN_PASSWORD=<password-admin>
 TRUSTED_PROXIES=REMOTE_ADDR
 ```
+
+Set `MYSQL_ATTR_SSL_CA` when the MySQL provider uses a CA that is not in the container's system trust store. Mount the provider's CA PEM file read-only at that path. Laravel and the backup/restore MySQL CLI clients use the same CA file.
 
 Image menjalankan Apache pada port 80 dan scheduler Laravel dalam container yang sama. `TRUSTED_PROXIES=REMOTE_ADDR` mempercayai header proxy dari koneksi langsung Dokploy/Traefik; jangan publikasikan port container langsung ke internet.
 

@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Pdo\Mysql;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -368,6 +369,16 @@ class DatabaseBackupService
             'host' => (string) $connection['host'],
             'port' => (string) $connection['port'],
         ];
+        $sslCa = $connection['options'][Mysql::ATTR_SSL_CA] ?? null;
+        if ($sslCa !== null && $sslCa !== '') {
+            if (! is_file($sslCa) || ! is_readable($sslCa)) {
+                File::delete($path);
+
+                throw new RuntimeException('Configured MySQL CA certificate is not readable.');
+            }
+
+            $options['ssl-ca'] = $sslCa;
+        }
         if (! empty($connection['unix_socket'])) {
             $options['socket'] = (string) $connection['unix_socket'];
         }

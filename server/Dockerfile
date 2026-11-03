@@ -9,7 +9,7 @@ RUN npm run build
 
 FROM php:8.4-apache AS php-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        default-mysql-client libfreetype6-dev libicu-dev libjpeg62-turbo-dev libonig-dev libpng-dev libxml2-dev libzip-dev \
+        ca-certificates default-mysql-client libfreetype6-dev libicu-dev libjpeg62-turbo-dev libonig-dev libpng-dev libxml2-dev libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" bcmath dom exif gd intl mbstring opcache pcntl pdo_mysql xml xmlreader xmlwriter zip \
     && rm -rf /var/lib/apt/lists/* \
