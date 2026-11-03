@@ -9,6 +9,25 @@ const attendanceWindowError = $('#attendance-window-settings-error');
 const databaseBackupSection = $('#database-backup-section');
 const databaseBackupError = $('#database-backup-error');
 const databaseBackupMessage = $('#database-backup-message');
+const setBackupHidden = (element, hidden) => {
+    if (element) element.hidden = hidden;
+};
+const setBackupMessage = (message, visible) => {
+    if (!databaseBackupMessage) {
+        if (visible && message) toast(message, 'error');
+        return;
+    }
+    if (message !== null) databaseBackupMessage.textContent = message;
+    databaseBackupMessage.hidden = !visible;
+};
+const setBackupError = (message, visible = true) => {
+    if (!databaseBackupError) {
+        if (visible && message) toast(message, 'error');
+        return;
+    }
+    if (message !== null) databaseBackupError.textContent = message;
+    databaseBackupError.hidden = !visible;
+};
 const databaseRestoreForm = $('#database-restore-form');
 const opts = (list, label = (x) => x.code ? `${x.name} (${x.code})` : x.name) => list.map((x) => ({ value: x.id, label: label(x) }));
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
@@ -323,32 +342,30 @@ async function loadAttendanceSettings() {
 async function loadDatabaseBackup() {
     $('#settings-title').textContent = tabs.backup.title;
     $('#settings-hint').textContent = tabs.backup.hint;
-    $('#settings-add').hidden = true;
-    siteForm.hidden = true;
-    attendanceWindowForm.hidden = true;
-    table.hidden = true;
-    databaseBackupSection.hidden = false;
-    databaseBackupError.hidden = true;
-    databaseBackupMessage.textContent = 'Memeriksa dukungan database…';
-    databaseBackupMessage.hidden = false;
-    $('#database-backup-safety').hidden = true;
-    $('#database-safety-empty').hidden = true;
-    $('#database-backup-controls').hidden = true;
-    $('#database-backup-unsupported').hidden = true;
+    setBackupHidden($('#settings-add'), true);
+    setBackupHidden(siteForm, true);
+    setBackupHidden(attendanceWindowForm, true);
+    setBackupHidden(table, true);
+    setBackupHidden(databaseBackupSection, false);
+    setBackupError(null, false);
+    setBackupMessage('Memeriksa dukungan database…', true);
+    setBackupHidden($('#database-backup-safety'), true);
+    setBackupHidden($('#database-safety-empty'), true);
+    setBackupHidden($('#database-backup-controls'), true);
+    setBackupHidden($('#database-backup-unsupported'), true);
 
     try {
         const { data } = await api('database-backup/status');
         const supported = Boolean(data.supported);
-        databaseBackupMessage.hidden = true;
-        $('#database-backup-unsupported').hidden = supported;
-        $('#database-backup-controls').hidden = !supported;
-        $('#database-backup-safety').hidden = !supported || !data.has_safety_backup;
-        $('#database-safety-empty').hidden = !supported || data.has_safety_backup;
+        setBackupMessage(null, false);
+        setBackupHidden($('#database-backup-unsupported'), supported);
+        setBackupHidden($('#database-backup-controls'), !supported);
+        setBackupHidden($('#database-backup-safety'), !supported || !data.has_safety_backup);
+        setBackupHidden($('#database-safety-empty'), !supported || data.has_safety_backup);
         if (!supported) return;
     } catch (error) {
-        databaseBackupMessage.hidden = true;
-        databaseBackupError.textContent = error.message;
-        databaseBackupError.hidden = false;
+        setBackupMessage(null, false);
+        setBackupError(error.message);
     }
 }
 
@@ -612,18 +629,15 @@ $('#settings-section-select')?.addEventListener('change', (event) => {
 
 $('#database-backup-download').addEventListener('click', async (event) => {
     const button = event.currentTarget;
-    databaseBackupError.hidden = true;
-    databaseBackupMessage.textContent = 'Menyiapkan backup database…';
-    databaseBackupMessage.hidden = false;
+    setBackupError(null, false);
+    setBackupMessage('Menyiapkan backup database…', true);
     button.disabled = true;
     try {
         await downloadDatabaseBackup('database-backup', 'deresort-database-backup.sql.gz');
-        databaseBackupMessage.textContent = 'Backup database berhasil dibuat dan diunduh.';
-        databaseBackupMessage.hidden = false;
+        setBackupMessage('Backup database berhasil dibuat dan diunduh.', true);
     } catch (error) {
-        databaseBackupMessage.hidden = true;
-        databaseBackupError.textContent = error.message;
-        databaseBackupError.hidden = false;
+        setBackupMessage(null, false);
+        setBackupError(error.message);
     } finally {
         button.disabled = false;
     }
@@ -641,8 +655,8 @@ restoreFile.addEventListener('change', syncRestoreButton);
 restoreConfirmation.addEventListener('input', syncRestoreButton);
 databaseRestoreForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    databaseBackupError.hidden = true;
-    databaseBackupMessage.hidden = true;
+    setBackupError(null, false);
+    setBackupMessage(null, false);
 
     if (!await confirmDialog({
         title: 'Ganti seluruh database?',
@@ -652,23 +666,21 @@ databaseRestoreForm.addEventListener('submit', async (event) => {
     })) return;
 
     restoreSubmit.disabled = true;
-    databaseBackupMessage.textContent = 'Restore berjalan. Halaman akan meminta Anda masuk kembali setelah selesai.';
-    databaseBackupMessage.hidden = false;
+    setBackupMessage('Restore berjalan. Halaman akan meminta Anda masuk kembali setelah selesai.', true);
     try {
         await api('database-backup/restore', { method: 'POST', body: new FormData(databaseRestoreForm) });
         location.assign('/login');
     } catch (error) {
-        databaseBackupMessage.hidden = true;
-        databaseBackupError.textContent = error.message;
-        databaseBackupError.hidden = false;
+        setBackupMessage(null, false);
+        setBackupError(error.message);
         const validationMessages = Object.values(error.details ?? {}).flat();
         if (validationMessages.length) {
-            databaseBackupError.textContent = validationMessages.join(' ');
+            setBackupError(validationMessages.join(' '));
         }
         try {
             const { data } = await api('database-backup/status');
-            $('#database-backup-safety').hidden = !data.has_safety_backup;
-            $('#database-safety-empty').hidden = data.has_safety_backup;
+            setBackupHidden($('#database-backup-safety'), !data.has_safety_backup);
+            setBackupHidden($('#database-safety-empty'), data.has_safety_backup);
         } catch (_) {
         }
         restoreSubmit.disabled = false;
