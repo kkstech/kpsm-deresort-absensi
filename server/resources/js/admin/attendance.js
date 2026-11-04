@@ -14,6 +14,39 @@ const formatClock = (value) => value ? new Intl.DateTimeFormat('id-ID', { timeZo
 const formatDate = (value) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00+07:00`));
 const formatMinutes = (minutes) => `${Math.floor(minutes / 60)}j ${minutes % 60}m`;
 
+function formatAttendanceDateTime(value, timeZone = 'Asia/Jakarta') {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    const options = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+    try {
+        return new Intl.DateTimeFormat('id-ID', { ...options, timeZone }).format(date);
+    } catch {
+        return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: 'Asia/Jakarta' }).format(date);
+    }
+}
+
+function renderEventTimeMeta(deviceTime, serverTime, deviceTimezone, source) {
+    if (!deviceTime && !serverTime) return '';
+    let deviceTimeZone = 'Asia/Jakarta';
+    let deviceZoneLabel = 'zona perangkat tidak tercatat; ditampilkan WIB';
+    if (deviceTimezone) {
+        try {
+            new Intl.DateTimeFormat('id-ID', { timeZone: deviceTimezone });
+            deviceTimeZone = deviceTimezone;
+            deviceZoneLabel = deviceTimezone;
+        } catch {
+            deviceZoneLabel = 'zona perangkat tidak valid; ditampilkan WIB';
+        }
+    }
+    const deviceLabel = deviceTime
+        ? `${formatAttendanceDateTime(deviceTime, deviceTimeZone)} (${esc(deviceZoneLabel)})`
+        : source === 'ONLINE' ? 'tidak dikirim untuk presensi online' : 'tidak tersedia';
+    const serverLabel = serverTime ? `${formatAttendanceDateTime(serverTime)} WIB` : '—';
+
+    return `<div class="attendance-time-meta"><small><strong>Perangkat:</strong> ${esc(deviceLabel)}</small><small><strong>Server menerima:</strong> ${esc(serverLabel)}</small></div>`;
+}
+
 function renderGpsMeta(lat, lng, distance, accuracy) {
     if (lat == null || lng == null) {
         return distance != null ? `<small class="gps-coord-meta">${esc(distance)} m</small>` : '';
@@ -355,6 +388,7 @@ function renderMonitoring({ data, meta, summary }) {
                         ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}
                         ${checkInPhotoBtn}
                     </div>
+                    ${renderEventTimeMeta(attendance.check_in_device_time, attendance.check_in_server_received_at, attendance.check_in_device_timezone, attendance.check_in_source)}
                     ${renderGpsMeta(attendance.check_in_latitude, attendance.check_in_longitude, attendance.check_in_distance, attendance.check_in_accuracy)}
                 </td>
                 <td data-label="Pulang">
@@ -362,6 +396,7 @@ function renderMonitoring({ data, meta, summary }) {
                         ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}
                         ${checkOutPhotoBtn}
                     </div>
+                    ${renderEventTimeMeta(attendance.check_out_device_time, attendance.check_out_server_received_at, attendance.check_out_device_timezone, attendance.check_out_source)}
                     ${renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy)}
                 </td>
                 <td data-label="Status"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>

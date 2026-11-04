@@ -163,7 +163,7 @@ class AttendanceMonitoringController extends Controller
             'assignment.employee.department:id,name',
             'attendanceRecord:id,shift_session_id,check_in_event_id,check_out_event_id,late_permission_id,overtime_order_id,check_in_at,check_out_at,provisional_out_at,check_in_photo_path,check_out_photo_path,is_late,needs_review,review_reason,verified_minutes,verified_overtime_minutes',
             'attendanceRecord.latePermission:id,status',
-            'attendanceEvents:id,shift_session_id,type,source,effective_at,latitude,longitude,accuracy_meters,distance_meters,is_mocked,result,reason_code,photo_path',
+            'attendanceEvents:id,shift_session_id,type,source,effective_at,server_received_at,device_time,device_timezone,latitude,longitude,accuracy_meters,distance_meters,is_mocked,result,reason_code,photo_path',
         ];
     }
 
@@ -246,7 +246,15 @@ class AttendanceMonitoringController extends Controller
             'attendance' => [
                 'state' => $state,
                 'check_in_at' => WorkTime::iso($record?->check_in_at),
+                'check_in_device_time' => WorkTime::iso($checkInEvent?->device_time),
+                'check_in_device_timezone' => $checkInEvent?->device_timezone,
+                'check_in_server_received_at' => WorkTime::iso($checkInEvent?->server_received_at),
+                'check_in_source' => $checkInEvent?->source,
                 'check_out_at' => WorkTime::iso($record?->check_out_at),
+                'check_out_device_time' => WorkTime::iso($checkOutEvent?->device_time),
+                'check_out_device_timezone' => $checkOutEvent?->device_timezone,
+                'check_out_server_received_at' => WorkTime::iso($checkOutEvent?->server_received_at),
+                'check_out_source' => $checkOutEvent?->source,
                 'provisional_out_at' => WorkTime::iso($record?->provisional_out_at),
                 'check_in_photo_url' => $record?->check_in_photo_url,
                 'check_out_photo_url' => $record?->check_out_photo_url,
