@@ -1536,7 +1536,7 @@ main:focus { outline: none; }
         min-width: 0 !important;
         width: 100% !important;
     }
-    .monitoring-data-table .monitoring-session-col {
+    .monitoring-data-table .monitoring-date-session-col {
         width: 100%;
         max-width: none;
     }
@@ -1564,9 +1564,9 @@ main:focus { outline: none; }
 #dashboard-activity, #monitoring-table { padding: 0 20px; }
 .attendance-data-table { min-width: 680px; }
 .monitoring-data-table { min-width: 1040px; }
-.monitoring-data-table .monitoring-session-col {
-    width: 6.5rem;
-    max-width: 6.5rem;
+.monitoring-data-table .monitoring-date-session-col {
+    width: 10rem;
+    max-width: 10rem;
 }
 .monitoring-session-name {
     display: block;
