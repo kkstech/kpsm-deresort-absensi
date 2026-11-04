@@ -1815,6 +1815,8 @@ main:focus { outline: none; }
 .workflow-view > .panel { margin-bottom: 0; }
 .workflow-refresh-btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; min-height: 40px; padding: 0 16px; border-radius: 8px; }
 .workflow-refresh-btn svg { width: 15px; height: 15px; stroke-width: 2; flex-shrink: 0; }
+.overtime-recommendation-trigger { display: inline-flex; align-items: center; gap: 8px; }
+.app-dialog.overtime-recommendation-dialog { width: min(760px, calc(100vw - 32px)); }
 .workflow-tabs { margin-bottom: 0; }
 .workflow-tab-panels { min-width: 0; }
 .workflow-tab-panel { display: grid; gap: 20px; min-width: 0; }

@@ -947,11 +947,13 @@ export async function showApprovals() {
 
         const recommendations = recommendationResult.data ?? [];
         const recommendationCount = $('#overtime-recommendation-count');
+        const recommendationBadge = $('#overtime-recommendation-count-badge');
         const recommendationList = $('#overtime-recommendation-list');
+        if (recommendationBadge) recommendationBadge.textContent = recommendations.length;
         if (recommendationCount) {
             recommendationCount.textContent = recommendations.length
-                ? `${recommendations.length} karyawan sedang bertugas dan shift terakhirnya segera berakhir`
-                : 'Belum ada sesi shift aktif yang berakhir dalam dua jam ke depan.';
+                ? `${recommendations.length} karyawan memenuhi syarat. Shift terakhir mereka berakhir dalam dua jam ke depan.`
+                : 'Belum ada karyawan yang memenuhi syarat. Rekomendasi muncul saat shift terakhir berakhir dalam dua jam.';
         }
         if (recommendationList) {
             recommendationList.innerHTML = recommendations.length ? recommendations.map((item) => {
@@ -1169,21 +1171,30 @@ async function openOvertimeOrderModal(employeeId = null, workDate = today, recom
 
 function initOvertimeModal() {
     const modal = $('#overtime-order-modal');
+    const recommendationModal = $('#overtime-recommendation-modal');
+    const recommendationButton = $('#open-overtime-recommendations-btn');
     const openBtn = $('#open-overtime-order-btn');
     const form = $('#overtime-order-form');
     const errorEl = $('#overtime-modal-error');
     if (!modal || !openBtn || !form) return;
 
     openBtn.addEventListener('click', () => openOvertimeOrderModal());
+    recommendationButton?.addEventListener('click', () => recommendationModal?.showModal());
+    recommendationModal?.addEventListener('click', (event) => {
+        if (event.target === recommendationModal) recommendationModal.close();
+    });
     $('#overtime-recommendation-list')?.addEventListener('click', (event) => {
         const button = event.target.closest('[data-overtime-recommendation]');
-        if (button) openOvertimeOrderModal(Number(button.dataset.overtimeRecommendation), button.dataset.workDate, {
-            startTime: button.dataset.startTime,
-            endTime: button.dataset.endTime,
-            startDayOffset: Number(button.dataset.startDayOffset) || 0,
-            endDayOffset: Number(button.dataset.endDayOffset) || 0,
-            isCrossDay: button.dataset.crossDay === 'true',
-        });
+        if (button) {
+            recommendationModal?.close();
+            openOvertimeOrderModal(Number(button.dataset.overtimeRecommendation), button.dataset.workDate, {
+                startTime: button.dataset.startTime,
+                endTime: button.dataset.endTime,
+                startDayOffset: Number(button.dataset.startDayOffset) || 0,
+                endDayOffset: Number(button.dataset.endDayOffset) || 0,
+                isCrossDay: button.dataset.crossDay === 'true',
+            });
+        }
     });
 
     $('#overtime-emp-search')?.addEventListener('input', (e) => {

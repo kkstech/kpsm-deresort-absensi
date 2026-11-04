@@ -555,23 +555,15 @@
                                     <p id="overtime-count">Memuat…</p>
                                 </div>
                                 <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <button type="button" class="secondary-button overtime-recommendation-trigger" id="open-overtime-recommendations-btn" aria-haspopup="dialog" aria-controls="overtime-recommendation-modal">
+                                        Rekomendasi Lembur <span class="queue-count-badge" id="overtime-recommendation-count-badge" aria-hidden="true">0</span>
+                                    </button>
                                     <button type="button" class="primary-button" id="open-overtime-order-btn" data-requires="admin">+ Terbitkan SPL</button>
                                     <select id="overtime-filter" style="font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter status lembur">
                                         <option value="PENDING">Menunggu</option>
                                         <option value="APPROVED">Disetujui / SPL Aktif</option>
                                         <option value="all">Semua</option>
                                     </select>
-                                </div>
-                            </div>
-                            <div class="overtime-recommendations" aria-labelledby="overtime-recommendation-heading">
-                                <div class="panel-heading" style="padding: 14px 18px 8px;">
-                                    <div>
-                                        <h3 id="overtime-recommendation-heading" style="font-size:14px;margin:0;">Shift berakhir dalam 2 jam</h3>
-                                        <p id="overtime-recommendation-count" style="margin:4px 0 0;color:var(--muted);font-size:12px;">Memuat rekomendasi…</p>
-                                    </div>
-                                </div>
-                                <div id="overtime-recommendation-list" class="workflow-queue-list" aria-live="polite">
-                                    <p class="list-empty">Memuat rekomendasi…</p>
                                 </div>
                             </div>
                             <div id="overtime-queue" class="workflow-queue-list" aria-live="polite">
@@ -1547,6 +1539,22 @@
                 <div style="display: flex; gap: 10px;">
                     <button type="button" class="secondary-button" data-close-modal>Batal</button>
                     <button type="submit" class="primary-button" id="employee-import-submit" disabled>Simpan & Impor Karyawan</button>
+                </div>
+            </div>
+        </form>
+    </dialog>
+    <dialog class="app-dialog overtime-recommendation-dialog" id="overtime-recommendation-modal" aria-labelledby="overtime-recommendation-modal-title">
+        <form method="dialog">
+            <div class="modal-heading">
+                <div>
+                    <h2 id="overtime-recommendation-modal-title">Rekomendasi Lembur</h2>
+                    <p id="overtime-recommendation-count">Karyawan yang memenuhi syarat berdasarkan shift aktif.</p>
+                </div>
+                <button type="button" class="icon-button" data-close-modal aria-label="Tutup rekomendasi"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+            </div>
+            <div class="modal-body">
+                <div id="overtime-recommendation-list" class="workflow-queue-list" aria-live="polite">
+                    <p class="list-empty">Memuat rekomendasi…</p>
                 </div>
             </div>
         </form>
