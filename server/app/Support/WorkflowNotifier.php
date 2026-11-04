@@ -36,6 +36,20 @@ class WorkflowNotifier
         );
     }
 
+    public function leaveCancelled(LeaveRequest $leave): void
+    {
+        $leave->loadMissing('employee.user');
+        $date = $leave->work_date.($leave->end_date ? ' sampai '.$leave->end_date : '');
+        $this->sendTo(
+            collect([$leave->employee?->user])->filter(),
+            'leave_cancelled',
+            'Pengajuan cuti dibatalkan',
+            'Pengajuan cuti '.$date.' dibatalkan oleh HR.'.($leave->decision_reason ? ' '.$leave->decision_reason : ''),
+            ['tab' => 'Pengajuan', 'request_type' => 'leave', 'request_id' => $leave->id, 'status' => $leave->status],
+            true,
+        );
+    }
+
     public function permissionRequested(LatePermission $permission): void
     {
         $permission->loadMissing('employee', 'session.assignment');

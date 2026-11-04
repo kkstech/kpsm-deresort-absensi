@@ -447,6 +447,8 @@ class LeaveController extends Controller
             return $item;
         });
 
+        app(WorkflowNotifier::class)->leaveCancelled($leave);
+
         return response()->json(['data' => $leave->fresh()]);
     }
 

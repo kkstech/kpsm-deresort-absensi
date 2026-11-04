@@ -453,7 +453,7 @@
                         <div>
                             <p data-site-name>{{ $siteSettings->site_name }}</p>
                             <h1>Persetujuan</h1>
-                            <span>Permintaan izin, koreksi, dan lembur menunggu keputusan.</span>
+                            <span>Permintaan izin, koreksi absensi, lembur, dan tukar shift menunggu keputusan.</span>
                         </div>
                         <div class="page-heading-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                             <button type="button" class="primary-button" id="open-overtime-order-btn" data-requires="admin">
@@ -567,6 +567,20 @@
                             </div>
                             <div id="overtime-queue" class="workflow-queue-list" aria-live="polite">
                                 <p class="list-empty">Memuat data…</p>
+                            </div>
+                        </section>
+                        <section class="panel workflow-queue-panel" data-requires="admin">
+                            <div class="panel-heading">
+                                <div>
+                                    <div class="queue-title-wrap">
+                                        <h2>Tukar Shift</h2>
+                                        <span class="queue-count-badge" id="shift-exchange-count-badge">0</span>
+                                    </div>
+                                    <p id="shift-exchange-count">Memuat pengajuan…</p>
+                                </div>
+                            </div>
+                            <div id="shift-exchange-queue" class="workflow-queue-list" aria-live="polite">
+                                <p class="list-empty">Memuat pengajuan tukar shift…</p>
                             </div>
                         </section>
                     </div>

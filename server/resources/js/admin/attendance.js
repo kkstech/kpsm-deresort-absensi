@@ -646,6 +646,125 @@ function renderOvertimeItem(item) {
     </article>`;
 }
 
+function exchangeScheduleMarkup(assignment) {
+    if (!assignment) return 'Tidak ada jadwal tujuan';
+    const sessions = assignment.sessions?.map((session) => `${esc(session.local_start)}–${esc(session.local_end)}`).join(' · ');
+    return `<strong>${formatDate(assignment.work_date)}</strong> · ${esc(assignment.template_name ?? 'Shift')}${sessions ? ` · ${sessions}` : ''}`;
+}
+
+function renderShiftExchangeItem(item) {
+    const employeeName = item.employee?.name ?? '—';
+    const initials = esc(employeeName.trim().split(/\s+/).slice(0, 2).map((name) => name[0]).join('').toUpperCase() || '?');
+    const isDirectSwap = item.swap_mode === 'direct';
+    const kind = isDirectSwap ? 'Tukar jadwal' : 'Pelimpahan shift';
+    const approvalLabel = item.approval_tier === 'super_admin' ? 'Menunggu Super Admin' : 'Menunggu Admin';
+
+    return `<article class="workflow-card">
+        <div class="workflow-card-header">
+            <div class="workflow-user-info">
+                <span class="avatar workflow-avatar">${initials}</span>
+                <div class="workflow-user-meta">
+                    <strong>${esc(employeeName)}</strong>
+                    <div class="workflow-sub-meta">
+                        <span class="meta-pill">${esc(item.employee?.department ?? 'Tanpa departemen')}</span>
+                        <span>${kind}</span>
+                    </div>
+                </div>
+            </div>
+            <span class="status warning">${approvalLabel}</span>
+        </div>
+        <div class="workflow-card-body">
+            <div class="workflow-target-badge">
+                ${icon('swap', 14)} <span>Penerima shift:</span> <strong>${esc(item.target_employee?.name ?? '—')}</strong>
+                ${item.target_employee?.department ? `<span class="meta-pill">${esc(item.target_employee.department)}</span>` : ''}
+            </div>
+            <div class="workflow-modal-summary-row">
+                <span class="modal-label">Shift pemohon</span>
+                ${exchangeScheduleMarkup(item.assignment)}
+            </div>
+            <div class="workflow-modal-summary-row">
+                <span class="modal-label">Shift tujuan</span>
+                ${isDirectSwap ? exchangeScheduleMarkup(item.target_assignment) : 'Penerima mengambil alih shift pemohon'}
+            </div>
+            <div class="workflow-reason-box">
+                <span class="reason-label">Alasan pengajuan</span>
+                <p class="reason-text">${esc(item.reason)}</p>
+            </div>
+        </div>
+        <div class="workflow-card-footer">
+            <button type="button" class="workflow-review-btn" data-shift-exchange-review="${item.id}">
+                ${icon('eye', 15)} <span>Tinjau &amp; Putuskan</span>
+            </button>
+        </div>
+    </article>`;
+}
+
+function decisionShiftExchangeModal(item) {
+    const hasVacancy = item.swap_mode === 'delegation'
+        || (item.target_assignment && item.assignment?.work_date !== item.target_assignment.work_date);
+    const fields = `
+        <div class="workflow-modal-summary">
+            <div class="workflow-modal-summary-row"><span class="modal-label">Pemohon</span><strong>${esc(item.employee?.name ?? '—')}</strong> · ${esc(item.employee?.department ?? 'Tanpa departemen')}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Penerima</span><strong>${esc(item.target_employee?.name ?? '—')}</strong> · ${esc(item.target_employee?.department ?? 'Tanpa departemen')}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Shift pemohon</span>${exchangeScheduleMarkup(item.assignment)}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Shift tujuan</span>${item.swap_mode === 'direct' ? exchangeScheduleMarkup(item.target_assignment) : 'Penerima mengambil alih shift pemohon'}</div>
+            <div class="workflow-modal-summary-row"><span class="modal-label">Alasan pengajuan</span><p class="modal-reason-text">${esc(item.reason)}</p></div>
+        </div>
+        <label>Keputusan
+            <select name="decision" id="shift-exchange-decision" required>
+                <option value="APPROVED">Setujui tukar shift</option>
+                <option value="REJECTED">Tolak pengajuan</option>
+            </select>
+        </label>
+        ${hasVacancy ? `<label id="shift-exchange-vacancy-control">Penanganan roster pemohon
+            <select name="vacancy_action">
+                <option value="roster_off" ${item.vacancy_action === 'roster_off' || !item.vacancy_action ? 'selected' : ''}>Roster Off</option>
+                <option value="regular" ${item.vacancy_action === 'regular' ? 'selected' : ''}>Cuti</option>
+                <option value="day_off" ${item.vacancy_action === 'day_off' ? 'selected' : ''}>Deposit Off</option>
+            </select>
+        </label>` : ''}
+        <label id="shift-exchange-cross-unit-control">Konfirmasi perpindahan lintas departemen
+            <select name="confirm_cross_unit">
+                <option value="0">Belum dikonfirmasi</option>
+                <option value="1">Saya mengonfirmasi perpindahan lintas departemen</option>
+            </select>
+        </label>
+        <label><span id="shift-exchange-reason-label">Catatan persetujuan (opsional)</span>
+            <textarea name="reason" id="shift-exchange-decision-reason" rows="3" maxlength="1000" placeholder="Tuliskan alasan keputusan bila diperlukan"></textarea>
+        </label>`;
+
+    openWorkflowModal(
+        'Putuskan Tukar Shift',
+        'Tinjau jadwal pemohon dan penerima sebelum menyimpan keputusan.',
+        fields,
+        async (body) => {
+            try {
+                return await api(`shift-exchanges/${item.id}/decide`, { method: 'POST', body });
+            } catch (failure) {
+                const blockers = failure.details?.blockers?.map((blocker) => blocker.message).filter(Boolean) ?? [];
+                if (blockers.length) failure.message = `${failure.message} ${blockers.join(' ')}`;
+                throw failure;
+            }
+        },
+        'Simpan Keputusan',
+    );
+
+    const decision = $('#shift-exchange-decision');
+    const reasonLabel = $('#shift-exchange-reason-label');
+    const reason = $('#shift-exchange-decision-reason');
+    const vacancyControl = $('#shift-exchange-vacancy-control');
+    const crossUnitControl = $('#shift-exchange-cross-unit-control');
+    const updateReasonRequirement = () => {
+        const rejected = decision.value === 'REJECTED';
+        reason.required = rejected;
+        reasonLabel.textContent = rejected ? 'Alasan penolakan (wajib)' : 'Catatan persetujuan (opsional)';
+        if (vacancyControl) vacancyControl.hidden = rejected;
+        crossUnitControl.hidden = rejected;
+    };
+    decision.addEventListener('change', updateReasonRequirement);
+    updateReasonRequirement();
+}
+
 function decisionOvertimeModal(item) {
     const summaryCard = `
         <div class="workflow-modal-summary">
@@ -673,10 +792,11 @@ export async function showApprovals() {
     const error = $('#workflow-error');
     error.hidden = true;
     try {
-        const [result, overtimeResult, recommendationResult] = await Promise.all([
+        const [result, overtimeResult, recommendationResult, exchangeResult] = await Promise.all([
             api('workflows', { query: { status: 'PENDING' } }),
             isAdmin ? api('overtimes', { query: $('#overtime-filter')?.value === 'all' ? {} : { status: $('#overtime-filter')?.value ?? 'PENDING' } }) : Promise.resolve({ data: [] }),
             isAdmin ? api('overtimes/recommendations') : Promise.resolve({ data: [] }),
+            isAdmin ? api('shift-exchanges', { query: { scope: 'admin', status: 'PENDING' } }) : Promise.resolve({ data: [] }),
         ]);
 
         const lateCount = result.late_permissions.length;
@@ -804,6 +924,27 @@ export async function showApprovals() {
                     <strong>Belum ada rekomendasi lembur</strong>
                     <span>Daftar muncul saat karyawan sedang check-in dan sesi terakhirnya berakhir dalam dua jam.</span>
                 </div>`;
+        }
+
+        const exchangeList = exchangeResult.data ?? [];
+        const exchangeBadge = $('#shift-exchange-count-badge');
+        const exchangeCount = $('#shift-exchange-count');
+        const exchangeQueue = $('#shift-exchange-queue');
+        if (exchangeBadge) exchangeBadge.textContent = exchangeList.length;
+        if (exchangeCount) exchangeCount.textContent = exchangeList.length
+            ? `${exchangeList.length} pengajuan menunggu keputusan`
+            : 'Tidak ada pengajuan menunggu keputusan';
+        if (exchangeQueue) {
+            exchangeQueue.innerHTML = exchangeList.length ? exchangeList.map(renderShiftExchangeItem).join('') : `
+                <div class="workflow-empty-state">
+                    <div class="empty-icon-wrap">${icon('check', 26)}</div>
+                    <strong>Tidak ada pengajuan tukar shift</strong>
+                    <span>Pengajuan baru akan tampil di sini untuk ditinjau.</span>
+                </div>`;
+            exchangeQueue.querySelectorAll('[data-shift-exchange-review]').forEach((button) => button.addEventListener('click', () => {
+                const item = exchangeList.find((exchange) => exchange.id === Number(button.dataset.shiftExchangeReview));
+                if (item) decisionShiftExchangeModal(item);
+            }));
         }
     } catch (failure) {
         error.textContent = failure.message;

@@ -18,6 +18,7 @@ use App\Http\Controllers\Admin\TemplateController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\ShiftExchangeController;
 use App\Http\Controllers\AttendanceAttachmentController;
 use App\Http\Controllers\Auth\WebAuthController;
 use Illuminate\Support\Facades\Route;
@@ -47,6 +48,8 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('reports/export/excel', [ReportController::class, 'exportExcel']);
         Route::get('reports/export/pdf', [ReportController::class, 'exportPdf']);
         Route::get('workflows', [AttendanceWorkflowController::class, 'index']);
+        Route::get('shift-exchanges', [ShiftExchangeController::class, 'index']);
+        Route::post('shift-exchanges/{shiftExchange}/decide', [ShiftExchangeController::class, 'decide'])->whereNumber('shiftExchange');
         Route::get('overtimes', [OvertimeAdminController::class, 'index']);
         Route::get('overtimes/recommendations', [OvertimeAdminController::class, 'recommendations']);
         Route::post('overtimes/order', [OvertimeAdminController::class, 'order']);
