@@ -60,6 +60,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::post('attendance-corrections/{correction}/decision', [AttendanceWorkflowController::class, 'decideCorrection'])->whereNumber('correction');
         Route::post('attendance/{session}/verify', [AttendanceWorkflowController::class, 'verify'])->whereNumber('session');
         Route::get('attachments/{attachment}', [AttendanceAttachmentController::class, 'admin'])->whereNumber('attachment');
+        Route::get('attachments/{attachment}/preview', [AttendanceAttachmentController::class, 'preview'])->whereNumber('attachment');
         Route::get('site-settings', [SiteSettingController::class, 'show']);
         Route::post('site-settings', [SiteSettingController::class, 'update']);
         Route::get('attendance-settings', [SiteSettingController::class, 'attendance']);

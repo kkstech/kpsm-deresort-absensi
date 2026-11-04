@@ -115,7 +115,7 @@ const tabs = {
         fields: async () => [
             { name: 'code', label: 'Kode level', required: true, maxlength: 32 },
             { name: 'name', label: 'Nama level', required: true, maxlength: 100 },
-            { name: 'requires_super_admin_approval', label: 'Pengajuan level ini perlu persetujuan Super Admin', type: 'checkbox', default: false, hint: 'Jika dicentang, cuti, izin, koreksi absensi, lembur, dan tukar shift dari level ini hanya dapat diputuskan Super Admin.' },
+            { name: 'requires_super_admin_approval', label: 'Pengajuan level ini perlu persetujuan Super Admin', type: 'checkbox', default: false, hint: 'Jika dicentang, izin, koreksi absensi, lembur, dan tukar shift dari level ini hanya dapat diputuskan Super Admin. Semua cuti tetap memerlukan persetujuan Super Admin.' },
         ], deletable: true,
     },
     allowances: {

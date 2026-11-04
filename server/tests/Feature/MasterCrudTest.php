@@ -48,6 +48,19 @@ class MasterCrudTest extends TestCase
             ->assertStatus(422)->assertJsonPath('code', 'VALIDATION_ERROR')->assertJsonStructure(['details' => ['code']]);
     }
 
+    public function test_employee_age_includes_years_and_months(): void
+    {
+        $this->travelTo('2026-11-04 03:00:00');
+        $this->asAdmin()->postJson('/admin/api/employees', $this->employeePayload([
+            'code' => 'AGE-001',
+            'date_of_birth' => '1990-11-12',
+        ]))->assertCreated();
+
+        $this->getJson('/admin/api/employees?code=AGE-001')->assertOk()
+            ->assertJsonPath('data.0.current_age', 35)
+            ->assertJsonPath('data.0.current_age_months', 11);
+    }
+
     public function test_admin_creates_employee_with_weak_password_and_no_email(): void
     {
         $payload = $this->employeePayload([

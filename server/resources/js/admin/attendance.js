@@ -471,7 +471,7 @@ function decisionModal(kind, item) {
                 : item.allowed_until ? `Target jam hadir: <strong>${formatClock(item.allowed_until)}</strong>` : `Durasi izin: <strong>${item.allowed_minutes} menit</strong>`)
         : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
     const attachments = item.attachments?.length
-        ? `<div class="workflow-modal-summary-row"><span class="modal-label">Lampiran Bukti:</span><div class="workflow-files">${item.attachments.map((file) => `<a href="/admin/api/attachments/${file.id}" target="_blank" class="workflow-file-chip">${icon('contract', 13)} <span>${esc(file.name)}</span></a>`).join('')}</div></div>`
+        ? `<div class="workflow-modal-summary-row"><span class="modal-label">Lampiran Bukti:</span><div class="workflow-files">${item.attachments.map(renderAttachmentLink).join('')}</div></div>`
         : '';
 
     const summaryCard = `
@@ -496,11 +496,20 @@ function decisionModal(kind, item) {
     openWorkflowModal(isLate ? 'Putuskan Izin Absensi' : 'Putuskan Koreksi Absensi', 'Tinjau rincian permohonan sebelum menetapkan keputusan.', summaryCard, (body) => api(path, { method: 'POST', body }), 'Simpan Keputusan');
 }
 
+function renderAttachmentLink(file) {
+    const label = esc(file.name);
+    if (['image/jpeg', 'image/png'].includes(file.mime_type)) {
+        return `<button type="button" class="workflow-file-chip" data-attachment-preview="${file.id}" data-attachment-name="${label}" aria-label="Pratinjau bukti ${label}">${icon('eye', 13)} <span>${label}</span></button>`;
+    }
+
+    return `<a href="/admin/api/attachments/${file.id}" target="_blank" rel="noopener noreferrer" class="workflow-file-chip">${icon('contract', 13)} <span>${label}</span></a>`;
+}
+
 function renderAttachments(items) {
     if (!items.length) return '';
     return `<div class="workflow-attachments-wrap">
         <span class="workflow-attachment-label">Bukti lampiran:</span>
-        <div class="workflow-files">${items.map((file) => `<a href="/admin/api/attachments/${file.id}" target="_blank" class="workflow-file-chip" title="Buka lampiran ${esc(file.name)}">${icon('contract', 13)} <span>${esc(file.name)}</span></a>`).join('')}</div>
+        <div class="workflow-files">${items.map(renderAttachmentLink).join('')}</div>
     </div>`;
 }
 
@@ -518,7 +527,7 @@ function renderQueueItem(item, kind) {
                 : (item.allowed_until ? `Target hadir pk <strong>${formatClock(item.allowed_until)}</strong>` : `Izin <strong>${item.allowed_minutes} menit</strong>`)
         : `Check-in: <strong>${item.requested_check_in_at ? formatClock(item.requested_check_in_at) : '—'}</strong> · Checkout: <strong>${item.requested_check_out_at ? formatClock(item.requested_check_out_at) : '—'}</strong>`;
 
-    const canDecide = late ? (role === 'super_admin' || role === 'admin' || (role === 'supervisor' && item.requester_id !== Number(document.body.dataset.userId))) : isAdmin;
+    const canDecide = isAdmin;
     const initialLetter = esc(item.employee.name.charAt(0).toUpperCase());
     const avatarHtml = item.employee?.avatar_url
         ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar workflow-avatar" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar workflow-avatar',textContent:'${initialLetter}'}))">`
@@ -752,33 +761,48 @@ export async function showApprovals() {
         const recommendationList = $('#overtime-recommendation-list');
         if (recommendationCount) {
             recommendationCount.textContent = recommendations.length
-                ? `${recommendations.length} karyawan sudah bekerja 11 jam atau lebih`
-                : 'Belum ada karyawan yang mendekati batas lembur.';
+                ? `${recommendations.length} karyawan sedang bertugas dan shift terakhirnya segera berakhir`
+                : 'Belum ada sesi shift aktif yang berakhir dalam dua jam ke depan.';
         }
         if (recommendationList) {
-            recommendationList.innerHTML = recommendations.length ? recommendations.map((item) => `
-                <article class="workflow-card">
-                    <div class="workflow-card-header">
-                        <div class="workflow-user-info">
-                            <div class="workflow-user-meta">
-                                <strong>${esc(item.employee.name)}</strong>
-                                <div class="workflow-sub-meta">
-                                    <span class="meta-pill">${esc(item.employee.department ?? 'Tanpa departemen')}</span>
-                                    <span>${esc(item.shift)}</span>
+            recommendationList.innerHTML = recommendations.length ? recommendations.map((item) => {
+                const startSuffix = Number(item.start_day_offset) > 0 ? ` (+${Number(item.start_day_offset)})` : '';
+                const endSuffix = Number(item.end_day_offset) > 0 ? ` (+${Number(item.end_day_offset)})` : '';
+                const shiftEndSuffix = Number(item.shift_end_day_offset) > 0 ? ` (+${Number(item.shift_end_day_offset)})` : '';
+                return `
+                    <article class="workflow-card">
+                        <div class="workflow-card-header">
+                            <div class="workflow-user-info">
+                                <div class="workflow-user-meta">
+                                    <strong>${esc(item.employee.name)}</strong>
+                                    <div class="workflow-sub-meta">
+                                        <span class="meta-pill">${esc(item.employee.department ?? 'Tanpa departemen')}</span>
+                                        <span>${esc(item.shift)}</span>
+                                    </div>
                                 </div>
                             </div>
+                            <span class="status warning">Shift berakhir ${esc(item.shift_end_time)}${shiftEndSuffix}</span>
                         </div>
-                        <span class="status warning">${Math.floor(item.worked_minutes / 60)}j ${item.worked_minutes % 60}m</span>
-                    </div>
-                    <div class="workflow-card-footer">
-                        <span class="workflow-sub-meta">${item.minutes_to_threshold} menit menuju 12 jam</span>
-                        <button type="button" class="secondary-button" data-overtime-recommendation="${item.employee.id}" data-work-date="${esc(item.work_date)}">Siapkan SPL</button>
-                    </div>
-                </article>
-            `).join('') : `
+                        <div class="workflow-card-footer">
+                            <span class="workflow-sub-meta">Usulan SPL: ${esc(item.suggested_start_time)}${startSuffix}–${esc(item.suggested_end_time)}${endSuffix} (2 jam)</span>
+                            <button
+                                type="button"
+                                class="secondary-button"
+                                data-overtime-recommendation="${item.employee.id}"
+                                data-work-date="${esc(item.work_date)}"
+                                data-start-time="${esc(item.suggested_start_time)}"
+                                data-end-time="${esc(item.suggested_end_time)}"
+                                data-start-day-offset="${Number(item.start_day_offset) || 0}"
+                                data-end-day-offset="${Number(item.end_day_offset) || 0}"
+                                data-cross-day="${item.is_cross_day ? 'true' : 'false'}"
+                            >Siapkan SPL</button>
+                        </div>
+                    </article>
+                `;
+            }).join('') : `
                 <div class="workflow-empty-state">
                     <strong>Belum ada rekomendasi lembur</strong>
-                    <span>Daftar muncul saat karyawan mencapai 11 jam kerja terverifikasi.</span>
+                    <span>Daftar muncul saat karyawan sedang check-in dan sesi terakhirnya berakhir dalam dua jam.</span>
                 </div>`;
         }
     } catch (failure) {
@@ -889,15 +913,25 @@ function updateOvertimeCalcInfo() {
     infoEl.textContent = `Perkiraan durasi lembur: ${diff} menit (${Math.floor(diff / 60)} jam ${diff % 60} menit)`;
 }
 
-async function openOvertimeOrderModal(employeeId = null, workDate = today) {
+function syncOvertimeDayOffsets() {
+    const startOffset = Number($('#overtime-start-day-offset')?.value ?? 0);
+    const endOffset = $('#overtime-end-day-offset');
+    if (endOffset) endOffset.value = String(startOffset + ($('#overtime-cross-day')?.checked ? 1 : 0));
+}
+
+async function openOvertimeOrderModal(employeeId = null, workDate = today, recommendation = null) {
     const modal = $('#overtime-order-modal');
     const form = $('#overtime-order-form');
     const errorEl = $('#overtime-modal-error');
     errorEl.hidden = true;
     form.reset();
     $('#overtime-work-date').value = workDate;
-    $('#overtime-start-time').value = '17:00';
-    $('#overtime-end-time').value = '20:00';
+    $('#overtime-start-time').value = recommendation?.startTime ?? '17:00';
+    $('#overtime-end-time').value = recommendation?.endTime ?? '20:00';
+    $('#overtime-start-day-offset').value = String(recommendation?.startDayOffset ?? 0);
+    $('#overtime-end-day-offset').value = String(recommendation?.endDayOffset ?? 0);
+    $('#overtime-cross-day').checked = recommendation?.isCrossDay ?? false;
+    syncOvertimeDayOffsets();
     updateOvertimeCalcInfo();
 
     if (!overtimeEmployees.length) {
@@ -933,7 +967,13 @@ function initOvertimeModal() {
     openBtn.addEventListener('click', () => openOvertimeOrderModal());
     $('#overtime-recommendation-list')?.addEventListener('click', (event) => {
         const button = event.target.closest('[data-overtime-recommendation]');
-        if (button) openOvertimeOrderModal(Number(button.dataset.overtimeRecommendation), button.dataset.workDate);
+        if (button) openOvertimeOrderModal(Number(button.dataset.overtimeRecommendation), button.dataset.workDate, {
+            startTime: button.dataset.startTime,
+            endTime: button.dataset.endTime,
+            startDayOffset: Number(button.dataset.startDayOffset) || 0,
+            endDayOffset: Number(button.dataset.endDayOffset) || 0,
+            isCrossDay: button.dataset.crossDay === 'true',
+        });
     });
 
     $('#overtime-emp-search')?.addEventListener('input', (e) => {
@@ -962,7 +1002,14 @@ function initOvertimeModal() {
 
     $('#overtime-start-time')?.addEventListener('input', updateOvertimeCalcInfo);
     $('#overtime-end-time')?.addEventListener('input', updateOvertimeCalcInfo);
-    $('#overtime-cross-day')?.addEventListener('change', updateOvertimeCalcInfo);
+    $('#overtime-cross-day')?.addEventListener('change', () => {
+        syncOvertimeDayOffsets();
+        updateOvertimeCalcInfo();
+    });
+    $('#overtime-work-date')?.addEventListener('change', () => {
+        $('#overtime-start-day-offset').value = '0';
+        syncOvertimeDayOffsets();
+    });
 
     modal.querySelectorAll('[data-close-modal]').forEach((btn) => btn.addEventListener('click', () => modal.close()));
     modal.addEventListener('click', (event) => { if (event.target === modal) modal.close(); });
@@ -985,6 +1032,9 @@ function initOvertimeModal() {
         const title = $('#overtime-title').value.trim();
         const notes = $('#overtime-notes').value.trim();
         const isCrossDay = $('#overtime-cross-day').checked;
+        syncOvertimeDayOffsets();
+        const startDayOffset = Number($('#overtime-start-day-offset').value);
+        const endDayOffset = Number($('#overtime-end-day-offset').value);
 
         if (!workDate) {
             errorEl.textContent = 'Pilih tanggal kerja terlebih dahulu.';
@@ -1016,6 +1066,8 @@ function initOvertimeModal() {
                     title,
                     notes: notes || undefined,
                     is_cross_day: isCrossDay,
+                    start_day_offset: startDayOffset,
+                    end_day_offset: endDayOffset,
                 },
             });
             toast(res.message || 'SPL berhasil diterbitkan.');
@@ -1047,15 +1099,24 @@ export async function initAttendance() {
         photoModal.addEventListener('click', (event) => { if (event.target === photoModal) photoModal.close(); });
     }
 
-    const openPhotoPreview = (url, caption) => {
+    const openPhotoPreview = (url, caption, title = 'Foto Presensi') => {
         const img = $('#photo-preview-img');
         const cap = $('#photo-preview-caption');
         if (photoModal && img) {
             img.src = url;
+            img.alt = title === 'Foto Presensi' ? 'Foto Presensi' : caption || title;
+            $('#photo-preview-title').textContent = title;
             if (cap) cap.textContent = caption || '';
             photoModal.showModal();
         }
     };
+
+    document.addEventListener('click', (event) => {
+        const previewButton = event.target.closest('[data-attachment-preview]');
+        if (previewButton) {
+            openPhotoPreview(`/admin/api/attachments/${previewButton.dataset.attachmentPreview}/preview`, previewButton.dataset.attachmentName, 'Pratinjau Lampiran');
+        }
+    });
 
     $('#monitoring-table').addEventListener('click', (event) => {
         const photoBtn = event.target.closest('.photo-badge-btn');

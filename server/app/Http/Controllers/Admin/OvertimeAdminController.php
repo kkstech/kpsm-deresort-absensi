@@ -2,11 +2,10 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Actions\FindOvertimeRecommendations;
 use App\Actions\ManageOvertime;
-use App\Actions\WorkCycleMinutes;
 use App\Http\Controllers\Controller;
 use App\Models\OvertimeOrder;
-use App\Models\ShiftAssignment;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -15,44 +14,20 @@ use Illuminate\Support\Facades\Gate;
 
 class OvertimeAdminController extends Controller
 {
-    public function recommendations(Request $request, WorkCycleMinutes $workCycleMinutes): JsonResponse
+    public function recommendations(Request $request, FindOvertimeRecommendations $recommendations): JsonResponse
     {
         Gate::authorize('admin');
 
-        $visibleEmployeeIds = EmployeeController::visibleTo($request->user())->select('id');
-        $items = ShiftAssignment::query()
-            ->with(['employee.department', 'employee.position', 'sessions.attendanceRecord'])
-            ->where('work_date', WorkTime::today())
-            ->where('status', '!=', 'CANCELLED')
-            ->whereIn('employee_id', $visibleEmployeeIds)
-            ->whereHas('employee', fn ($query) => $query->where('status', 'active'))
-            ->get()
-            ->map(function (ShiftAssignment $assignment) use ($workCycleMinutes) {
-                $workedMinutes = $workCycleMinutes->forAssignment($assignment);
-                if ($workedMinutes < 11 * 60 || $workedMinutes >= 12 * 60) {
-                    return null;
-                }
-
-                return [
-                    'employee' => [
-                        'id' => $assignment->employee_id,
-                        'name' => $assignment->employee?->name,
-                        'department' => $assignment->employee?->department?->name,
-                        'position' => $assignment->employee?->position?->name,
-                    ],
-                    'work_date' => $assignment->work_date,
-                    'shift' => $assignment->template_name,
-                    'worked_minutes' => $workedMinutes,
-                    'minutes_to_threshold' => 12 * 60 - $workedMinutes,
-                ];
-            })
-            ->filter()
-            ->sortBy('minutes_to_threshold')
-            ->values();
+        $now = WorkTime::now();
+        $items = $recommendations->execute(
+            $now,
+            $now->addHours(2),
+            EmployeeController::visibleTo($request->user())->select('id'),
+        );
 
         return response()->json([
             'data' => $items,
-            'meta' => ['recommendation_minutes' => 11 * 60, 'threshold_minutes' => 12 * 60],
+            'meta' => ['window_minutes' => 2 * 60, 'suggested_overtime_minutes' => 2 * 60],
         ]);
     }
 
@@ -109,6 +84,8 @@ class OvertimeAdminController extends Controller
             'end_time' => ['required', 'date_format:H:i'],
             'title' => ['required', 'string', 'min:3', 'max:150'],
             'is_cross_day' => ['nullable', 'boolean'],
+            'start_day_offset' => ['nullable', 'integer', 'between:0,1'],
+            'end_day_offset' => ['nullable', 'integer', 'between:0,2'],
         ]);
 
         $orders = $action->createOrders($data, $request->user());

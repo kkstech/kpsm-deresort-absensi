@@ -31,8 +31,11 @@ class ManageOvertime
                 throw new BusinessRuleException('VALIDATION_ERROR', 'Pilih minimal satu karyawan aktif.', 422);
             }
 
-            $startAt = WorkTime::at($workDate, $data['start_time']);
-            $endOffset = (! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0;
+            $startOffset = (int) ($data['start_day_offset'] ?? 0);
+            $startAt = WorkTime::at($workDate, $data['start_time'], $startOffset);
+            $endOffset = isset($data['end_day_offset'])
+                ? (int) $data['end_day_offset']
+                : $startOffset + ((! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0);
             $endAt = WorkTime::at($workDate, $data['end_time'], $endOffset);
             $plannedMinutes = max(1, WorkTime::minutesBetween($startAt, $endAt));
 
@@ -107,9 +110,9 @@ class ManageOvertime
     }
 
     /** Karyawan mengajukan permohonan lembur dari mobile app. */
-    public function submitRequest(Employee $employee, array $data, WorkCycleMinutes $workCycleMinutes): OvertimeOrder
+    public function submitRequest(Employee $employee, array $data): OvertimeOrder
     {
-        return DB::transaction(function () use ($employee, $data, $workCycleMinutes) {
+        return DB::transaction(function () use ($employee, $data) {
             $workDate = $data['work_date'];
             AttendancePeriod::assertOpen($workDate);
 
@@ -119,13 +122,21 @@ class ManageOvertime
                 ->where('work_date', $workDate)
                 ->where('status', '!=', 'CANCELLED')
                 ->first();
-            $workedMinutes = $assignment ? $workCycleMinutes->forAssignment($assignment) : 0;
-            if ($workedMinutes < 12 * 60) {
+            $sessions = $assignment?->sessions ?? collect();
+            $shiftFulfilled = $sessions->isNotEmpty() && $sessions->every(function (ShiftSession $session): bool {
+                $record = $session->attendanceRecord;
+
+                return $record !== null
+                    && $record->check_in_at !== null
+                    && $record->check_out_at !== null
+                    && $record->provisional_out_at === null
+                    && ! $record->needs_review;
+            });
+            if (! $shiftFulfilled) {
                 throw new BusinessRuleException(
-                    'OVERTIME_THRESHOLD_NOT_MET',
-                    'Pengajuan lembur hanya dapat diajukan setelah 12 jam kerja terverifikasi pada siklus shift ini.',
+                    'SHIFT_NOT_COMPLETED',
+                    'Pengajuan lembur dapat dikirim setelah seluruh sesi shift terjadwal memiliki check-in dan check-out final.',
                     422,
-                    ['worked_minutes' => $workedMinutes, 'remaining_minutes' => max(0, 12 * 60 - $workedMinutes)],
                 );
             }
 

@@ -557,7 +557,7 @@
                             <div class="overtime-recommendations" aria-labelledby="overtime-recommendation-heading">
                                 <div class="panel-heading" style="padding: 14px 18px 8px;">
                                     <div>
-                                        <h3 id="overtime-recommendation-heading" style="font-size:14px;margin:0;">Mendekati 12 jam kerja</h3>
+                                        <h3 id="overtime-recommendation-heading" style="font-size:14px;margin:0;">Shift berakhir dalam 2 jam</h3>
                                         <p id="overtime-recommendation-count" style="margin:4px 0 0;color:var(--muted);font-size:12px;">Memuat rekomendasi…</p>
                                     </div>
                                 </div>
@@ -1571,6 +1571,8 @@
                             </label>
                         </div>
                     </div>
+                    <input type="hidden" id="overtime-start-day-offset" value="0">
+                    <input type="hidden" id="overtime-end-day-offset" value="0">
                     <label class="check-field" style="margin-top: 8px;">
                         <input type="checkbox" id="overtime-cross-day">
                         <span>Lembur lintas hari (melewati tengah malam / selesai esok hari)</span>

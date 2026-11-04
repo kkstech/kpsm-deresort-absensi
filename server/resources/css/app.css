@@ -1864,7 +1864,7 @@ main:focus { outline: none; }
 .workflow-attachments-wrap { display: flex; flex-direction: column; gap: 6px; }
 .workflow-attachment-label { font-size: 11px; font-weight: 700; color: var(--muted); }
 .workflow-files { display: flex; flex-wrap: wrap; gap: 8px; }
-.workflow-file-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid #c9d8cc; background: #fff; color: var(--primary); font-size: 12px; font-weight: 600; text-decoration: none; transition: all 0.15s ease; }
+.workflow-file-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid #c9d8cc; background: #fff; color: var(--primary); font: inherit; font-size: 12px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.15s ease; }
 .workflow-file-chip:hover { background: var(--surface-soft); border-color: var(--primary); text-decoration: underline; }
 .workflow-file-chip svg { width: 14px; height: 14px; stroke: currentColor; flex-shrink: 0; }
 

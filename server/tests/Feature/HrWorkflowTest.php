@@ -163,17 +163,23 @@ class HrWorkflowTest extends TestCase
         ])->assertUnprocessable();
         $this->withToken($token)->postJson('/api/v1/leaves', [
             'work_date' => '2026-11-07', 'type' => 'regular', 'reason' => 'Keperluan keluarga',
-        ])->assertCreated()->assertJsonPath('data.status', 'PENDING');
+        ])->assertCreated()->assertJsonPath('data.status', 'PENDING')->assertJsonPath('data.approval_tier', 'super_admin');
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.reserved', 1)->assertJsonPath('data.regular.available', 8);
 
         $requestId = LeaveRequest::query()->where('employee_id', $employee->id)->value('id');
-        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'admin']);
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'super_admin']);
+        LeaveRequest::query()->whereKey($requestId)->update(['approval_tier' => 'admin']);
+        $superAdmin = User::factory()->role('super_admin')->create();
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        ])->assertForbidden();
+        $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(0, 'data');
+        $this->actingAs($superAdmin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
+        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
-        $superAdmin = User::factory()->role('super_admin')->create();
         $this->app['auth']->forgetGuards();
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.used', 1)->assertJsonPath('data.regular.reserved', 0);

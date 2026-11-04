@@ -66,6 +66,45 @@ class WorkflowNotifier
         );
     }
 
+    public function overtimeRecommendation(array $recommendation): void
+    {
+        $employee = $recommendation['employee'];
+        $context = [
+            'tab' => 'Pengajuan',
+            'request_type' => 'overtime_recommendation',
+            'employee_id' => $employee['id'],
+            'shift_assignment_id' => $recommendation['shift_assignment_id'],
+            'shift_session_id' => $recommendation['shift_session_id'],
+            'work_date' => $recommendation['work_date'],
+            'shift_end_time' => $recommendation['shift_end_time'],
+            'shift_end_day_offset' => $recommendation['shift_end_day_offset'],
+            'suggested_start_time' => $recommendation['suggested_start_time'],
+            'suggested_end_time' => $recommendation['suggested_end_time'],
+            'start_day_offset' => $recommendation['start_day_offset'],
+            'end_day_offset' => $recommendation['end_day_offset'],
+            'is_cross_day' => $recommendation['is_cross_day'],
+        ];
+
+        $users = User::query()->whereIn('role', ['admin', 'super_admin'])->where('is_active', true)->get();
+        foreach ($users as $user) {
+            $alreadyNotified = $user->notifications()
+                ->where('data->kind', 'overtime_recommendation')
+                ->where('data->context->shift_session_id', $recommendation['shift_session_id'])
+                ->exists();
+            if ($alreadyNotified) {
+                continue;
+            }
+
+            $user->notify(new WorkflowNotification(
+                'overtime_recommendation',
+                'Rekomendasi lembur',
+                $employee['name'].' · shift '.$recommendation['shift'].' berakhir pukul '.$recommendation['shift_end_time'].'. Usulan SPL '.$recommendation['suggested_start_time'].'–'.$recommendation['suggested_end_time'].' (2 jam). Buka website > Persetujuan.',
+                $context,
+                true,
+            ));
+        }
+    }
+
     private function sendTo(Collection $users, string $kind, string $title, string $body, array $context, bool $sendPush = false): void
     {
         foreach ($users as $user) {

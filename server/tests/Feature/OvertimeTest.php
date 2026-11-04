@@ -15,6 +15,7 @@ use App\Models\ShiftTemplate;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -57,6 +58,173 @@ class OvertimeTest extends TestCase
             'status' => 'active',
         ]);
         $this->token = $this->employeeUser->createToken("device:{$this->device->id}")->plainTextToken;
+    }
+
+    public function test_admin_recommendations_appear_two_hours_before_active_last_session_ends(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Reguler Sore',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '12:00', 'end_date' => '2026-10-26', 'end_time' => '17:00'],
+            ],
+        ], $this->admin);
+        $session = $assignment->sessions->firstOrFail();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $session->start_at,
+            'status' => 'IN_PROGRESS',
+            'needs_review' => false,
+        ]);
+        $this->travelTo('2026-10-26 07:59:00'); // 14.59 WIB, satu menit di luar jendela
+        $this->actingAs($this->admin)->getJson('/admin/api/overtimes/recommendations')
+            ->assertOk()->assertJsonCount(0, 'data');
+
+        $this->travelTo('2026-10-26 08:00:00'); // 15.00 WIB, tepat 2 jam sebelum shift berakhir
+
+        $this->getJson('/admin/api/overtimes/recommendations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.employee.id', $this->employee->id)
+            ->assertJsonPath('data.0.shift_end_time', '17:00')
+            ->assertJsonPath('data.0.suggested_start_time', '17:00')
+            ->assertJsonPath('data.0.suggested_end_time', '19:00')
+            ->assertJsonPath('data.0.start_day_offset', 0)
+            ->assertJsonPath('data.0.end_day_offset', 0)
+            ->assertJsonPath('meta.window_minutes', 120);
+
+        $this->travelTo('2026-10-26 10:01:00'); // 17.01 WIB, shift sudah berakhir
+        $this->getJson('/admin/api/overtimes/recommendations')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_recommendations_use_final_split_session_and_prefill_cross_date_spl_offsets(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Split Malam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '20:00', 'end_date' => '2026-10-26', 'end_time' => '22:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '22:00', 'end_date' => '2026-10-27', 'end_time' => '00:30'],
+            ],
+        ], $this->admin);
+        $lastSession = $assignment->sessions->sortBy(fn ($session) => $session->end_at->getTimestamp())->last();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $lastSession->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $lastSession->start_at,
+            'status' => 'IN_PROGRESS',
+            'needs_review' => false,
+        ]);
+        $this->travelTo('2026-10-26 15:30:00'); // 22.30 WIB, tepat 2 jam sebelum sesi terakhir berakhir
+
+        $recommendation = $this->actingAs($this->admin)->getJson('/admin/api/overtimes/recommendations')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->json('data.0');
+
+        $this->assertSame('00:30', $recommendation['suggested_start_time']);
+        $this->assertSame('02:30', $recommendation['suggested_end_time']);
+        $this->assertSame(1, $recommendation['start_day_offset']);
+        $this->assertSame(1, $recommendation['end_day_offset']);
+        $this->assertFalse($recommendation['is_cross_day']);
+
+        $orderResponse = $this->postJson('/admin/api/overtimes/order', [
+            'employee_ids' => [$this->employee->id],
+            'work_date' => $recommendation['work_date'],
+            'start_time' => $recommendation['suggested_start_time'],
+            'end_time' => $recommendation['suggested_end_time'],
+            'title' => 'Perpanjangan shift malam',
+            'is_cross_day' => $recommendation['is_cross_day'],
+            'start_day_offset' => $recommendation['start_day_offset'],
+            'end_day_offset' => $recommendation['end_day_offset'],
+        ])->assertCreated();
+
+        $order = OvertimeOrder::query()->findOrFail($orderResponse->json('data.0.id'));
+        $this->assertSame('2026-10-26 17:30:00', $order->start_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-26 19:30:00', $order->end_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($lastSession->id, $order->shift_session_id);
+
+        $this->getJson('/admin/api/overtimes/recommendations')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_admin_recommendations_require_an_open_check_in_on_the_last_session(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Reguler Sore',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '12:00', 'end_date' => '2026-10-26', 'end_time' => '17:00'],
+            ],
+        ], $this->admin);
+        $session = $assignment->sessions->firstOrFail();
+        $this->travelTo('2026-10-26 08:00:00');
+
+        $this->actingAs($this->admin)->getJson('/admin/api/overtimes/recommendations')
+            ->assertOk()->assertJsonCount(0, 'data');
+
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $session->start_at,
+            'provisional_out_at' => $session->end_at,
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+        ]);
+
+        $this->getJson('/admin/api/overtimes/recommendations')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_two_hour_overtime_recommendation_push_is_sent_to_admins_once_per_session(): void
+    {
+        Http::fake(['https://exp.host/*' => Http::response(['data' => [['status' => 'ok']]], 200)]);
+        $superAdmin = User::factory()->role('super_admin')->create();
+        foreach ([$this->admin, $superAdmin] as $index => $recipient) {
+            DeviceRegistration::query()->create([
+                'user_id' => $recipient->id,
+                'device_uuid' => (string) Str::uuid(),
+                'device_name' => 'Admin Mobile Device',
+                'status' => 'active',
+                'expo_push_token' => 'ExpoPushToken[admin-overtime-'.$index.']',
+            ]);
+        }
+
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Reguler Sore',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '12:00', 'end_date' => '2026-10-26', 'end_time' => '17:00'],
+            ],
+        ], $this->admin);
+        $session = $assignment->sessions->firstOrFail();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $session->start_at,
+            'status' => 'IN_PROGRESS',
+            'needs_review' => false,
+        ]);
+        $this->travelTo('2026-10-26 08:00:00'); // 15.00 WIB, tepat 2 jam sebelum shift berakhir
+
+        $this->artisan('overtime:recommendations')->assertExitCode(0);
+
+        $this->assertDatabaseCount('notifications', 2);
+        $this->assertTrue($this->admin->notifications()
+            ->where('data->kind', 'overtime_recommendation')
+            ->where('data->context->shift_session_id', $session->id)
+            ->exists());
+        $this->assertTrue($superAdmin->notifications()
+            ->where('data->kind', 'overtime_recommendation')
+            ->where('data->context->shift_session_id', $session->id)
+            ->exists());
+        $this->assertFalse($this->employeeUser->notifications()
+            ->where('data->kind', 'overtime_recommendation')
+            ->exists());
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => str_contains($request->data()[0]['body'], 'Budi Santoso')
+            && $request->data()[0]['data']['kind'] === 'overtime_recommendation');
+
+        $this->artisan('overtime:recommendations')->assertExitCode(0);
+
+        $this->assertDatabaseCount('notifications', 2);
+        Http::assertSentCount(2);
     }
 
     public function test_admin_can_issue_overtime_order_and_employee_can_give_digital_consent(): void
@@ -167,6 +335,153 @@ class OvertimeTest extends TestCase
             'status' => 'APPROVED',
             'decision_notes' => 'Disetujui untuk banquet',
         ]);
+    }
+
+    public function test_employee_can_request_overtime_after_completing_regular_shift_under_twelve_hours(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Reguler 8 Jam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '08:00', 'end_date' => '2026-10-26', 'end_time' => '16:00'],
+            ],
+        ], $this->admin);
+        $session = $assignment->sessions->firstOrFail();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $session->start_at,
+            'check_out_at' => $session->end_at,
+            'status' => 'COMPLETE',
+            'needs_review' => false,
+            'verified_minutes' => 8 * 60,
+        ]);
+
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', [
+            'work_date' => '2026-10-26',
+            'start_time' => '16:00',
+            'end_time' => '18:00',
+            'title' => 'Pembersihan area event',
+        ])->assertCreated()->assertJsonPath('data.is_day_off', false);
+    }
+
+    public function test_split_shift_overtime_requires_every_session_to_be_completed(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Split 8 Jam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '08:00', 'end_date' => '2026-10-26', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '13:00', 'end_date' => '2026-10-26', 'end_time' => '17:00'],
+            ],
+        ], $this->admin);
+        $sessions = $assignment->sessions->values();
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $sessions[0]->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $sessions[0]->start_at,
+            'check_out_at' => $sessions[0]->end_at,
+            'status' => 'COMPLETE',
+            'needs_review' => false,
+            'verified_minutes' => 4 * 60,
+        ]);
+        $secondRecord = AttendanceRecord::query()->create([
+            'shift_session_id' => $sessions[1]->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $sessions[1]->start_at,
+            'status' => 'IN_PROGRESS',
+            'needs_review' => false,
+        ]);
+        $requestData = [
+            'work_date' => '2026-10-26',
+            'start_time' => '17:00',
+            'end_time' => '19:00',
+            'title' => 'Pembersihan area event',
+        ];
+
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', $requestData)
+            ->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+        $this->assertDatabaseCount('overtime_orders', 0);
+
+        $secondRecord->update([
+            'check_out_at' => $sessions[1]->end_at,
+            'status' => 'COMPLETE',
+            'verified_minutes' => 4 * 60,
+        ]);
+
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', $requestData)->assertCreated();
+    }
+
+    public function test_provisional_or_review_required_checkout_does_not_complete_shift_for_overtime(): void
+    {
+        $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
+            'name' => 'Reguler 8 Jam',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '08:00', 'end_date' => '2026-10-26', 'end_time' => '16:00'],
+            ],
+        ], $this->admin);
+        $session = $assignment->sessions->firstOrFail();
+        $record = AttendanceRecord::query()->create([
+            'shift_session_id' => $session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $session->start_at,
+            'provisional_out_at' => $session->end_at,
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+        ]);
+        $requestData = [
+            'work_date' => '2026-10-26',
+            'start_time' => '16:00',
+            'end_time' => '18:00',
+            'title' => 'Pembersihan area event',
+        ];
+
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', $requestData)
+            ->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+
+        $record->update([
+            'check_out_at' => $session->end_at,
+            'provisional_out_at' => null,
+            'status' => 'COMPLETE',
+        ]);
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', $requestData)
+            ->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+    }
+
+    public function test_employee_overtime_request_requires_a_non_cancelled_assignment_with_sessions(): void
+    {
+        $requestData = [
+            'start_time' => '16:00',
+            'end_time' => '18:00',
+            'title' => 'Pembersihan area event',
+        ];
+
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', [
+            ...$requestData,
+            'work_date' => '2026-10-26',
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+
+        $cancelled = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-27', [
+            'name' => 'Shift dibatalkan',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-27', 'start_time' => '08:00', 'end_date' => '2026-10-27', 'end_time' => '16:00'],
+            ],
+        ], $this->admin);
+        $cancelled->update(['status' => 'CANCELLED']);
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', [
+            ...$requestData,
+            'work_date' => '2026-10-27',
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+
+        $empty = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-28', [
+            'name' => 'Shift tanpa sesi aktif',
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-28', 'start_time' => '08:00', 'end_date' => '2026-10-28', 'end_time' => '16:00'],
+            ],
+        ], $this->admin);
+        $empty->sessions()->delete();
+        $this->withToken($this->token)->postJson('/api/v1/overtimes', [
+            ...$requestData,
+            'work_date' => '2026-10-28',
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
     }
 
     public function test_checkout_after_session_end_calculates_verified_overtime_minutes_capped_by_spl(): void

@@ -123,7 +123,7 @@ function render() {
                     : e.retirement_status === 'soon'
                         ? `Pensiun ≤12 bulan · ${e.retirement_date}`
                         : e.current_age !== null && e.current_age !== undefined
-                            ? `Usia ${e.current_age} tahun`
+                            ? `Usia ${e.current_age} tahun ${e.current_age_months ?? 0} bulan`
                             : 'Tanggal lahir belum diisi';
                 const retirementTone = e.retirement_status ? 'warning' : 'neutral';
                 return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div><small style="display:block;margin-top:5px;"><span class="status ${retirementTone}" style="font-size:10.5px;padding:1px 6px;">${esc(retirementLabel)}</span></small></div>`;

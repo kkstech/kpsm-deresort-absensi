@@ -928,6 +928,7 @@ function Main() {
   const [attendancePermissionType, setAttendancePermissionType] = useState<AttendancePermissionType>('late_arrival');
   const [permissionLeaveAt, setPermissionLeaveAt] = useState('');
   const [permissionReturnAt, setPermissionReturnAt] = useState('');
+  const [permissionDurationMinutes, setPermissionDurationMinutes] = useState<number | null>(null);
 
   const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
@@ -968,6 +969,36 @@ function Main() {
     setClockVisible(true);
   }
 
+  function setPermissionReturnFromDuration(leaveAt: string, durationMinutes: number) {
+    const selected = openSessions.find((item) => item.session.id === sessionId)?.session;
+    const returnAt = new Date(new Date(leaveAt).getTime() + durationMinutes * 60_000);
+    if (!selected) {
+      setPermissionReturnAt('');
+      setError('Pilih sesi kerja terlebih dahulu.');
+      return;
+    }
+    if (returnAt.getTime() > new Date(selected.end_at).getTime()) {
+      setPermissionReturnAt('');
+      setPermissionDurationMinutes(null);
+      setError('Durasi melewati akhir sesi. Pilih durasi yang lebih singkat.');
+      return;
+    }
+
+    setPermissionReturnAt(returnAt.toISOString());
+    setError('');
+  }
+
+  function applyPermissionDuration(durationMinutes: number) {
+    setPermissionDurationMinutes(durationMinutes);
+    if (!permissionLeaveAt) {
+      setPermissionReturnAt('');
+      setError('Pilih jam keluar terlebih dahulu agar jam kembali dapat dihitung.');
+      return;
+    }
+
+    setPermissionReturnFromDuration(permissionLeaveAt, durationMinutes);
+  }
+
   function handleClockSelect(timeStr: string) {
     if (clockTarget === 'otStart') {
       setOtStartTime(timeStr);
@@ -997,9 +1028,14 @@ function Main() {
       }
       if (clockTarget === 'permissionLeave') {
         setPermissionLeaveAt(selectedTime);
-        setPermissionReturnAt('');
+        if (permissionDurationMinutes) {
+          setPermissionReturnFromDuration(selectedTime, permissionDurationMinutes);
+        } else {
+          setPermissionReturnAt('');
+        }
       } else {
         setPermissionReturnAt(selectedTime);
+        setPermissionDurationMinutes(null);
       }
     }
   }
@@ -1851,7 +1887,7 @@ function Main() {
           await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
         }
       }
-      setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setPermissionLeaveAt(''); setPermissionReturnAt(''); setAttendancePermissionType('late_arrival'); setRequestedIn(''); setRequestedOut(''); setProof(null);
+      setWorkDate(''); setEndDate(''); setReason(''); setMinutes(''); setAllowedUntil(''); setPermissionLeaveAt(''); setPermissionReturnAt(''); setPermissionDurationMinutes(null); setAttendancePermissionType('late_arrival'); setRequestedIn(''); setRequestedOut(''); setProof(null);
       showFeedback('success', 'Pengajuan berhasil dikirim.');
       Alert.alert('Pengajuan dikirim', 'Status dapat dilihat di daftar pengajuan.');
       await loadData();
@@ -3134,6 +3170,7 @@ function Main() {
       <View style={styles.formCard}>
         <Text style={styles.cardTitle}>Pengajuan Lembur Mandiri</Text>
         <Text style={styles.cardCopy}>Ajukan permohonan lembur untuk pekerjaan tambahan di luar jadwal reguler.</Text>
+        <Text style={styles.requiredHint}>Pengajuan tersedia setelah semua sesi shift Anda selesai dan memiliki check-in serta check-out final.</Text>
 
         <PickerTrigger
           label="Tanggal Kerja Lembur"
@@ -3312,7 +3349,16 @@ function Main() {
             {sessions.slice(0, 20).map(({ assignment, session }) => {
               const isSelected = sessionId === session.id;
               return (
-                <Pressable key={session.id} onPress={() => setSessionId(session.id)} style={[styles.choiceCard, isSelected && styles.choiceCardActive]}>
+                <Pressable key={session.id} onPress={() => {
+                  if (sessionId !== session.id) {
+                    setAllowedUntil('');
+                    setMinutes('');
+                    setPermissionLeaveAt('');
+                    setPermissionReturnAt('');
+                    setPermissionDurationMinutes(null);
+                  }
+                  setSessionId(session.id);
+                }} style={[styles.choiceCard, isSelected && styles.choiceCardActive]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={styles.cardTitle}>{localDate(assignment.work_date)} · {assignment.template_name}</Text>
                     {isSelected && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
@@ -3338,6 +3384,7 @@ function Main() {
                       setMinutes('');
                       setPermissionLeaveAt('');
                       setPermissionReturnAt('');
+                      setPermissionDurationMinutes(null);
                     }} style={[styles.segment, attendancePermissionType === value && styles.segmentActive]}>
                       <Text style={[styles.segmentText, attendancePermissionType === value && styles.segmentTextActive]}>{label}</Text>
                     </Pressable>
@@ -3387,7 +3434,28 @@ function Main() {
                 ) : (
                   <>
                     <PickerTrigger label={attendancePermissionType === 'temporary_exit' ? 'Rencana jam keluar' : 'Rencana jam pulang'} value={permissionLeaveAt ? clock(permissionLeaveAt) : ''} placeholder="Pilih jam keluar" icon="time" onPress={() => openClock('permissionLeave')} />
-                    {attendancePermissionType === 'temporary_exit' && <PickerTrigger label="Rencana jam kembali" value={permissionReturnAt ? clock(permissionReturnAt) : ''} placeholder="Pilih jam kembali" icon="time" onPress={() => openClock('permissionReturn')} />}
+                    {attendancePermissionType === 'temporary_exit' && (
+                      <>
+                        <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Durasi keluar sementara:</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+                          {[30, 60, 90, 120].map((duration) => {
+                            const active = permissionDurationMinutes === duration;
+                            return (
+                              <Pressable
+                                key={duration}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: active }}
+                                onPress={() => applyPermissionDuration(duration)}
+                                style={[styles.quickChip, active && styles.quickChipActive]}
+                              >
+                                <Text style={[styles.quickChipText, active && styles.quickChipTextActive]}>{duration} menit</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </ScrollView>
+                        <PickerTrigger label="Rencana jam kembali" value={permissionReturnAt ? clock(permissionReturnAt) : ''} placeholder="Pilih durasi atau jam kembali" icon="time" onPress={() => openClock('permissionReturn')} />
+                      </>
+                    )}
                     <Text style={styles.requiredHint}>Pengajuan harus disetujui atasan sebelum Anda meninggalkan pekerjaan.</Text>
                   </>
                 )}
@@ -3644,7 +3712,7 @@ function Main() {
               return (
                 <View style={styles.segmentRow}>
                   {availableRequestKinds.map((item) => (
-                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); setAttendancePermissionType('late_arrival'); setPermissionLeaveAt(''); setPermissionReturnAt(''); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
+                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); setAttendancePermissionType('late_arrival'); setPermissionLeaveAt(''); setPermissionReturnAt(''); setPermissionDurationMinutes(null); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
                       <Text style={[styles.segmentText, requestKind === item.key && styles.segmentTextActive]}>
                         {item.label}
                       </Text>

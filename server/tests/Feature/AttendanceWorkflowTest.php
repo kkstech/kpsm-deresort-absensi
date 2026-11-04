@@ -185,6 +185,44 @@ class AttendanceWorkflowTest extends TestCase
         $this->assertSame(420, $record->fresh()->verified_minutes);
     }
 
+    public function test_admin_can_preview_image_attachment_inline_with_employee_scope(): void
+    {
+        Storage::fake('local');
+        $permission = LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'reason' => 'Bukti kondisi jalan',
+        ]);
+        $path = 'attendance-evidence/bukti.png';
+        Storage::disk('local')->put($path, 'preview image bytes');
+        $attachment = AttendanceAttachment::query()->create([
+            'attachable_type' => LatePermission::class,
+            'attachable_id' => $permission->id,
+            'uploaded_by' => $this->employeeUser->id,
+            'disk' => 'local',
+            'path' => $path,
+            'original_name' => 'bukti.png',
+            'mime_type' => 'image/png',
+            'size_bytes' => 19,
+        ]);
+
+        $this->actingAs(User::factory()->role('admin')->create())
+            ->get("/admin/api/attachments/{$attachment->id}/preview")
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png')
+            ->assertHeaderContains('Content-Disposition', 'inline')
+            ->assertHeader('X-Content-Type-Options', 'nosniff')
+            ->assertStreamedContent('preview image bytes');
+
+        $outsideSupervisor = User::factory()->role('supervisor')->create([
+            'department_id' => Department::query()->where('name', 'Front Office')->value('id'),
+        ]);
+        $this->actingAs($outsideSupervisor)
+            ->get("/admin/api/attachments/{$attachment->id}/preview")
+            ->assertForbidden();
+    }
+
     public function test_early_checkout_requires_preapproved_permission(): void
     {
         $checkIn = $this->session->start_at;

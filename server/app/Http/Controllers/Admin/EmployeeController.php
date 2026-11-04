@@ -647,11 +647,13 @@ class EmployeeController extends Controller
         $employee->makeVisible(['base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address']);
         $birthDate = $employee->date_of_birth;
         $todayDate = CarbonImmutable::parse($today);
+        $age = $birthDate ? CarbonImmutable::parse($birthDate)->diff($todayDate) : null;
         $retirementDate = $birthDate && $retirementAge
             ? CarbonImmutable::parse($birthDate)->addYears($retirementAge)
             : null;
 
-        $employee->setAttribute('current_age', $birthDate ? CarbonImmutable::parse($birthDate)->diffInYears($todayDate) : null);
+        $employee->setAttribute('current_age', $age?->y);
+        $employee->setAttribute('current_age_months', $age?->m);
         $employee->setAttribute('retirement_date', $retirementDate?->toDateString());
         $employee->setAttribute('retirement_status', $retirementDate
             ? ($retirementDate->lte($todayDate) ? 'reached' : ($retirementDate->lte($todayDate->addYear()) ? 'soon' : null))
