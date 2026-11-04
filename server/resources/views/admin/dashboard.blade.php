@@ -456,9 +456,6 @@
                             <span>Permintaan izin, koreksi absensi, lembur, dan tukar shift menunggu keputusan.</span>
                         </div>
                         <div class="page-heading-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-                            <button type="button" class="primary-button" id="open-overtime-order-btn" data-requires="admin">
-                                + Terbitkan SPL Lembur
-                            </button>
                             <button type="button" class="secondary-button workflow-refresh-btn" id="workflow-refresh">
                                 <svg class="icon" aria-hidden="true" style="width: 16px; height: 16px;"><path d="M1 4v6h6M23 20v-6h-6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
                                 <span>Muat ulang</span>
@@ -466,6 +463,14 @@
                         </div>
                     </div>
                     <p class="form-error" id="workflow-error" role="alert" hidden></p>
+                    <div class="tabs workflow-tabs" role="tablist" aria-label="Jenis persetujuan">
+                        <button type="button" role="tab" id="approval-tab-izin" aria-controls="approval-panel-izin" aria-selected="true" tabindex="0" data-approval-tab="izin">Izin</button>
+                        <button type="button" role="tab" id="approval-tab-correction" aria-controls="approval-panel-correction" aria-selected="false" tabindex="-1" data-approval-tab="correction">Koreksi Absensi</button>
+                        <button type="button" role="tab" id="approval-tab-overtime" aria-controls="approval-panel-overtime" aria-selected="false" tabindex="-1" data-approval-tab="overtime" data-requires="admin">Lembur</button>
+                        <button type="button" role="tab" id="approval-tab-shift-exchange" aria-controls="approval-panel-shift-exchange" aria-selected="false" tabindex="-1" data-approval-tab="shift-exchange" data-requires="admin">Tukar Shift</button>
+                    </div>
+                    <div class="workflow-tab-panels">
+                    <section class="workflow-tab-panel" id="approval-panel-izin" role="tabpanel" aria-labelledby="approval-tab-izin" tabindex="0" data-approval-panel="izin">
                     <section class="panel direct-late-panel" id="direct-late-panel" data-requires="super_admin">
                         <div class="panel-heading">
                             <div class="heading-title-group">
@@ -508,7 +513,6 @@
                             </div>
                         </form>
                     </section>
-                    <div class="workflow-grid">
                         <section class="panel workflow-queue-panel">
                             <div class="panel-heading">
                                 <div>
@@ -523,6 +527,8 @@
                                 <p class="list-empty">Memuat data…</p>
                             </div>
                         </section>
+                    </section>
+                    <section class="workflow-tab-panel" id="approval-panel-correction" role="tabpanel" aria-labelledby="approval-tab-correction" tabindex="0" data-approval-panel="correction" hidden>
                         <section class="panel workflow-queue-panel">
                             <div class="panel-heading">
                                 <div>
@@ -537,6 +543,8 @@
                                 <p class="list-empty">Memuat data…</p>
                             </div>
                         </section>
+                    </section>
+                    <section class="workflow-tab-panel" id="approval-panel-overtime" role="tabpanel" aria-labelledby="approval-tab-overtime" tabindex="0" data-approval-panel="overtime" data-requires="admin" hidden>
                         <section class="panel workflow-queue-panel" data-requires="admin">
                             <div class="panel-heading">
                                 <div>
@@ -546,7 +554,8 @@
                                     </div>
                                     <p id="overtime-count">Memuat…</p>
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 6px;">
+                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                    <button type="button" class="primary-button" id="open-overtime-order-btn" data-requires="admin">+ Terbitkan SPL</button>
                                     <select id="overtime-filter" style="font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter status lembur">
                                         <option value="PENDING">Menunggu</option>
                                         <option value="APPROVED">Disetujui / SPL Aktif</option>
@@ -569,6 +578,8 @@
                                 <p class="list-empty">Memuat data…</p>
                             </div>
                         </section>
+                    </section>
+                    <section class="workflow-tab-panel" id="approval-panel-shift-exchange" role="tabpanel" aria-labelledby="approval-tab-shift-exchange" tabindex="0" data-approval-panel="shift-exchange" data-requires="admin" hidden>
                         <section class="panel workflow-queue-panel" data-requires="admin">
                             <div class="panel-heading">
                                 <div>
@@ -583,6 +594,7 @@
                                 <p class="list-empty">Memuat pengajuan tukar shift…</p>
                             </div>
                         </section>
+                    </section>
                     </div>
                 </section>
                 <section class="view" data-view-panel="employees">

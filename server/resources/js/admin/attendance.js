@@ -818,6 +818,45 @@ function decisionOvertimeModal(item) {
     openWorkflowModal('Putuskan Pengajuan Lembur', 'Tinjau rincian tugas dan durasi lembur sebelum menetapkan keputusan.', summaryCard, (body) => api(`overtimes/${item.id}/decision`, { method: 'POST', body }), 'Simpan Keputusan');
 }
 
+function activateApprovalTab(tabKey) {
+    const tabs = $$('[data-approval-tab]');
+    const activeTab = tabs.find((tab) => tab.dataset.approvalTab === tabKey);
+    if (!activeTab) return;
+
+    tabs.forEach((tab) => {
+        const isActive = tab === activeTab;
+        tab.setAttribute('aria-selected', String(isActive));
+        tab.tabIndex = isActive ? 0 : -1;
+    });
+    $$('[data-approval-panel]').forEach((panel) => {
+        panel.hidden = panel.dataset.approvalPanel !== tabKey;
+    });
+}
+
+function initApprovalTabs() {
+    const tabs = $$('[data-approval-tab]');
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => activateApprovalTab(tab.dataset.approvalTab));
+        tab.addEventListener('keydown', (event) => {
+            const currentIndex = tabs.indexOf(tab);
+            let nextIndex;
+            if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            else if (event.key === 'Home') nextIndex = 0;
+            else if (event.key === 'End') nextIndex = tabs.length - 1;
+            else return;
+
+            event.preventDefault();
+            const nextTab = tabs[nextIndex];
+            activateApprovalTab(nextTab.dataset.approvalTab);
+            nextTab.focus();
+        });
+    });
+
+    const initialTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true') ?? tabs[0];
+    if (initialTab) activateApprovalTab(initialTab.dataset.approvalTab);
+}
+
 export async function showApprovals() {
     const error = $('#workflow-error');
     error.hidden = true;
@@ -1259,6 +1298,7 @@ export async function initAttendance() {
     initialized = true;
     setInitialDates(dashboardForm);
     setInitialDates(monitoringForm);
+    initApprovalTabs();
     $('#workflow-refresh').addEventListener('click', showApprovals);
     $('#overtime-filter')?.addEventListener('change', showApprovals);
     initOvertimeModal();

@@ -1815,6 +1815,11 @@ main:focus { outline: none; }
 .workflow-view > .panel { margin-bottom: 0; }
 .workflow-refresh-btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; min-height: 40px; padding: 0 16px; border-radius: 8px; }
 .workflow-refresh-btn svg { width: 15px; height: 15px; stroke-width: 2; flex-shrink: 0; }
+.workflow-tabs { margin-bottom: 0; }
+.workflow-tab-panels { min-width: 0; }
+.workflow-tab-panel { display: grid; gap: 20px; min-width: 0; }
+.workflow-tab-panel > .panel { min-width: 0; }
+.workflow-tab-panel[hidden] { display: none; }
 
 /* Direct Late Panel (Super Admin) */
 .direct-late-panel { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); overflow: hidden; }
@@ -1832,9 +1837,6 @@ main:focus { outline: none; }
 .direct-form-grid textarea { resize: vertical; min-height: 60px; }
 .direct-form-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
-/* Workflow Queues Grid */
-.workflow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: start; }
-.workflow-grid > .panel { min-width: 0; }
 .workflow-queue-panel { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); overflow: hidden; }
 .queue-title-wrap { display: flex; align-items: center; gap: 10px; }
 .queue-title-wrap h2 { margin: 0; font-size: 18px; font-weight: 700; }
