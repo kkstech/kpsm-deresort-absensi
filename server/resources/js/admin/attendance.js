@@ -344,7 +344,7 @@ function renderMonitoring({ data, meta, summary }) {
             </div>
         `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:120px;">Jadwal</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
@@ -371,7 +371,7 @@ function renderMonitoring({ data, meta, summary }) {
                 <td data-label="Tanggal / sesi" class="monitoring-date-session-col">
                     <b>${formatDate(row.work_date)}</b>
                     <span class="monitoring-session-name" title="${esc(row.shift.name)}">${esc(row.shift.name)}</span>
-                    <small>Sesi ${row.shift.seq}</small>
+                    <small>Sesi ${row.shift.seq} · ${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</small>
                 </td>
                 <td data-label="Karyawan">
                     <div style="display:flex;align-items:center;">
@@ -382,22 +382,17 @@ function renderMonitoring({ data, meta, summary }) {
                         </div>
                     </div>
                 </td>
-                <td data-label="Jadwal"><span style="font-family:monospace;font-weight:600;font-size:12.5px;">${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</span></td>
                 <td data-label="Masuk">
                     <div style="display:flex;align-items:center;gap:6px;">
                         ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}
                         ${checkInPhotoBtn}
                     </div>
-                    ${renderEventTimeMeta(attendance.check_in_device_time, attendance.check_in_server_received_at, attendance.check_in_device_timezone, attendance.check_in_source)}
-                    ${renderGpsMeta(attendance.check_in_latitude, attendance.check_in_longitude, attendance.check_in_distance, attendance.check_in_accuracy)}
                 </td>
                 <td data-label="Pulang">
                     <div style="display:flex;align-items:center;gap:6px;">
                         ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}
                         ${checkOutPhotoBtn}
                     </div>
-                    ${renderEventTimeMeta(attendance.check_out_device_time, attendance.check_out_server_received_at, attendance.check_out_device_timezone, attendance.check_out_source)}
-                    ${renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy)}
                 </td>
                 <td data-label="Status"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>

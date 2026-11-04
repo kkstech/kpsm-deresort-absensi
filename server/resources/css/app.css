@@ -1563,7 +1563,7 @@ main:focus { outline: none; }
 .attendance-panel { margin-bottom: 16px; }
 #dashboard-activity, #monitoring-table { padding: 0 20px; }
 .attendance-data-table { min-width: 680px; }
-.monitoring-data-table { min-width: 1040px; }
+.monitoring-data-table { min-width: 1000px; }
 .monitoring-data-table .monitoring-date-session-col {
     width: 10rem;
     max-width: 10rem;
