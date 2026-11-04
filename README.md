@@ -63,3 +63,15 @@ Set `MYSQL_ATTR_SSL_CA` when the MySQL provider uses a CA that is not in the con
 Image menjalankan Apache pada port 80 dan scheduler Laravel dalam container yang sama. `TRUSTED_PROXIES=REMOTE_ADDR` mempercayai header proxy dari koneksi langsung Dokploy/Traefik; jangan publikasikan port container langsung ke internet.
 
 Untuk memicu deploy Dokploy otomatis setelah image `latest` terbit, tambahkan repository variables `DOKPLOY_URL` dan `DOKPLOY_APPLICATION_ID`, serta repository secret `DOKPLOY_API_KEY`. Tanpa nilai tersebut workflow tetap menerbitkan image dan melewati langkah deploy.
+
+## Build APK Android
+
+Workflow `.github/workflows/build-android-apk.yml` membangun APK langsung dengan Gradle di GitHub Actions saat ada perubahan di `mobile/` pada branch `main`, atau saat dijalankan manual dari tab **Actions**. Workflow tidak memakai kuota EAS Build.
+
+Tambahkan GitHub repository secrets berikut sebelum menjalankan workflow:
+
+- `GOOGLE_SERVICES_JSON`: isi file `google-services.json` untuk aplikasi Android Firebase.
+- `ANDROID_KEYSTORE_BASE64`: keystore EAS lama dalam Base64.
+- `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, dan `ANDROID_KEY_PASSWORD`: nilai signing dari credentials EAS.
+
+Gunakan keystore yang sama dengan APK yang sudah dibagikan supaya pengguna dapat memasang APK baru sebagai pembaruan. File keystore dan `google-services.json` tidak disimpan di repository. Push notification tetap menggunakan Expo Push; pastikan FCM V1 service-account key masih terpasang pada credentials Android proyek Expo. Setelah workflow selesai, unduh `Deresort-Attendance.apk` dari bagian **Artifacts** pada run tersebut.

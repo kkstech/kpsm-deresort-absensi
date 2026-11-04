@@ -96,7 +96,7 @@ type WorkRequest = {
 };
 type AppNotification = {
   id: string;
-  data: { title?: string; body?: string; kind?: string };
+  data: { title?: string; body?: string; kind?: string; context?: { status?: string } };
   read_at: string | null;
   created_at: string | null;
 };
@@ -3616,8 +3616,10 @@ function Main() {
             <Text style={styles.cardCopy}>Belum ada notifikasi.</Text>
           ) : (
             <View style={styles.notificationList}>
-              {(notificationsExpanded ? notificationFeed.data : notificationFeed.data.slice(0, 5)).map((item) => (
-                <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread]}>
+              {(notificationsExpanded ? notificationFeed.data : notificationFeed.data.slice(0, 5)).map((item) => {
+                const isRejected = item.data.context?.status === 'REJECTED' || item.data.title?.toLowerCase().includes('ditolak');
+                return <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread, isRejected && styles.notificationCardRejected]}>
+                  {isRejected && <View style={styles.notificationRejectedIcon} accessible accessibilityLabel="Pengajuan ditolak"><Ionicons name="close-circle" size={20} color={colors.danger} /></View>}
                   <View style={styles.notificationContent}>
                     <Text style={styles.cardTitle}>{item.data.title || 'Notifikasi'}</Text>
                     <Text style={styles.cardCopy}>{item.data.body || ''}</Text>
@@ -3628,8 +3630,8 @@ function Main() {
                       <Ionicons name="checkmark-done-outline" size={20} color={colors.primary} />
                     </Pressable>
                   )}
-                </View>
-              ))}
+                </View>;
+              })}
               {notificationFeed.data.length > 5 && (
                 <Pressable onPress={() => setNotificationsExpanded((expanded) => !expanded)} style={styles.notificationExpandButton}>
                   <Text style={styles.linkText}>{notificationsExpanded ? 'Tampilkan lebih sedikit' : `Lihat semua (${notificationFeed.data.length})`}</Text>
@@ -4520,6 +4522,8 @@ const styles = StyleSheet.create({
   notificationList: { gap: 8, marginTop: 12 },
   notificationCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: '#fff' },
   notificationCardUnread: { borderColor: '#9AB8A8', backgroundColor: '#F1F7F3' },
+  notificationCardRejected: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
+  notificationRejectedIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#FBD9D7' },
   notificationContent: { flex: 1, gap: 3 },
   notificationDate: { marginTop: 3, color: colors.muted, fontSize: 11.5 },
   notificationReadButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },

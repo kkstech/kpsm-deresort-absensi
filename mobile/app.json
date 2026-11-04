@@ -16,6 +16,7 @@
     ],
     "plugins": [
       "./plugins/with-plus-jakarta-fonts.cjs",
+      "./plugins/with-release-signing.cjs",
       [
         "expo-location",
         {
@@ -37,7 +38,8 @@
     ],
     "android": {
       "package": "id.deresort.attendance",
-      "versionCode": 8,
+      "versionCode": 9,
+      "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

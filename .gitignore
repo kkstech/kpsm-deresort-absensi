@@ -28,3 +28,7 @@ server/.phpunit.result.cache
 mobile/.expo/
 mobile/dist/
 mobile/web-build/
+mobile/android/
+mobile/google-services.json
+mobile/credentials/
+mobile/credentials.json
