@@ -102,7 +102,10 @@ function render() {
                 const avatar = e.avatar_url
                     ? `<img src="${esc(e.avatar_url)}" alt="${esc(e.name)}" class="avatar" style="width:36px;height:36px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:36px;height:36px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;',textContent:'${esc(initial)}'}))">`
                     : `<span class="avatar" style="width:36px;height:36px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;">${esc(initial)}</span>`;
-                return `<div style="display:flex;align-items:center;">${avatar}<div><b>${esc(e.name)}</b><small style="display:block;">${esc(e.code)}</small></div></div>`;
+                const age = e.current_age !== null && e.current_age !== undefined
+                    ? `<small style="display:block;">${esc(e.current_age)} tahun</small>`
+                    : '';
+                return `<div style="display:flex;align-items:center;">${avatar}<div><b>${esc(e.name)}</b>${age}<small style="display:block;">${esc(e.code)}</small></div></div>`;
             } },
             { label: 'Departemen', cell: (e) => `${esc(e.department?.name)}<small>${esc(e.position?.name)}</small>` },
             { label: 'Level & Status Kerja', cell: (e) => {
@@ -122,11 +125,8 @@ function render() {
                     ? 'Usia pensiun tercapai'
                     : e.retirement_status === 'soon'
                         ? `Pensiun ≤12 bulan · ${e.retirement_date}`
-                        : e.current_age !== null && e.current_age !== undefined
-                            ? `Usia ${e.current_age} tahun ${e.current_age_months ?? 0} bulan`
-                            : 'Tanggal lahir belum diisi';
-                const retirementTone = e.retirement_status ? 'warning' : 'neutral';
-                return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div><small style="display:block;margin-top:5px;"><span class="status ${retirementTone}" style="font-size:10.5px;padding:1px 6px;">${esc(retirementLabel)}</span></small></div>`;
+                        : '';
+                return `<div>${levelHtml}<div style="margin-top:4px;"><span class="status ${tone}" style="font-size:10.5px;padding:1px 6px;">${esc(label)}</span></div>${retirementLabel ? `<small style="display:block;margin-top:5px;"><span class="status warning" style="font-size:10.5px;padding:1px 6px;">${esc(retirementLabel)}</span></small>` : ''}</div>`;
             } },
             { label: 'Akun app', cell: (e) => {
                 if (!e.user) return '<span class="status neutral">Belum ada</span>';
