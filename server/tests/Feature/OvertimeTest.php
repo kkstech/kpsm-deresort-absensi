@@ -15,7 +15,6 @@ use App\Models\ShiftTemplate;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -173,19 +172,9 @@ class OvertimeTest extends TestCase
             ->assertOk()->assertJsonCount(0, 'data');
     }
 
-    public function test_two_hour_overtime_recommendation_push_is_sent_to_admins_once_per_session(): void
+    public function test_two_hour_overtime_recommendation_is_recorded_for_admins_once_per_session(): void
     {
-        Http::fake(['https://exp.host/*' => Http::response(['data' => [['status' => 'ok']]], 200)]);
         $superAdmin = User::factory()->role('super_admin')->create();
-        foreach ([$this->admin, $superAdmin] as $index => $recipient) {
-            DeviceRegistration::query()->create([
-                'user_id' => $recipient->id,
-                'device_uuid' => (string) Str::uuid(),
-                'device_name' => 'Admin Mobile Device',
-                'status' => 'active',
-                'expo_push_token' => 'ExpoPushToken[admin-overtime-'.$index.']',
-            ]);
-        }
 
         $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
             'name' => 'Reguler Sore',
@@ -217,14 +206,9 @@ class OvertimeTest extends TestCase
         $this->assertFalse($this->employeeUser->notifications()
             ->where('data->kind', 'overtime_recommendation')
             ->exists());
-        Http::assertSentCount(2);
-        Http::assertSent(fn ($request) => str_contains($request->data()[0]['body'], 'Budi Santoso')
-            && $request->data()[0]['data']['kind'] === 'overtime_recommendation');
-
         $this->artisan('overtime:recommendations')->assertExitCode(0);
 
         $this->assertDatabaseCount('notifications', 2);
-        Http::assertSentCount(2);
     }
 
     public function test_admin_can_issue_overtime_order_and_employee_can_give_digital_consent(): void

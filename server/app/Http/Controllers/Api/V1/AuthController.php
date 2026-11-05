@@ -114,36 +114,10 @@ class AuthController extends Controller
                     DeviceRegistration::query()
                         ->where('device_uuid', $device->device_uuid)
                         ->whereNull('revoked_at')
-                        ->update(['revoked_at' => now(), 'expo_push_token' => null]);
+                        ->update(['revoked_at' => now()]);
                 }
             }
             $accessToken?->delete();
-        });
-
-        return response()->json(['ok' => true]);
-    }
-
-    public function pushToken(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'device_uuid' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9._:-]+$/'],
-            'expo_push_token' => ['present', 'nullable', 'string', 'max:255', 'regex:/^(Expo|Exponent)PushToken\[[^\]]+\]$/'],
-        ]);
-
-        $device = DeviceRegistration::query()
-            ->where('user_id', $request->user()->id)
-            ->where('device_uuid', $data['device_uuid'])
-            ->whereNull('revoked_at')
-            ->firstOrFail();
-
-        DB::transaction(function () use ($device, $data) {
-            if ($data['expo_push_token']) {
-                DeviceRegistration::query()
-                    ->where('expo_push_token', $data['expo_push_token'])
-                    ->where('id', '!=', $device->id)
-                    ->update(['expo_push_token' => null]);
-            }
-            $device->update(['expo_push_token' => $data['expo_push_token'], 'last_seen_at' => now()]);
         });
 
         return response()->json(['ok' => true]);

@@ -44,13 +44,7 @@ jobs:
           packages: platform-tools
 
       - name: Generate Android project
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          test -n "$GOOGLE_SERVICES_JSON" || { echo "Set GOOGLE_SERVICES_JSON secret" >&2; exit 1; }
-          printf '%s' "$GOOGLE_SERVICES_JSON" > google-services.json
-          jq -e '.project_info.project_number and .client[0].client_info.mobilesdk_app_id' google-services.json >/dev/null
-          CI=1 npx expo prebuild --platform android --clean --no-install
+        run: CI=1 npx expo prebuild --platform android --clean --no-install
 
       - name: Decode Android signing keystore
         env:

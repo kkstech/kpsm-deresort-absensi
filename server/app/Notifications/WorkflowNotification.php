@@ -2,7 +2,6 @@
 
 namespace App\Notifications;
 
-use App\Notifications\Channels\ExpoPushChannel;
 use Illuminate\Notifications\Notification;
 
 class WorkflowNotification extends Notification
@@ -12,12 +11,11 @@ class WorkflowNotification extends Notification
         public string $title,
         public string $body,
         public array $context,
-        public bool $sendPush = false,
     ) {}
 
     public function via(object $notifiable): array
     {
-        return $this->sendPush ? ['database', ExpoPushChannel::class] : ['database'];
+        return ['database'];
     }
 
     /** @return array<string, mixed> */
@@ -28,15 +26,6 @@ class WorkflowNotification extends Notification
             'title' => $this->title,
             'body' => $this->body,
             'context' => $this->context,
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    public function pushData(): array
-    {
-        return [
-            'kind' => $this->kind,
-            ...$this->context,
         ];
     }
 }

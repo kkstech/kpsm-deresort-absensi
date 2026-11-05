@@ -70,8 +70,7 @@ Workflow `.github/workflows/build-android-apk.yml` membangun APK langsung dengan
 
 Tambahkan GitHub repository secrets berikut sebelum menjalankan workflow:
 
-- `GOOGLE_SERVICES_JSON`: isi file `google-services.json` untuk aplikasi Android Firebase.
 - `ANDROID_KEYSTORE_BASE64`: keystore EAS lama dalam Base64.
 - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, dan `ANDROID_KEY_PASSWORD`: nilai signing dari credentials EAS.
 
-Gunakan keystore yang sama dengan APK yang sudah dibagikan supaya pengguna dapat memasang APK baru sebagai pembaruan. File keystore dan `google-services.json` tidak disimpan di repository. Push notification tetap menggunakan Expo Push; pastikan FCM V1 service-account key masih terpasang pada credentials Android proyek Expo. Setelah workflow selesai, unduh `Deresort-Attendance.apk` dari bagian **Artifacts** pada run tersebut.
+Gunakan keystore yang sama dengan APK yang sudah dibagikan supaya pengguna dapat memasang APK baru sebagai pembaruan. File keystore tidak disimpan di repository. Setelah workflow selesai, unduh `Deresort-Attendance.apk` dari bagian **Artifacts** pada run tersebut. Notifikasi tetap tersedia di feed aplikasi; APK ini tidak memakai push notification.

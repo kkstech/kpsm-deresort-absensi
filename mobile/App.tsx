@@ -12,18 +12,9 @@ import { useFonts } from 'expo-font';
 import * as Location from 'expo-location';
 import * as Network from 'expo-network';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
 import {
   ApiError, authStore, clearCache, enqueueEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
@@ -1168,51 +1159,6 @@ function Main() {
       .finally(() => { if (active) setAdminScheduleLoading(false); });
     return () => { active = false; };
   }, [token, baseUrl, online, tab, isAdminOrSupervisor, hasEmployee, allEmployees, adminScheduleEmpFilter, adminScheduleEmployeePage, adminScheduleEmployeeQuery]);
-
-  useEffect(() => {
-    if (!token || !deviceId || !baseUrl || !online) return;
-    let active = true;
-    (async () => {
-      try {
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'Notifikasi',
-            importance: Notifications.AndroidImportance.DEFAULT,
-          });
-        }
-        let permission = await Notifications.getPermissionsAsync();
-        if (!permission.granted) permission = await Notifications.requestPermissionsAsync();
-        let expoPushToken: string | null = null;
-        if (permission.granted) {
-          expoPushToken = (await Notifications.getExpoPushTokenAsync({
-            projectId: '62ea25e6-3745-414f-945c-9872b79d15f6',
-          })).data;
-        }
-        if (!active) return;
-        await request(baseUrl, 'me/push-token', token, {
-          method: 'POST',
-          body: { device_uuid: deviceId, expo_push_token: expoPushToken },
-        });
-      } catch {
-        // Notifikasi in-app tetap tersedia meski perangkat tidak mendukung push.
-      }
-    })();
-    return () => { active = false; };
-  }, [token, deviceId, baseUrl, online]);
-
-  useEffect(() => {
-    const received = Notifications.addNotificationReceivedListener(() => {
-      if (token && online) refreshNotificationFeed(token, baseUrl);
-    });
-    const response = Notifications.addNotificationResponseReceivedListener(() => {
-      setTab('Pengajuan');
-      if (token && online) refreshNotificationFeed(token, baseUrl);
-    });
-    return () => {
-      received.remove();
-      response.remove();
-    };
-  }, [token, baseUrl, online]);
 
   useEffect(() => {
     if (!token || !online) return;

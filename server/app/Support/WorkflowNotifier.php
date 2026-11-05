@@ -32,7 +32,6 @@ class WorkflowNotifier
             $approved ? 'Pengajuan cuti disetujui' : 'Pengajuan cuti ditolak',
             'Pengajuan cuti '.$leave->work_date.' '.($approved ? 'disetujui' : 'ditolak').'.'.($leave->decision_reason ? ' '.$leave->decision_reason : ''),
             ['tab' => 'Pengajuan', 'request_type' => 'leave', 'request_id' => $leave->id, 'status' => $leave->status],
-            true,
         );
     }
 
@@ -46,7 +45,6 @@ class WorkflowNotifier
             'Pengajuan cuti dibatalkan',
             'Pengajuan cuti '.$date.' dibatalkan oleh HR.'.($leave->decision_reason ? ' '.$leave->decision_reason : ''),
             ['tab' => 'Pengajuan', 'request_type' => 'leave', 'request_id' => $leave->id, 'status' => $leave->status],
-            true,
         );
     }
 
@@ -76,7 +74,6 @@ class WorkflowNotifier
             $approved ? 'Pengajuan izin disetujui' : 'Pengajuan izin ditolak',
             'Pengajuan izin untuk '.$workDate.' '.($approved ? 'disetujui' : 'ditolak').'.'.($permission->decision_reason ? ' '.$permission->decision_reason : ''),
             ['tab' => 'Pengajuan', 'request_type' => 'permission', 'request_id' => $permission->id, 'status' => $permission->status],
-            true,
         );
     }
 
@@ -114,15 +111,14 @@ class WorkflowNotifier
                 'Rekomendasi lembur',
                 $employee['name'].' · shift '.$recommendation['shift'].' berakhir pukul '.$recommendation['shift_end_time'].'. Usulan SPL '.$recommendation['suggested_start_time'].'–'.$recommendation['suggested_end_time'].' (2 jam). Buka website > Persetujuan.',
                 $context,
-                true,
             ));
         }
     }
 
-    private function sendTo(Collection $users, string $kind, string $title, string $body, array $context, bool $sendPush = false): void
+    private function sendTo(Collection $users, string $kind, string $title, string $body, array $context): void
     {
         foreach ($users as $user) {
-            $user->notify(new WorkflowNotification($kind, $title, $body, $context, $sendPush));
+            $user->notify(new WorkflowNotification($kind, $title, $body, $context));
         }
     }
 
