@@ -311,7 +311,7 @@ async function act(path, message) {
         toast(message);
         load();
     } catch (error) {
-        toast(error.message);
+        toast(error.message, 'error');
     }
 }
 
@@ -517,7 +517,7 @@ async function runAction(action, employee) {
                 await act(`employees/${employee.id}/revoke-devices`, isMultiple ? `Semua (${devices.length}) perangkat berhasil dikeluarkan.` : 'Perangkat berhasil dikeluarkan.');
             }
         } catch (error) {
-            toast(error.message);
+            toast(error.message, 'error');
         }
     }
     if (action === 'deactivate' && await confirmDialog({
@@ -929,7 +929,7 @@ export async function showEmployees() {
                 filters.level_id.insertAdjacentHTML('beforeend', (levels ?? []).map((l) => `<option value="${l.id}">${esc(l.name)} (${esc(l.code)})</option>`).join(''));
             }
         } catch (error) {
-            toast(error.message);
+            toast(error.message, 'error');
         }
     }
     load();

@@ -46,36 +46,36 @@ class RecordAttendance
         if (! $session || $session->assignment->employee_id !== $employee->id) {
             throw new BusinessRuleException('FORBIDDEN', 'Sesi ini bukan milik Anda.', 403);
         }
-        $employee->assertReadyForAttendance($session->assignment->work_date);
-
         $now = WorkTime::now();
         $offline = (bool) ($input['captured_offline'] ?? false);
         $deviceAt = isset($input['device_at']) ? CarbonImmutable::parse($input['device_at'])->utc() : null;
-        if ($offline && ! $deviceAt) {
-            throw new BusinessRuleException('VALIDATION_ERROR', 'Event offline wajib membawa device_at.', 422, ['device_at' => ['Wajib untuk event offline.']]);
-        }
-        $effective = $offline ? $deviceAt : $now;
+        $effective = $now;
         $record = AttendanceRecord::query()->where('shift_session_id', $session->id)->lockForUpdate()->first();
-        if (! $record) {
-            $employee->loadMissing('workLocation');
-            $session->policy_snapshot = AttendancePolicy::snapshotFor($employee, $session->assignment->work_date);
-            $session->save();
+        $distance = null;
+        if ($offline) {
+            $problem = 'OFFLINE_ATTENDANCE_DISABLED';
+        } else {
+            $employee->assertReadyForAttendance($session->assignment->work_date);
+            if (! $record) {
+                $employee->loadMissing('workLocation');
+                $session->policy_snapshot = AttendancePolicy::snapshotFor($employee, $session->assignment->work_date);
+                $session->save();
+            }
+            [$distance, $locationProblem] = $this->checkLocation($session, $input['location'] ?? null);
+            $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)
+                ?? $locationProblem;
         }
-        [$distance, $locationProblem] = $this->checkLocation($session, $input['location'] ?? null);
-
-        $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)
-            ?? $locationProblem
-            ?? ($offline ? $this->offlineClockProblem($deviceAt, $now) : null);
         if ($problem === null && $input['event_type'] === 'CHECK_IN' && $record?->check_in_at === null
             && (int) $session->assignment->rules_version >= 2) {
             $problem = app(AutoCheckoutAttendance::class)->closeExpiredBeforeNextCheckin($employee, $session->id, $now);
         }
         $result = match (true) {
+            $offline => 'REJECTED',
             $problem && ! $offline && ! str_starts_with($problem, 'GPS_ACCURACY') => 'REJECTED',
-            $problem !== null, $offline => 'REVIEW_REQUIRED',
+            $problem !== null => 'REVIEW_REQUIRED',
             default => 'ACCEPTED',
         };
-        $reason = $problem ?? ($offline ? 'OFFLINE_CLOCK_UNVERIFIED' : null);
+        $reason = $problem;
 
         $keepLocation = $session->policy_snapshot['use_location_check'] ?? false;
         $event = AttendanceEvent::query()->create([
@@ -97,7 +97,7 @@ class RecordAttendance
 
         $nonProjectable = [
             'SCHEDULE_CANCELLED', 'SCHEDULE_NOT_PUBLISHED', 'PERIOD_LOCKED', 'ALREADY_CHECKED_IN',
-            'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'EARLY_CHECKOUT_NOT_APPROVED', 'OFFLINE_CLOCK_FUTURE', 'OFFLINE_TOO_OLD',
+            'ALREADY_CHECKED_OUT', 'NOT_CHECKED_IN', 'OUTSIDE_WINDOW', 'EARLY_CHECKOUT_NOT_APPROVED',
             'SCHEDULE_CHANGED', 'OPEN_SESSION_EXISTS', 'PREVIOUS_PERIOD_LOCKED', 'AUTO_CHECKOUT_DUE',
             'FAKE_GPS_DETECTED',
         ];
@@ -177,15 +177,6 @@ class RecordAttendance
         } catch (BusinessRuleException) {
             return true;
         }
-    }
-
-    private function offlineClockProblem(CarbonImmutable $deviceAt, CarbonImmutable $now): ?string
-    {
-        return match (true) {
-            $deviceAt->gt($now->addMinutes(config('attendance.offline_future_tolerance_minutes'))) => 'OFFLINE_CLOCK_FUTURE',
-            $deviceAt->lt($now->subHours(config('attendance.offline_max_age_hours'))) => 'OFFLINE_TOO_OLD',
-            default => null,
-        };
     }
 
     /** @return array{0:?int,1:?string} jarak meter dan kode masalah lokasi */

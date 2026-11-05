@@ -111,15 +111,12 @@ paths:
           $ref: '#/components/responses/Error'
   /attendance/events:
     post:
-      summary: Record one online or offline attendance event
+      summary: Record one online attendance event
       description: |
         `device_id` must match the registered device bound to the bearer token.
-        Online events use server time. Offline events require `device_at` and are
-        always returned as `REVIEW_REQUIRED` until an authorized review exists.
+        Accepted events use server time. Events with `captured_offline: true` are
+        stored as `REJECTED` with `OFFLINE_ATTENDANCE_DISABLED` and are never projected.
         If location checking is disabled for the session, submitted coordinates are discarded.
-        An offline checkout received before its check-in stays in review; if its timestamp
-        is later than a subsequently received check-in and remains within allowed limits,
-        the server pairs it into the record while keeping verified minutes at zero.
       requestBody:
         required: true
         content:
@@ -157,13 +154,14 @@ paths:
           $ref: '#/components/responses/Error'
   /attendance/sync:
     post:
-      summary: Submit an offline event batch
+      summary: Submit an attendance event batch
       description: |
         Each event is validated and processed independently. A rejected or invalid
         event does not cancel the other events. When every event has `local_sequence`,
         the server processes them in sequence order. Otherwise, when every event has
-        `device_at`, it processes them in timestamp order. Clients should ACK each
-        `event_uuid` independently and retry only network or server failures.
+        `device_at`, it processes them in timestamp order. Events with
+        `captured_offline: true` are rejected. Clients should ACK each `event_uuid`
+        independently and retry only network or server failures.
       requestBody:
         required: true
         content:
@@ -460,13 +458,15 @@ components:
         device_at:
           type: string
           format: date-time
-          description: Required when `captured_offline` is true.
+          description: Legacy device timestamp retained for diagnostics; it never determines attendance time.
         device_timezone:
           type: string
           maxLength: 64
         captured_offline:
           type: boolean
           default: false
+          deprecated: true
+          description: Legacy field; true causes rejection with `OFFLINE_ATTENDANCE_DISABLED`.
         local_sequence:
           type: integer
           minimum: 0

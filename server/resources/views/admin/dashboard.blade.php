@@ -11,6 +11,7 @@
         <link rel="icon" href="{{ $siteSettings->favicon_url }}">
     @endif
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {!! \Devrabiul\ToastMagic\Facades\ToastMagic::styles() !!}
 </head>
 @php($me = auth()->user())
 <body data-role="{{ $me->role }}" data-user-id="{{ $me->id }}" data-today="{{ \App\Support\WorkTime::today() }}">
@@ -1714,6 +1715,6 @@
             <div class="modal-actions"><button type="submit" class="secondary-button" value="cancel" autofocus>Batal</button><button type="submit" class="primary-button" id="confirm-modal-submit" value="confirm">Lanjutkan</button></div>
         </form>
     </dialog>
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    {!! \Devrabiul\ToastMagic\Facades\ToastMagic::scripts() !!}
 </body>
 </html>

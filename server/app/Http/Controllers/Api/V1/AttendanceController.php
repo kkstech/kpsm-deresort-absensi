@@ -191,7 +191,7 @@ class AttendanceController extends Controller
             'device_id' => ['required', 'string', 'max:64'],
             'device_timezone' => ['nullable', 'string', 'max:64'],
             'captured_offline' => ['sometimes', 'boolean'],
-            'device_at' => ['nullable', 'required_if:captured_offline,true', 'date'],
+            'device_at' => ['nullable', 'date'],
             'photo_captured_at' => ['nullable', 'date'],
             'local_sequence' => ['nullable', 'integer', 'min:0'],
             'location' => ['nullable', 'array:latitude,longitude,accuracy_meters,is_mocked'],

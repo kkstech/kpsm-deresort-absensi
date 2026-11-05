@@ -78,6 +78,7 @@ function reviewReasonLabel(reason) {
         OFFLINE_CLOCK_UNVERIFIED: 'Absensi offline perlu dicocokkan dengan waktu perangkat.',
         OFFLINE_CLOCK_FUTURE: 'Waktu perangkat tercatat lebih jauh dari waktu server.',
         OFFLINE_TOO_OLD: 'Waktu perangkat berada di luar batas sinkronisasi offline.',
+        OFFLINE_ATTENDANCE_DISABLED: 'Presensi offline ditolak. Minta karyawan mengirim saat terhubung ke server.',
         GPS_ACCURACY_LOW: 'Akurasi GPS berada di luar batas aturan lokasi.',
         GPS_REQUIRED: 'Data lokasi wajib belum tersedia.',
         OUTSIDE_RADIUS: 'Lokasi tercatat di luar radius area kerja.',
@@ -959,7 +960,7 @@ export async function showApprovals() {
                     toast('Perintah lembur berhasil dibatalkan.');
                     await showApprovals();
                 } catch (err) {
-                    toast(err.message);
+                    toast(err.message, 'error');
                 }
             }));
         }
@@ -1176,7 +1177,7 @@ async function openOvertimeOrderModal(employeeId = null, workDate = today, recom
                 deptSelect.innerHTML = '<option value="all">Semua Departemen</option>' + depts.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
             }
         } catch (err) {
-            toast(err.message);
+            toast(err.message, 'error');
         }
     }
 

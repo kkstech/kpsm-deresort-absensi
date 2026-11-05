@@ -484,7 +484,7 @@ async function run(fn, message) {
         toast(message);
         load();
     } catch (error) {
-        toast(error.message);
+        toast(error.message, 'error');
     }
 }
 

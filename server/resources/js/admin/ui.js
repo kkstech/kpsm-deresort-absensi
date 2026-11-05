@@ -49,17 +49,13 @@ export function icon(name, size = 16) {
     return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
 }
 
-let toastTimer;
 let toastCalledInCycle = false;
 export function toast(message, tone = 'success') {
     toastCalledInCycle = true;
-    const el = $('#toast');
-    if (!el) return;
-    el.textContent = message;
-    el.classList.toggle('error', tone === 'error');
-    el.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), tone === 'error' ? 4200 : 2800);
+    window.toastMagic?.[tone === 'error' ? 'error' : 'success']({
+        heading: tone === 'error' ? 'Gagal' : 'Berhasil',
+        description: message,
+    });
 }
 
 /** Menghasilkan skeleton loading placeholder untuk tabel */

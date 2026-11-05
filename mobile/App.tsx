@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
-  ApiError, authStore, clearCache, enqueueEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
+  ApiError, authStore, clearCache, enqueueUncertainEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
@@ -228,6 +228,8 @@ function humanizeReason(code?: string | null): string {
       return 'Periode absensi telah dikunci oleh HR.';
     case 'AUTO_CHECKOUT_DUE':
       return 'Batas waktu kerja sesi telah terlampaui (auto-checkout).';
+    case 'OFFLINE_ATTENDANCE_DISABLED':
+      return 'Presensi offline tidak diterima. Hubungkan internet untuk mencatat presensi atau ajukan koreksi ke HR.';
     case 'FAKE_GPS_DETECTED':
       return 'Presensi ditolak karena terdeteksi aplikasi lokasi tiruan / Fake GPS. Matikan Fake GPS untuk melakukan presensi.';
     case 'OUTSIDE_RADIUS':
@@ -928,7 +930,7 @@ function Main() {
     .filter((session) => !session.attendance?.check_out_at && !session.attendance?.provisional_out_at)
     .map((session) => ({ assignment, session }))), [assignments]);
   const openSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session }))), [assignments]);
-  const pendingOutbox = outbox.filter((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
+  const unresolvedOutbox = outbox.filter((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
 
   const myUpcomingAssignments = useMemo(() => {
     const today = todayKey();
@@ -1210,9 +1212,9 @@ function Main() {
         if (knownProfile) {
           if (cacheUserId && cacheUserId !== knownProfile.id) {
             const rows = await outboxRows();
-            const unresolved = rows.some((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
+            const unresolved = rows.some((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
             if (unresolved) {
-              await handleSessionExpired('Ada absensi yang belum selesai untuk akun sebelumnya. Masuk kembali dengan akun tersebut untuk menyinkronkan atau menyelesaikan antreannya.', authToken);
+              await handleSessionExpired('Ada status presensi yang belum selesai untuk akun sebelumnya. Masuk kembali dengan akun tersebut untuk memeriksa tanda terima atau menyelesaikannya.', authToken);
               return;
             }
             await clearCache();
@@ -1514,11 +1516,11 @@ function Main() {
     setLogoutBusy(true);
     try {
       const rows = await outboxRows();
-      const unresolved = rows.filter((row) => ['pending', 'uncertain', 'needs_correction', 'rejected'].includes(row.status));
+      const unresolved = rows.filter((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
       if (unresolved.length > 0) {
         Alert.alert(
           'Absensi belum selesai',
-          `Selesaikan sinkronisasi atau hubungi HRD untuk ${unresolved.length} event yang belum selesai sebelum keluar.`,
+          `Periksa tanda terima atau hubungi HRD untuk ${unresolved.length} event yang belum selesai sebelum keluar.`,
         );
         return;
       }
@@ -1536,36 +1538,21 @@ function Main() {
   }
 
   async function syncOutbox(authToken = token, url = baseUrl) {
-    if (!authToken || !url || syncingOutbox) return;
+    if (!online || !authToken || !url || syncingOutbox) return;
     syncingOutbox = true;
     try {
       const rows = await outboxRows();
       for (const row of rows) {
-        if (!['pending', 'uncertain'].includes(row.status)) continue;
-        const payload = JSON.parse(row.payload) as Record<string, unknown>;
-        if (row.status === 'uncertain') {
-          try {
-            const receipt = await request<{ received: boolean; data: { status: string; reason_code?: string } }>(url, `attendance/events/${row.event_uuid}`, authToken);
-            await updateOutbox(row.event_uuid, receipt.data.status === 'REJECTED' ? 'rejected' : 'synced', receipt.data.reason_code ?? receipt.data.status);
-            continue;
-          } catch (failure) {
-            if (!(failure instanceof ApiError) || failure.status !== 404) throw failure;
-            const sent = row.first_sent_at ? new Date(row.first_sent_at).getTime() : Date.now();
-            if (Date.now() - sent >= 120_000) {
-              await updateOutbox(row.event_uuid, 'needs_correction', 'Server belum menerima event setelah 120 detik. Hubungi HRD/Admin untuk penyesuaian absensi.');
-            }
-            break;
-          }
-        }
+        if (row.status !== 'uncertain') continue;
         try {
-          const result = await request<{ results: Array<{ event_uuid: string; status: string; reason_code?: string; message?: string }> }>(url, 'attendance/sync', authToken, {
-            method: 'POST', body: { batch_uuid: row.batch_uuid, events: [payload] },
-          });
-          const ack = result.results.find((item) => item.event_uuid === row.event_uuid);
-          if (!ack) break;
-          await updateOutbox(row.event_uuid, ack.status === 'REJECTED' ? 'rejected' : 'synced', ack.reason_code ?? ack.message ?? ack.status);
+          const receipt = await request<{ received: boolean; data: { status: string; reason_code?: string } }>(url, `attendance/events/${row.event_uuid}`, authToken);
+          await updateOutbox(row.event_uuid, receipt.data.status === 'REJECTED' ? 'rejected' : 'synced', receipt.data.reason_code ?? receipt.data.status);
         } catch (failure) {
-          if (failure instanceof ApiError && failure.status > 0) await updateOutbox(row.event_uuid, 'rejected', failure.message);
+          if (!(failure instanceof ApiError) || failure.status !== 404) throw failure;
+          const sent = row.first_sent_at ? new Date(row.first_sent_at).getTime() : Date.now();
+          if (Date.now() - sent >= 120_000) {
+            await updateOutbox(row.event_uuid, 'needs_correction', 'Server belum menerima event setelah 120 detik. Hubungi HRD/Admin untuk penyesuaian absensi.');
+          }
           break;
         }
       }
@@ -1649,6 +1636,10 @@ function Main() {
 
   async function recordAttendance() {
     if (!intent || !token || !deviceId) return;
+    if (!online) {
+      Alert.alert('Koneksi diperlukan', 'Hubungkan internet untuk mencatat presensi. Presensi offline tidak disimpan.');
+      return;
+    }
     if (intent.assignment.attendance_block_message) {
       Alert.alert('Absen belum bisa dicatat', intent.assignment.attendance_block_message);
       return;
@@ -1663,36 +1654,30 @@ function Main() {
       const location = await captureLocation(intent.session);
       const payload = {
         event_uuid: eventUuid, shift_session_id: intent.session.id, event_type: intent.eventType, device_id: deviceId,
-        device_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta', captured_offline: false, ...(location ? { location } : {}),
+        device_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta', ...(location ? { location } : {}),
         photo_captured_at: attendancePhoto.capturedAt,
         ...(attendancePhoto?.base64 ? { photo_base64: attendancePhoto.base64 } : {}),
       };
-      if (!online) {
-        await enqueueEvent(payload, 'pending');
-        showFeedback('success', 'Presensi disimpan di perangkat dan akan dikirim saat online.');
-        Alert.alert('Disimpan di perangkat', 'Event akan dikirim dengan UUID yang sama saat koneksi kembali. Absensi offline dapat memerlukan verifikasi HR.');
-      } else {
-        try {
-          const result = await request<{ data: { status: string; reason_code?: string } }>(baseUrl, 'attendance/events', token, { method: 'POST', body: payload });
-          if (result.data.status === 'REJECTED') {
-            const msg = humanizeReason(result.data.reason_code);
-            showFeedback('error', msg);
-            Alert.alert('Absensi ditolak server', msg);
-          } else if (result.data.status === 'REVIEW_REQUIRED') {
-            const msg = `Presensi dicatat dan menunggu verifikasi HR (${humanizeReason(result.data.reason_code)}).`;
-            showFeedback('success', msg);
-            Alert.alert('Presensi menunggu tinjauan', msg);
-          } else {
-            const labelAct = intent.eventType === 'CHECK_IN' ? 'Check-In' : 'Check-Out';
-            showFeedback('success', `${labelAct} berhasil dicatat.`);
-            Alert.alert(`${labelAct} berhasil`, `Presensi ${labelAct.toLowerCase()} Anda sudah tercatat di server.`);
-          }
-        } catch (failure) {
-          if (!(failure instanceof ApiError) || failure.status !== 0) throw failure;
-          await enqueueEvent(payload, 'uncertain');
-          showFeedback('error', 'Koneksi terputus saat mengirim. Tanda terima sedang diperiksa.');
-          Alert.alert('Status belum pasti', 'Kami mengecek tanda terima server. Event tidak akan dikirim ulang dengan waktu server baru.');
+      try {
+        const result = await request<{ data: { status: string; reason_code?: string } }>(baseUrl, 'attendance/events', token, { method: 'POST', body: payload });
+        if (result.data.status === 'REJECTED') {
+          const msg = humanizeReason(result.data.reason_code);
+          showFeedback('error', msg);
+          Alert.alert('Absensi ditolak server', msg);
+        } else if (result.data.status === 'REVIEW_REQUIRED') {
+          const msg = `Presensi dicatat dan menunggu verifikasi HR (${humanizeReason(result.data.reason_code)}).`;
+          showFeedback('success', msg);
+          Alert.alert('Presensi menunggu tinjauan', msg);
+        } else {
+          const labelAct = intent.eventType === 'CHECK_IN' ? 'Check-In' : 'Check-Out';
+          showFeedback('success', `${labelAct} berhasil dicatat.`);
+          Alert.alert(`${labelAct} berhasil`, `Presensi ${labelAct.toLowerCase()} Anda sudah tercatat di server.`);
         }
+      } catch (failure) {
+        if (!(failure instanceof ApiError) || failure.status !== 0) throw failure;
+        await enqueueUncertainEvent(payload);
+        showFeedback('error', 'Koneksi terputus saat mengirim. Tanda terima sedang diperiksa.');
+        Alert.alert('Status belum pasti', 'Kami mengecek tanda terima server. Event tidak akan dikirim ulang dengan waktu server baru.');
       }
       setIntent(null);
       setAttendancePhoto(null);
@@ -2409,6 +2394,9 @@ function Main() {
     if (profileBlock) {
       allowAction = false;
       timingNotice = profileBlock;
+    } else if (!online) {
+      allowAction = false;
+      timingNotice = 'Koneksi internet diperlukan untuk melakukan presensi.';
     }
 
     const label = record?.provisional_out_at ? `Checkout otomatis ${clock(record.provisional_out_at)} · menunggu tinjauan` : record?.check_out_at ? `Keluar ${clock(record.check_out_at)}` : record?.check_in_at ? `Masuk ${clock(record.check_in_at)}` : 'Belum absen';
@@ -2428,7 +2416,7 @@ function Main() {
           allowAction ? (
             <Pressable accessibilityRole="button" onPress={() => setIntent({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
               <Text style={[styles.actionButtonText, styles.eventButtonText]}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
-              <Text style={[styles.actionHint, styles.eventButtonText]}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server saat online'}</Text>
+              <Text style={[styles.actionHint, styles.eventButtonText]}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server'}</Text>
             </Pressable>
           ) : profileBlock ? (
             <View style={styles.sessionBlockNotice}>
@@ -2471,7 +2459,7 @@ function Main() {
   };
 
   function outboxCard(row: OutboxRow) {
-    const title = row.status === 'pending' ? 'Menunggu sinkronisasi' : row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'needs_correction' ? (isAdminOrSupervisor ? 'Perlu koreksi HR' : 'Perlu pengecekan HR') : row.status === 'rejected' ? 'Ditolak server' : 'Koreksi diajukan';
+    const title = row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'needs_correction' ? (isAdminOrSupervisor ? 'Perlu koreksi HR' : 'Perlu pengecekan HR') : row.status === 'rejected' ? 'Ditolak server' : 'Koreksi diajukan';
     return (
       <View style={styles.listCard} key={row.event_uuid}>
         <View style={styles.flex}>
@@ -2519,8 +2507,8 @@ function Main() {
           <View style={[styles.networkBanner, !online && styles.networkBannerOffline]}>
             <View style={[styles.dot, !online && styles.dotOffline]} />
             <View style={styles.flex}>
-              <Text style={styles.networkTitle}>{online ? 'Sistem Aktif & Terhubung' : 'Mode Offline'}</Text>
-              <Text style={styles.networkCopy}>Panel Pengaturan & Persetujuan Admin / HRD</Text>
+              <Text style={styles.networkTitle}>{online ? 'Sistem Aktif & Terhubung' : 'Koneksi Terputus'}</Text>
+              <Text style={styles.networkCopy}>{online ? 'Panel Pengaturan & Persetujuan Admin / HRD' : 'Sambungkan internet untuk memuat dan mengelola data.'}</Text>
             </View>
           </View>
 
@@ -2624,10 +2612,10 @@ function Main() {
         <View style={[styles.networkBanner, !online && styles.networkBannerOffline]}>
           <View style={[styles.dot, !online && styles.dotOffline]} />
           <View style={styles.flex}>
-            <Text style={styles.networkTitle}>{online ? 'Koneksi server tersedia' : 'Mode offline'}</Text>
-            <Text style={styles.networkCopy}>{loading ? 'Memperbarui data…' : online ? 'Jadwal dan pengajuan dimuat dari sistem' : 'Jadwal terakhir tersimpan di perangkat'}</Text>
+            <Text style={styles.networkTitle}>{online ? 'Koneksi server tersedia' : 'Koneksi terputus'}</Text>
+            <Text style={styles.networkCopy}>{loading ? 'Memperbarui data…' : online ? 'Jadwal dan pengajuan dimuat dari sistem' : 'Jadwal tersimpan hanya untuk dilihat; presensi perlu koneksi internet.'}</Text>
           </View>
-          {pendingOutbox.length > 0 && <Text style={styles.queueCount}>{pendingOutbox.length} antrean</Text>}
+          {unresolvedOutbox.length > 0 && <Text style={styles.queueCount}>{unresolvedOutbox.length} perlu ditangani</Text>}
         </View>
 
         {isAdminOrSupervisor && pendingHrdCount > 0 && (
@@ -2690,10 +2678,13 @@ function Main() {
           <View style={styles.emptyCard}><Text style={styles.cardTitle}>Belum ada jadwal hari ini</Text><Text style={styles.cardCopy}>Jadwal yang diterbitkan HR akan muncul setelah disinkronkan.</Text></View>
         )}
 
-        {pendingOutbox.length > 0 && (
+        {unresolvedOutbox.length > 0 && (
           <>
-            <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>Antrean absensi</Text><Pressable onPress={() => syncOutbox()}><Text style={styles.linkText}>Sinkronkan</Text></Pressable></View>
-            {pendingOutbox.map(outboxCard)}
+            <View style={styles.sectionHeading}>
+              <Text style={styles.sectionTitle}>Status pengiriman</Text>
+              {outbox.some((row) => row.status === 'uncertain') && online && <Pressable onPress={() => syncOutbox()}><Text style={styles.linkText}>Periksa tanda terima</Text></Pressable>}
+            </View>
+            {unresolvedOutbox.map(outboxCard)}
           </>
         )}
 
@@ -2703,7 +2694,7 @@ function Main() {
             {Math.floor(credited / 60)}j {credited % 60}m
             {creditedOvertime > 0 ? ` · +Lembur: ${Math.floor(creditedOvertime / 60)}j ${creditedOvertime % 60}m` : ''}
           </Text>
-          <Text style={styles.cardCopy}>Kehadiran provisional dan event offline belum masuk total ini.</Text>
+          <Text style={styles.cardCopy}>Kehadiran yang menunggu tinjauan belum masuk total ini.</Text>
         </View>
         {!!error && <Text style={styles.errorText}>{error}</Text>}
       </ScrollView>
@@ -3901,8 +3892,8 @@ function Main() {
           <Text style={styles.cardTitle}>{baseUrl}</Text>
           <Text style={styles.cardCopy}>Perangkat terdaftar dengan ID tersimpan aman.</Text>
           <Text style={styles.cardEyebrow}>SINKRONISASI</Text>
-          <Text style={styles.cardCopy}>{pendingOutbox.length} event belum selesai · {online ? 'online' : 'offline'}</Text>
-          <Pressable disabled={loading} onPress={() => { if (token) { syncOutbox(); loadData(); } }} style={[styles.secondaryButton, loading && styles.disabled]}>
+          <Text style={styles.cardCopy}>{unresolvedOutbox.length} event belum selesai · {online ? 'online' : 'offline'}</Text>
+          <Pressable disabled={loading || !online} onPress={() => { if (token) { syncOutbox(); loadData(); } }} style={[styles.secondaryButton, (loading || !online) && styles.disabled]}>
             <View style={styles.btnContentRow}>
               {loading && <ActivityIndicator size="small" color={colors.primary} />}
               <Text style={styles.secondaryButtonText}>{loading ? 'Memperbarui…' : 'Perbarui data'}</Text>
@@ -4053,12 +4044,12 @@ function Main() {
 
             {!online && (
               <View style={styles.offlineWarning}>
-                <Text style={styles.offlineWarningText}>Event tersimpan dengan waktu perangkat dan dapat memerlukan verifikasi HR.</Text>
+                <Text style={styles.offlineWarningText}>Koneksi internet diperlukan. Presensi tidak akan disimpan di perangkat.</Text>
               </View>
             )}
             <View style={styles.modalActions}>
               <Pressable onPress={() => { setIntent(null); setAttendancePhoto(null); }} style={styles.cancelButton}><Text style={styles.cancelButtonText}>Batal</Text></Pressable>
-              <Pressable disabled={busy || !attendancePhoto} onPress={recordAttendance} style={[styles.confirmButton, intent?.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, (busy || !attendancePhoto) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : intent?.eventType === 'CHECK_IN' ? 'Kirim Check-in' : 'Kirim Check-out'}</Text></Pressable>
+              <Pressable disabled={busy || !attendancePhoto || !online} onPress={recordAttendance} style={[styles.confirmButton, intent?.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, (busy || !attendancePhoto || !online) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : intent?.eventType === 'CHECK_IN' ? 'Kirim Check-in' : 'Kirim Check-out'}</Text></Pressable>
             </View>
           </View>
         </View>

@@ -48,10 +48,10 @@ Dokumen ini memuat standar spesifikasi perangkat keras (*hardware*), sistem oper
    - Mendukung fitur *Cropping* gambar persegi 1:1 dan kompresi otomatis client-side.
 3. **Penyimpanan Lokal Terenkripsi & Basis Data SQLite**:
    - Perangkat wajib mendukung modul penyimpanan aman hardware (*Android Keystore* via `expo-secure-store`) untuk menyimpan kredensial token dan UUID perangkat.
-   - Modul SQLite lokal (`expo-sqlite`) digunakan untuk menampung antrean outbox offline dan data jadwal shift.
+   - Modul SQLite lokal (`expo-sqlite`) digunakan untuk cache jadwal serta memeriksa tanda terima presensi online yang responsnya terputus. Presensi offline tidak disimpan atau diantrikan.
 4. **Waktu & Jam Perangkat (*Device Clock*)**:
-   - Jam perangkat **wajib disetel otomatis** mengikuti waktu jaringan operator (*Automatic Date & Time / Network-provided time*).
-   - Ketidaksesuaian jam lokal ekstrem (> 60 detik) dapat menyebabkan selisih perhitungan presensi dengan jam server backend UTC+7 (WIB).
+   - Waktu presensi yang diterima ditentukan oleh server. Presensi tidak dapat dicatat tanpa koneksi ke server.
+   - Jam perangkat tidak menentukan status keterlambatan; nilai waktunya hanya metadata diagnostik.
 
 ---
 
@@ -66,7 +66,7 @@ Aplikasi meminta izin (*runtime permissions*) berikut sesuai kebutuhan fungsi:
 | `android.permission.CAMERA` | Mengambil foto profil baru dan memotret dokumen surat izin/sakit langsung dari kamera. |
 | `android.permission.READ_EXTERNAL_STORAGE` / `READ_MEDIA_IMAGES` | Memilih foto profil yang sudah tersimpan di galeri perangkat. |
 | `android.permission.INTERNET` | Mengirim data presensi, pengajuan izin, dan sinkronisasi jadwal ke backend server Laravel. |
-| `android.permission.ACCESS_NETWORK_STATE` | Mendeteksi ketersediaan koneksi internet (online/offline) untuk mekanisme penyimpanan antrean outbox otomatis. |
+| `android.permission.ACCESS_NETWORK_STATE` | Mendeteksi koneksi agar APK dapat menonaktifkan presensi saat server tidak terjangkau dan memberi tahu pengguna. |
 
 ---
 
@@ -77,4 +77,4 @@ Aplikasi meminta izin (*runtime permissions*) berikut sesuai kebutuhan fungsi:
 2. **Perangkat yang di-Root (*Rooted Device*)**:
    - Tidak direkomendasikan demi menjaga integritas data absensi dan keamanan enkripsi token login.
 3. **Optimasi Baterai (*Battery Optimization / Doze Mode*)**:
-   - Disarankan untuk mengecualikan aplikasi Deresort dari fitur hemat daya ekstrem (*Battery Saver*) agar proses sinkronisasi antrean outbox saat kembali online tidak terhambat.
+   - Disarankan untuk mengecualikan aplikasi Deresort dari fitur hemat daya ekstrem (*Battery Saver*) agar pemeriksaan tanda terima presensi yang responsnya terputus dapat dilanjutkan saat aplikasi aktif dan internet tersambung.

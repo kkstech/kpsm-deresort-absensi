@@ -92,11 +92,12 @@ class AttendanceTest extends TestCase
             ])
             ->assertOk()->assertJsonPath('results.0.status', 'ACCEPTED')
             ->assertJsonPath('results.0.effective_at', '2026-10-25T01:10:00Z')
-            ->assertJsonPath('results.1.reason_code', 'VALIDATION_ERROR');
+            ->assertJsonPath('results.1.status', 'REJECTED')
+            ->assertJsonPath('results.1.reason_code', 'OFFLINE_ATTENDANCE_DISABLED');
 
         $this->getJson('/api/v1/attendance/me?from=2026-10-25&to=2026-10-25')
             ->assertOk()->assertJsonPath('data.0.sessions.0.attendance.status', 'IN_PROGRESS')
-            ->assertJsonCount(1, 'data.0.sessions.0.events');
+            ->assertJsonCount(2, 'data.0.sessions.0.events');
 
         $this->assertDatabaseHas('sync_batches', ['batch_uuid' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'event_count' => 2]);
         $this->assertDatabaseHas('attendance_events', ['event_uuid' => $event['event_uuid'], 'device_registration_id' => $this->device->id]);
@@ -119,34 +120,28 @@ class AttendanceTest extends TestCase
         $this->assertDatabaseCount('attendance_records', 1);
     }
 
-    public function test_offline_checkout_received_before_checkin_is_reconciled_into_review_projection(): void
+    public function test_offline_attendance_is_rejected_without_using_device_time(): void
     {
         $this->travelTo('2026-10-25 12:00:00');
-        $action = app(RecordAttendance::class);
-        $checkout = $this->event('33333333-3333-4333-8333-333333333333', [
-            'event_type' => 'CHECK_OUT',
-            'device_at' => '2026-10-25T10:00:00Z',
-            'captured_offline' => true,
-        ]);
-
-        $result = $action->handle($this->employee, $checkout, $this->device->id);
-        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
-        $this->assertSame('NOT_CHECKED_IN', $result['data']['reason_code']);
-        $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
-
-        $checkin = $this->event('44444444-4444-4444-8444-444444444444', [
+        $input = $this->event('33333333-3333-4333-8333-333333333333', [
             'device_at' => '2026-10-25T01:05:00Z',
             'captured_offline' => true,
         ]);
-        $action->handle($this->employee, $checkin, $this->device->id);
 
-        $this->assertDatabaseHas('attendance_records', [
-            'shift_session_id' => $this->sessionId,
-            'check_out_at' => '2026-10-25 10:00:00',
-            'verified_minutes' => 0,
-            'needs_review' => 1,
+        $this->withToken($this->token)
+            ->postJson('/api/v1/attendance/events', $input)
+            ->assertCreated()
+            ->assertJsonPath('data.status', 'REJECTED')
+            ->assertJsonPath('data.reason_code', 'OFFLINE_ATTENDANCE_DISABLED')
+            ->assertJsonPath('data.effective_at', '2026-10-25T12:00:00Z');
+
+        $this->assertDatabaseHas('attendance_events', [
+            'event_uuid' => $input['event_uuid'],
+            'result' => 'REJECTED',
+            'reason_code' => 'OFFLINE_ATTENDANCE_DISABLED',
+            'effective_at' => '2026-10-25 12:00:00',
         ]);
-        $this->assertSame(2, AttendanceEvent::query()->where('shift_session_id', $this->sessionId)->count());
+        $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
     }
 
     public function test_auto_checkout_is_provisional_and_can_be_retried_without_duplicate_audit(): void
@@ -175,7 +170,7 @@ class AttendanceTest extends TestCase
             ->assertJsonPath('data.0.attendance.verified_minutes', 0);
     }
 
-    public function test_offline_checkout_arriving_after_auto_checkout_stays_under_review(): void
+    public function test_offline_checkout_cannot_change_an_existing_attendance_record(): void
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a2222222-2222-4222-8222-222222222222'), $this->device->id);
@@ -189,15 +184,15 @@ class AttendanceTest extends TestCase
         ]);
         $result = app(RecordAttendance::class)->handle($this->employee, $checkout, $this->device->id);
 
-        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
-        $this->assertSame('OFFLINE_CLOCK_UNVERIFIED', $result['data']['reason_code']);
+        $this->assertSame('REJECTED', $result['data']['status']);
+        $this->assertSame('OFFLINE_ATTENDANCE_DISABLED', $result['data']['reason_code']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
             'provisional_out_at' => '2026-10-25 14:10:00',
-            'check_out_at' => '2026-10-25 10:00:00',
+            'check_out_at' => null,
             'verified_minutes' => 0,
             'needs_review' => 1,
-            'review_reason' => 'CHECKOUT_AFTER_AUTO',
+            'review_reason' => 'AUTO_CHECKOUT',
         ]);
     }
 
@@ -333,24 +328,7 @@ class AttendanceTest extends TestCase
         $this->assertSame('COMPLETED', $assignment->fresh()->status);
     }
 
-    public function test_finalized_period_stores_offline_event_but_does_not_change_projection(): void
-    {
-        AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED']);
-        $this->travelTo('2026-10-25 12:00:00');
-        $input = $this->event('55555555-5555-4555-8555-555555555555', [
-            'device_at' => '2026-10-25T01:05:00Z',
-            'captured_offline' => true,
-        ]);
-
-        $result = app(RecordAttendance::class)->handle($this->employee, $input, $this->device->id);
-
-        $this->assertSame('PERIOD_LOCKED', $result['data']['reason_code']);
-        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
-        $this->assertDatabaseHas('attendance_events', ['event_uuid' => $input['event_uuid'], 'result' => 'REVIEW_REQUIRED']);
-        $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
-    }
-
-    public function test_offline_batch_is_processed_by_local_sequence_even_when_sent_out_of_order(): void
+    public function test_offline_batch_is_rejected_without_projecting_attendance(): void
     {
         $this->travelTo('2026-10-25 12:00:00');
         $checkin = $this->event('77777777-7777-4777-8777-777777777777', [
@@ -371,15 +349,14 @@ class AttendanceTest extends TestCase
                 'events' => [$checkout, $checkin],
             ])
             ->assertOk()->assertJsonPath('results.0.event_uuid', $checkin['event_uuid'])
-            ->assertJsonPath('results.1.event_uuid', $checkout['event_uuid']);
+            ->assertJsonPath('results.0.status', 'REJECTED')
+            ->assertJsonPath('results.0.reason_code', 'OFFLINE_ATTENDANCE_DISABLED')
+            ->assertJsonPath('results.1.event_uuid', $checkout['event_uuid'])
+            ->assertJsonPath('results.1.status', 'REJECTED')
+            ->assertJsonPath('results.1.reason_code', 'OFFLINE_ATTENDANCE_DISABLED');
 
-        $this->assertDatabaseHas('attendance_records', [
-            'shift_session_id' => $this->sessionId,
-            'check_in_at' => '2026-10-25 01:05:00',
-            'check_out_at' => '2026-10-25 10:00:00',
-            'verified_minutes' => 0,
-            'needs_review' => 1,
-        ]);
+        $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
+        $this->assertSame(2, AttendanceEvent::query()->where('shift_session_id', $this->sessionId)->where('result', 'REJECTED')->count());
     }
 
     public function test_identical_event_retry_is_idempotent_and_conflicting_payload_is_rejected(): void

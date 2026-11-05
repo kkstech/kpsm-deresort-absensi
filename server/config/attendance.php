@@ -11,7 +11,7 @@ return [
     // Sesi yang belum checkout ditutup provisional setelah jam akhir + nilai ini.
     'auto_checkout_after_minutes' => (int) env('ATTENDANCE_AUTO_CHECKOUT_AFTER_MINUTES', 30),
 
-    // Event offline dianggap mencurigakan bila jam perangkat di luar batas ini.
+    // Batas pencocokan event offline lama yang sudah tersimpan sebelum presensi offline dinonaktifkan.
     'offline_max_age_hours' => (int) env('ATTENDANCE_OFFLINE_MAX_AGE_HOURS', 72),
     'offline_future_tolerance_minutes' => (int) env('ATTENDANCE_OFFLINE_FUTURE_TOLERANCE_MINUTES', 2),
 

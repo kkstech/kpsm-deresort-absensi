@@ -288,7 +288,7 @@ async function loadReportFilters() {
         masterData = res;
         populateFilters();
     } catch (e) {
-        toast('Gagal memuat filter laporan: ' + e.message);
+        toast('Gagal memuat filter laporan: ' + e.message, 'error');
     }
 }
 
@@ -362,7 +362,7 @@ async function loadSummaryTab() {
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
-        toast('Gagal memuat rekapitulasi: ' + e.message);
+        toast('Gagal memuat rekapitulasi: ' + e.message, 'error');
     }
 }
 
@@ -650,7 +650,7 @@ async function loadDetailsTab() {
             tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         if (pagination) pagination.hidden = true;
-        toast('Gagal memuat detail sesi: ' + e.message);
+        toast('Gagal memuat detail sesi: ' + e.message, 'error');
     }
 }
 
@@ -765,7 +765,7 @@ async function loadOvertimeTab() {
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
-        toast('Gagal memuat rekap lembur: ' + e.message);
+        toast('Gagal memuat rekap lembur: ' + e.message, 'error');
     }
 }
 

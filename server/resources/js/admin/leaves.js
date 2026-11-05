@@ -426,7 +426,7 @@ function openDirectLeave() {
             await Promise.all([loadRequests(), loadBalances()]);
             return true;
         },
-    })).catch((error) => toast(error.message));
+    })).catch((error) => toast(error.message, 'error'));
 }
 
 function decide(item, decision) {
@@ -531,7 +531,7 @@ directLeaveButton?.addEventListener('click', openDirectLeave);
 
 $('#leave-balance-table').addEventListener('click', (event) => {
     const button = event.target.closest('[data-adjust-quota]');
-    if (button) adjustQuota(button.dataset.adjustQuota).catch((error) => toast(error.message));
+    if (button) adjustQuota(button.dataset.adjustQuota).catch((error) => toast(error.message, 'error'));
 });
 
 table.addEventListener('click', async (event) => {

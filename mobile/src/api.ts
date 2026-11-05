@@ -225,7 +225,7 @@ export type SwapPreviewResult = {
   can_commit: boolean;
 };
 
-export type OutboxStatus = 'pending' | 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted';
+export type OutboxStatus = 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted';
 export type OutboxRow = { event_uuid: string; batch_uuid: string; payload: string; created_at: string; first_sent_at: string | null; local_sequence: number; status: OutboxStatus; message: string | null };
 
 export type OvertimeItem = {
@@ -291,15 +291,17 @@ export async function cancelOvertime(baseUrl: string, token: string, orderId: nu
 let database: Promise<SQLite.SQLiteDatabase> | undefined;
 
 async function db(): Promise<SQLite.SQLiteDatabase> {
-  database ??= SQLite.openDatabaseAsync('deresort-attendance.db');
-  const connection = await database;
-  await connection.execAsync(`CREATE TABLE IF NOT EXISTS attendance_outbox (
+  database ??= SQLite.openDatabaseAsync('deresort-attendance.db').then(async (connection) => {
+    await connection.execAsync(`CREATE TABLE IF NOT EXISTS attendance_outbox (
     event_uuid TEXT PRIMARY KEY, batch_uuid TEXT NOT NULL, payload TEXT NOT NULL,
     created_at TEXT NOT NULL, first_sent_at TEXT, local_sequence INTEGER NOT NULL,
     status TEXT NOT NULL, message TEXT
   );
   CREATE TABLE IF NOT EXISTS app_cache (cache_key TEXT PRIMARY KEY, value TEXT NOT NULL, saved_at TEXT NOT NULL);`);
-  return connection;
+    await connection.runAsync("DELETE FROM attendance_outbox WHERE status = 'pending'");
+    return connection;
+  });
+  return database;
 }
 
 export async function saveCache(key: string, value: unknown): Promise<void> {
@@ -317,15 +319,15 @@ export async function clearCache(): Promise<void> {
   } catch {}
 }
 
-export async function enqueueEvent(payload: Record<string, unknown>, status: 'pending' | 'uncertain'): Promise<OutboxRow> {
+export async function enqueueUncertainEvent(payload: Record<string, unknown>): Promise<OutboxRow> {
   const connection = await db();
   const latest = await connection.getFirstAsync<{ value: number }>('SELECT COALESCE(MAX(local_sequence),0) AS value FROM attendance_outbox');
   const local_sequence = (latest?.value ?? 0) + 1;
-  const enriched: Record<string, unknown> = { ...payload, ...(status === 'pending' ? { captured_offline: true, device_at: new Date().toISOString() } : {}), local_sequence };
+  const enriched: Record<string, unknown> = { ...payload, local_sequence };
   const row: OutboxRow = {
     event_uuid: String(enriched.event_uuid), batch_uuid: uuid(), payload: JSON.stringify(enriched),
-    created_at: new Date().toISOString(), first_sent_at: status === 'uncertain' ? new Date().toISOString() : null,
-    local_sequence, status, message: null,
+    created_at: new Date().toISOString(), first_sent_at: new Date().toISOString(),
+    local_sequence, status: 'uncertain', message: null,
   };
   await connection.runAsync('INSERT OR IGNORE INTO attendance_outbox(event_uuid,batch_uuid,payload,created_at,first_sent_at,local_sequence,status,message) VALUES(?,?,?,?,?,?,?,?)',
     row.event_uuid, row.batch_uuid, row.payload, row.created_at, row.first_sent_at, row.local_sequence, row.status, row.message);
