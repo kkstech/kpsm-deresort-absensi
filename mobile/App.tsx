@@ -761,7 +761,7 @@ function Main() {
   const [lateRequests, setLateRequests] = useState<WorkRequest[]>([]);
   const [corrections, setCorrections] = useState<WorkRequest[]>([]);
   const [notificationFeed, setNotificationFeed] = useState<NotificationFeed>({ data: [], unread_count: 0 });
-  const [notificationsExpanded, setNotificationsExpanded] = useState(false);
+  const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
   const [outbox, setOutbox] = useState<OutboxRow[]>([]);
   const [online, setOnline] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -923,6 +923,9 @@ function Main() {
 
   const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
+  const pendingShiftApprovalCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
+  const pendingConsentOrders = overtimes.filter((item) => item.status === 'APPROVED' && item.consent_status === 'PENDING');
+  const pendingApprovalCount = (isAdminOrSupervisor ? pendingShiftApprovalCount : 0) + pendingConsentOrders.length;
 
   const unfinishedSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions
     .filter((session) => !session.attendance?.check_out_at && !session.attendance?.provisional_out_at)
@@ -2491,8 +2494,6 @@ function Main() {
   }
 
   function renderToday() {
-    const pendingHrdCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
-
     // Pure Admin / HRD view (account without dedicated employee schedule)
     if (!hasEmployee && isAdminOrSupervisor) {
       return (
@@ -2541,7 +2542,7 @@ function Main() {
           <View style={styles.statRow}>
             <Pressable onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }} style={styles.statCard}>
               <Text style={styles.statLabel}>Pengajuan Tukar Shift</Text>
-              <Text style={[styles.statValue, pendingHrdCount > 0 && { color: colors.warning }]}>{pendingHrdCount}</Text>
+              <Text style={[styles.statValue, pendingShiftApprovalCount > 0 && { color: colors.warning }]}>{pendingShiftApprovalCount}</Text>
               <Text style={styles.statSub}>Menunggu persetujuan</Text>
             </Pressable>
             <Pressable onPress={() => { setTab('Jadwal'); }} style={styles.statCard}>
@@ -2557,7 +2558,7 @@ function Main() {
           <Pressable style={styles.menuRow} onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }}>
             <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
             <View style={styles.flex}>
-              <Text style={styles.cardTitle}>Persetujuan Tukar Shift ({pendingHrdCount})</Text>
+              <Text style={styles.cardTitle}>Persetujuan Tukar Shift ({pendingShiftApprovalCount})</Text>
               <Text style={styles.cardCopy}>Tinjau, setujui atau tolak pengajuan tukar shift dari staf</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
@@ -2630,12 +2631,12 @@ function Main() {
           {pendingOutbox.length > 0 && <Text style={styles.queueCount}>{pendingOutbox.length} antrean</Text>}
         </View>
 
-        {isAdminOrSupervisor && pendingHrdCount > 0 && (
+        {isAdminOrSupervisor && pendingShiftApprovalCount > 0 && (
           <Pressable onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }} style={styles.adminAlertCard}>
             <Ionicons name="notifications-outline" size={20} color={colors.warning} />
             <View style={styles.flex}>
-              <Text style={styles.adminAlertTitle}>Persetujuan Tukar Shift ({pendingHrdCount})</Text>
-              <Text style={styles.cardCopy}>Ada {pendingHrdCount} pengajuan tukar shift menunggu persetujuan HRD.</Text>
+              <Text style={styles.adminAlertTitle}>Persetujuan Tukar Shift ({pendingShiftApprovalCount})</Text>
+              <Text style={styles.cardCopy}>Ada {pendingShiftApprovalCount} pengajuan tukar shift menunggu persetujuan HRD.</Text>
             </View>
             <Text style={styles.linkText}>Periksa</Text>
           </Pressable>
@@ -3426,8 +3427,26 @@ function Main() {
     );
   }
 
+  function renderNotificationCard(item: AppNotification) {
+    const isRejected = item.data.context?.status === 'REJECTED' || item.data.title?.toLowerCase().includes('ditolak');
+    return (
+      <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread, isRejected && styles.notificationCardRejected]}>
+        {isRejected && <View style={styles.notificationRejectedIcon} accessible accessibilityLabel="Pengajuan ditolak"><Ionicons name="close-circle" size={20} color={colors.danger} /></View>}
+        <View style={styles.notificationContent}>
+          <Text style={styles.cardTitle}>{item.data.title || 'Notifikasi'}</Text>
+          <Text style={styles.cardCopy}>{item.data.body || ''}</Text>
+          {item.created_at && <Text style={styles.notificationDate}>{new Date(item.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</Text>}
+        </View>
+        {!item.read_at && (
+          <Pressable onPress={() => markNotificationRead(item.id)} style={styles.notificationReadButton} accessibilityRole="button" accessibilityLabel="Tandai notifikasi dibaca">
+            <Ionicons name="checkmark-done-outline" size={20} color={colors.primary} />
+          </Pressable>
+        )}
+      </View>
+    );
+  }
+
   function renderAdminExchangeApproval() {
-    const pendingCount = adminShiftExchanges.filter((i) => i.status === 'PENDING').length;
     const filtered = adminShiftExchanges.filter((item) => {
       if (approvalFilter === 'ALL') return true;
       return item.status === approvalFilter;
@@ -3451,7 +3470,7 @@ function Main() {
           {(['PENDING', 'APPROVED', 'REJECTED', 'ALL'] as const).map((filter) => (
             <Pressable key={filter} onPress={() => setApprovalFilter(filter)} style={[styles.segment, approvalFilter === filter && styles.segmentActive]}>
               <Text style={[styles.segmentText, approvalFilter === filter && styles.segmentTextActive]}>
-                {filter === 'PENDING' ? `Menunggu (${pendingCount})` : filter === 'APPROVED' ? 'Disetujui' : filter === 'REJECTED' ? 'Ditolak' : 'Semua'}
+                {filter === 'PENDING' ? `Menunggu (${pendingShiftApprovalCount})` : filter === 'APPROVED' ? 'Disetujui' : filter === 'REJECTED' ? 'Ditolak' : 'Semua'}
               </Text>
             </Pressable>
           ))}
@@ -3521,9 +3540,6 @@ function Main() {
   }
 
   function renderRequests() {
-    const pendingHrdCount = adminShiftExchanges.filter((i) => i.status === 'PENDING').length;
-    const pendingConsentOrders = overtimes.filter((o) => o.status === 'APPROVED' && o.consent_status === 'PENDING');
-
     return (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -3561,29 +3577,20 @@ function Main() {
           {notificationFeed.data.length === 0 ? (
             <Text style={styles.cardCopy}>Belum ada notifikasi.</Text>
           ) : (
-            <View style={styles.notificationList}>
-              {(notificationsExpanded ? notificationFeed.data : notificationFeed.data.slice(0, 5)).map((item) => {
-                const isRejected = item.data.context?.status === 'REJECTED' || item.data.title?.toLowerCase().includes('ditolak');
-                return <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread, isRejected && styles.notificationCardRejected]}>
-                  {isRejected && <View style={styles.notificationRejectedIcon} accessible accessibilityLabel="Pengajuan ditolak"><Ionicons name="close-circle" size={20} color={colors.danger} /></View>}
-                  <View style={styles.notificationContent}>
-                    <Text style={styles.cardTitle}>{item.data.title || 'Notifikasi'}</Text>
-                    <Text style={styles.cardCopy}>{item.data.body || ''}</Text>
-                    {item.created_at && <Text style={styles.notificationDate}>{new Date(item.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</Text>}
-                  </View>
-                  {!item.read_at && (
-                    <Pressable onPress={() => markNotificationRead(item.id)} style={styles.notificationReadButton} accessibilityLabel="Tandai notifikasi dibaca">
-                      <Ionicons name="checkmark-done-outline" size={20} color={colors.primary} />
-                    </Pressable>
-                  )}
-                </View>;
-              })}
-              {notificationFeed.data.length > 5 && (
-                <Pressable onPress={() => setNotificationsExpanded((expanded) => !expanded)} style={styles.notificationExpandButton}>
-                  <Text style={styles.linkText}>{notificationsExpanded ? 'Tampilkan lebih sedikit' : `Lihat semua (${notificationFeed.data.length})`}</Text>
+            <>
+              <View style={styles.notificationList}>{notificationFeed.data.slice(0, 1).map(renderNotificationCard)}</View>
+              {notificationFeed.data.length > 1 && (
+                <Pressable
+                  onPress={() => setNotificationsModalOpen(true)}
+                  style={styles.notificationExpandButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Buka ${notificationFeed.data.length - 1} notifikasi lainnya`}
+                >
+                  <Text style={styles.linkText}>Notifikasi lain ({notificationFeed.data.length - 1})</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
                 </Pressable>
               )}
-            </View>
+            </>
           )}
         </View>
 
@@ -3597,7 +3604,7 @@ function Main() {
             )}
             <Pressable onPress={() => setPengajuanView('admin')} style={[styles.switcherBtn, pengajuanView === 'admin' && styles.switcherBtnActive]}>
               <Text style={[styles.switcherBtnText, pengajuanView === 'admin' && styles.switcherBtnTextActive]}>
-                Persetujuan HRD {pendingHrdCount > 0 ? `(${pendingHrdCount})` : ''}
+                Persetujuan HRD {pendingShiftApprovalCount > 0 ? `(${pendingShiftApprovalCount})` : ''}
               </Text>
             </Pressable>
           </View>
@@ -3959,16 +3966,25 @@ function Main() {
         <View style={styles.tabBar}>
           {tabItems.map(({ key, label, activeIcon, inactiveIcon }) => {
             const isSelected = tab === key;
+            const badgeCount = key === 'Pengajuan' ? pendingApprovalCount : 0;
             return (
               <Pressable
                 key={key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isSelected }}
+                accessibilityLabel={`${label}${badgeCount > 0 ? `, ${badgeCount} perlu dikonfirmasi` : ''}`}
                 onPress={() => setTab(key)}
                 style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] }]}
               >
-                <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
-                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{key === 'Pengajuan' && notificationFeed.unread_count > 0 ? `${label} · ${notificationFeed.unread_count}` : label}</Text>
+                <View style={styles.tabIconWrap}>
+                  <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
+                  {badgeCount > 0 && (
+                    <View pointerEvents="none" style={styles.tabBadge}>
+                      <Text style={styles.tabBadgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{label}</Text>
                 <View style={[styles.tabIndicator, isSelected && styles.tabIndicatorActive]} />
               </Pressable>
             );
@@ -3985,6 +4001,35 @@ function Main() {
           </View>
         )}
       </View>
+
+      <Modal visible={notificationsModalOpen} transparent animationType="fade" onRequestClose={() => setNotificationsModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, styles.modalCardLarge]}>
+            <View style={styles.modalHeaderRow}>
+              <View style={styles.flex}>
+                <Text style={styles.modalEyebrow}>PEMBARUAN AKUN</Text>
+                <Text style={styles.modalTitle}>Notifikasi</Text>
+                <Text style={styles.modalCopy}>{notificationFeed.data.length} notifikasi terbaru</Text>
+              </View>
+              <Pressable
+                onPress={() => setNotificationsModalOpen(false)}
+                style={styles.notificationModalClose}
+                accessibilityRole="button"
+                accessibilityLabel="Tutup daftar notifikasi"
+              >
+                <Ionicons name="close" size={22} color={colors.ink} />
+              </Pressable>
+            </View>
+            {notificationFeed.data.length === 0 ? (
+              <Text style={styles.cardCopy}>Belum ada notifikasi.</Text>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} style={styles.notificationModalScroll} contentContainerStyle={styles.notificationModalList}>
+                {notificationFeed.data.map(renderNotificationCard)}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Modal Attendance Action */}
       <Modal visible={Boolean(intent)} transparent animationType="fade" onRequestClose={() => { setIntent(null); setAttendancePhoto(null); }}>
@@ -4472,8 +4517,11 @@ const styles = StyleSheet.create({
   notificationRejectedIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#FBD9D7' },
   notificationContent: { flex: 1, gap: 3 },
   notificationDate: { marginTop: 3, color: colors.muted, fontSize: 11.5 },
-  notificationReadButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
-  notificationExpandButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  notificationReadButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
+  notificationExpandButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  notificationModalClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
+  notificationModalScroll: { flexShrink: 1, marginTop: 4 },
+  notificationModalList: { gap: 8, paddingBottom: 4 },
   field: { gap: 6, marginTop: 14 },
   fieldLabel: { color: colors.ink, fontSize: 14, fontWeight: '700', marginBottom: 2 },
   fieldLabelOptional: { color: colors.muted, fontSize: 10, fontWeight: '500' },
@@ -4601,6 +4649,9 @@ const styles = StyleSheet.create({
   feedbackToastError: { backgroundColor: colors.danger },
   feedbackToastText: { color: '#FFFFFF', fontSize: 13.5, fontWeight: '700', lineHeight: 19, textAlign: 'center' },
   tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12 },
+  tabIconWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  tabBadge: { position: 'absolute', top: -6, right: -10, minWidth: 17, height: 17, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9, borderWidth: 1, borderColor: colors.surface, backgroundColor: colors.danger },
+  tabBadgeText: { color: colors.surface, fontSize: 9, lineHeight: 11, fontWeight: '800' },
   tabIndicator: { width: 18, height: 3, borderRadius: 2, backgroundColor: 'transparent', marginTop: 1 },
   tabIndicatorActive: { backgroundColor: colors.primary },
   tabText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
