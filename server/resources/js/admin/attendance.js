@@ -818,6 +818,17 @@ function decisionOvertimeModal(item) {
     openWorkflowModal('Putuskan Pengajuan Lembur', 'Tinjau rincian tugas dan durasi lembur sebelum menetapkan keputusan.', summaryCard, (body) => api(`overtimes/${item.id}/decision`, { method: 'POST', body }), 'Simpan Keputusan');
 }
 
+function updateApprovalTabCount(tabKey, label, count) {
+    const value = Math.max(0, Number(count) || 0);
+    const badge = $(`#approval-tab-count-${tabKey}`);
+    const tab = $(`[data-approval-tab="${tabKey}"]`);
+    if (badge) {
+        badge.textContent = value;
+        badge.classList.toggle('has-pending', value > 0);
+    }
+    if (tab) tab.setAttribute('aria-label', `${label}: ${value} menunggu keputusan`);
+}
+
 function activateApprovalTab(tabKey) {
     const tabs = $$('[data-approval-tab]');
     const activeTab = tabs.find((tab) => tab.dataset.approvalTab === tabKey);
@@ -861,15 +872,20 @@ export async function showApprovals() {
     const error = $('#workflow-error');
     error.hidden = true;
     try {
-        const [result, overtimeResult, recommendationResult, exchangeResult] = await Promise.all([
+        const overtimeFilter = $('#overtime-filter')?.value ?? 'PENDING';
+        const needsPendingOvertimeRequest = isAdmin && !['PENDING', 'all'].includes(overtimeFilter);
+        const [result, overtimeResult, pendingOvertimeResult, recommendationResult, exchangeResult] = await Promise.all([
             api('workflows', { query: { status: 'PENDING' } }),
-            isAdmin ? api('overtimes', { query: $('#overtime-filter')?.value === 'all' ? {} : { status: $('#overtime-filter')?.value ?? 'PENDING' } }) : Promise.resolve({ data: [] }),
+            isAdmin ? api('overtimes', { query: overtimeFilter === 'all' ? {} : { status: overtimeFilter } }) : Promise.resolve({ data: [] }),
+            needsPendingOvertimeRequest ? api('overtimes', { query: { status: 'PENDING' } }) : Promise.resolve(null),
             isAdmin ? api('overtimes/recommendations') : Promise.resolve({ data: [] }),
             isAdmin ? api('shift-exchanges', { query: { scope: 'admin', status: 'PENDING' } }) : Promise.resolve({ data: [] }),
         ]);
 
         const lateCount = result.late_permissions.length;
         const correctionCount = result.corrections.length;
+        updateApprovalTabCount('izin', 'Izin', lateCount);
+        updateApprovalTabCount('correction', 'Koreksi Absensi', correctionCount);
 
         const lateBadge = $('#late-permission-count-badge');
         if (lateBadge) lateBadge.textContent = lateCount;
@@ -906,7 +922,10 @@ export async function showApprovals() {
 
         // Overtime queue
         const overtimeList = overtimeResult.data ?? [];
-        const pendingOtCount = overtimeList.filter((o) => o.status === 'PENDING').length;
+        const pendingOtCount = needsPendingOvertimeRequest
+            ? (pendingOvertimeResult?.data ?? []).length
+            : overtimeList.filter((o) => o.status === 'PENDING').length;
+        updateApprovalTabCount('overtime', 'Lembur', pendingOtCount);
         const otBadge = $('#overtime-count-badge');
         if (otBadge) otBadge.textContent = pendingOtCount;
         const otCount = $('#overtime-count');
@@ -998,6 +1017,7 @@ export async function showApprovals() {
         }
 
         const exchangeList = exchangeResult.data ?? [];
+        updateApprovalTabCount('shift-exchange', 'Tukar Shift', exchangeList.length);
         const exchangeBadge = $('#shift-exchange-count-badge');
         const exchangeCount = $('#shift-exchange-count');
         const exchangeQueue = $('#shift-exchange-queue');

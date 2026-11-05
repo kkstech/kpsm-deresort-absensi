@@ -923,9 +923,6 @@ function Main() {
 
   const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
-  const pendingShiftApprovalCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
-  const pendingConsentOrders = overtimes.filter((item) => item.status === 'APPROVED' && item.consent_status === 'PENDING');
-  const pendingApprovalCount = (isAdminOrSupervisor ? pendingShiftApprovalCount : 0) + pendingConsentOrders.length;
 
   const unfinishedSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions
     .filter((session) => !session.attendance?.check_out_at && !session.attendance?.provisional_out_at)
@@ -2494,6 +2491,8 @@ function Main() {
   }
 
   function renderToday() {
+    const pendingHrdCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
+
     // Pure Admin / HRD view (account without dedicated employee schedule)
     if (!hasEmployee && isAdminOrSupervisor) {
       return (
@@ -2542,7 +2541,7 @@ function Main() {
           <View style={styles.statRow}>
             <Pressable onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }} style={styles.statCard}>
               <Text style={styles.statLabel}>Pengajuan Tukar Shift</Text>
-              <Text style={[styles.statValue, pendingShiftApprovalCount > 0 && { color: colors.warning }]}>{pendingShiftApprovalCount}</Text>
+              <Text style={[styles.statValue, pendingHrdCount > 0 && { color: colors.warning }]}>{pendingHrdCount}</Text>
               <Text style={styles.statSub}>Menunggu persetujuan</Text>
             </Pressable>
             <Pressable onPress={() => { setTab('Jadwal'); }} style={styles.statCard}>
@@ -2558,7 +2557,7 @@ function Main() {
           <Pressable style={styles.menuRow} onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }}>
             <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
             <View style={styles.flex}>
-              <Text style={styles.cardTitle}>Persetujuan Tukar Shift ({pendingShiftApprovalCount})</Text>
+              <Text style={styles.cardTitle}>Persetujuan Tukar Shift ({pendingHrdCount})</Text>
               <Text style={styles.cardCopy}>Tinjau, setujui atau tolak pengajuan tukar shift dari staf</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.muted} />
@@ -2631,12 +2630,12 @@ function Main() {
           {pendingOutbox.length > 0 && <Text style={styles.queueCount}>{pendingOutbox.length} antrean</Text>}
         </View>
 
-        {isAdminOrSupervisor && pendingShiftApprovalCount > 0 && (
+        {isAdminOrSupervisor && pendingHrdCount > 0 && (
           <Pressable onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }} style={styles.adminAlertCard}>
             <Ionicons name="notifications-outline" size={20} color={colors.warning} />
             <View style={styles.flex}>
-              <Text style={styles.adminAlertTitle}>Persetujuan Tukar Shift ({pendingShiftApprovalCount})</Text>
-              <Text style={styles.cardCopy}>Ada {pendingShiftApprovalCount} pengajuan tukar shift menunggu persetujuan HRD.</Text>
+              <Text style={styles.adminAlertTitle}>Persetujuan Tukar Shift ({pendingHrdCount})</Text>
+              <Text style={styles.cardCopy}>Ada {pendingHrdCount} pengajuan tukar shift menunggu persetujuan HRD.</Text>
             </View>
             <Text style={styles.linkText}>Periksa</Text>
           </Pressable>
@@ -3447,6 +3446,7 @@ function Main() {
   }
 
   function renderAdminExchangeApproval() {
+    const pendingCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
     const filtered = adminShiftExchanges.filter((item) => {
       if (approvalFilter === 'ALL') return true;
       return item.status === approvalFilter;
@@ -3470,7 +3470,7 @@ function Main() {
           {(['PENDING', 'APPROVED', 'REJECTED', 'ALL'] as const).map((filter) => (
             <Pressable key={filter} onPress={() => setApprovalFilter(filter)} style={[styles.segment, approvalFilter === filter && styles.segmentActive]}>
               <Text style={[styles.segmentText, approvalFilter === filter && styles.segmentTextActive]}>
-                {filter === 'PENDING' ? `Menunggu (${pendingShiftApprovalCount})` : filter === 'APPROVED' ? 'Disetujui' : filter === 'REJECTED' ? 'Ditolak' : 'Semua'}
+                {filter === 'PENDING' ? `Menunggu (${pendingCount})` : filter === 'APPROVED' ? 'Disetujui' : filter === 'REJECTED' ? 'Ditolak' : 'Semua'}
               </Text>
             </Pressable>
           ))}
@@ -3540,6 +3540,9 @@ function Main() {
   }
 
   function renderRequests() {
+    const pendingHrdCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
+    const pendingConsentOrders = overtimes.filter((item) => item.status === 'APPROVED' && item.consent_status === 'PENDING');
+
     return (
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -3604,7 +3607,7 @@ function Main() {
             )}
             <Pressable onPress={() => setPengajuanView('admin')} style={[styles.switcherBtn, pengajuanView === 'admin' && styles.switcherBtnActive]}>
               <Text style={[styles.switcherBtnText, pengajuanView === 'admin' && styles.switcherBtnTextActive]}>
-                Persetujuan HRD {pendingShiftApprovalCount > 0 ? `(${pendingShiftApprovalCount})` : ''}
+                Persetujuan HRD {pendingHrdCount > 0 ? `(${pendingHrdCount})` : ''}
               </Text>
             </Pressable>
           </View>
@@ -3966,25 +3969,16 @@ function Main() {
         <View style={styles.tabBar}>
           {tabItems.map(({ key, label, activeIcon, inactiveIcon }) => {
             const isSelected = tab === key;
-            const badgeCount = key === 'Pengajuan' ? pendingApprovalCount : 0;
             return (
               <Pressable
                 key={key}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: isSelected }}
-                accessibilityLabel={`${label}${badgeCount > 0 ? `, ${badgeCount} perlu dikonfirmasi` : ''}`}
                 onPress={() => setTab(key)}
                 style={({ pressed }) => [styles.tab, pressed && { opacity: 0.7, transform: [{ scale: 0.92 }] }]}
               >
-                <View style={styles.tabIconWrap}>
-                  <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
-                  {badgeCount > 0 && (
-                    <View pointerEvents="none" style={styles.tabBadge}>
-                      <Text style={styles.tabBadgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{label}</Text>
+                <Ionicons name={isSelected ? activeIcon : inactiveIcon} size={20} color={isSelected ? colors.primary : colors.muted} />
+                <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>{key === 'Pengajuan' && notificationFeed.unread_count > 0 ? `${label} · ${notificationFeed.unread_count}` : label}</Text>
                 <View style={[styles.tabIndicator, isSelected && styles.tabIndicatorActive]} />
               </Pressable>
             );
@@ -4649,9 +4643,6 @@ const styles = StyleSheet.create({
   feedbackToastError: { backgroundColor: colors.danger },
   feedbackToastText: { color: '#FFFFFF', fontSize: 13.5, fontWeight: '700', lineHeight: 19, textAlign: 'center' },
   tab: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: 12 },
-  tabIconWrap: { position: 'relative', alignItems: 'center', justifyContent: 'center' },
-  tabBadge: { position: 'absolute', top: -6, right: -10, minWidth: 17, height: 17, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', borderRadius: 9, borderWidth: 1, borderColor: colors.surface, backgroundColor: colors.danger },
-  tabBadgeText: { color: colors.surface, fontSize: 9, lineHeight: 11, fontWeight: '800' },
   tabIndicator: { width: 18, height: 3, borderRadius: 2, backgroundColor: 'transparent', marginTop: 1 },
   tabIndicatorActive: { backgroundColor: colors.primary },
   tabText: { color: colors.muted, fontSize: 12, fontWeight: '700' },

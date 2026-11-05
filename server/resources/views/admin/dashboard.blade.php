@@ -464,10 +464,10 @@
                     </div>
                     <p class="form-error" id="workflow-error" role="alert" hidden></p>
                     <div class="tabs workflow-tabs" role="tablist" aria-label="Jenis persetujuan">
-                        <button type="button" role="tab" id="approval-tab-izin" aria-controls="approval-panel-izin" aria-selected="true" tabindex="0" data-approval-tab="izin">Izin</button>
-                        <button type="button" role="tab" id="approval-tab-correction" aria-controls="approval-panel-correction" aria-selected="false" tabindex="-1" data-approval-tab="correction">Koreksi Absensi</button>
-                        <button type="button" role="tab" id="approval-tab-overtime" aria-controls="approval-panel-overtime" aria-selected="false" tabindex="-1" data-approval-tab="overtime" data-requires="admin">Lembur</button>
-                        <button type="button" role="tab" id="approval-tab-shift-exchange" aria-controls="approval-panel-shift-exchange" aria-selected="false" tabindex="-1" data-approval-tab="shift-exchange" data-requires="admin">Tukar Shift</button>
+                        <button type="button" role="tab" id="approval-tab-izin" aria-controls="approval-panel-izin" aria-label="Izin: 0 menunggu keputusan" aria-selected="true" tabindex="0" data-approval-tab="izin">Izin <span class="approval-tab-count" id="approval-tab-count-izin" aria-hidden="true">0</span></button>
+                        <button type="button" role="tab" id="approval-tab-correction" aria-controls="approval-panel-correction" aria-label="Koreksi Absensi: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="correction">Koreksi Absensi <span class="approval-tab-count" id="approval-tab-count-correction" aria-hidden="true">0</span></button>
+                        <button type="button" role="tab" id="approval-tab-overtime" aria-controls="approval-panel-overtime" aria-label="Lembur: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="overtime" data-requires="admin">Lembur <span class="approval-tab-count" id="approval-tab-count-overtime" aria-hidden="true">0</span></button>
+                        <button type="button" role="tab" id="approval-tab-shift-exchange" aria-controls="approval-panel-shift-exchange" aria-label="Tukar Shift: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="shift-exchange" data-requires="admin">Tukar Shift <span class="approval-tab-count" id="approval-tab-count-shift-exchange" aria-hidden="true">0</span></button>
                     </div>
                     <div class="workflow-tab-panels">
                     <section class="workflow-tab-panel" id="approval-panel-izin" role="tabpanel" aria-labelledby="approval-tab-izin" tabindex="0" data-approval-panel="izin">
