@@ -52,15 +52,35 @@ const tabs = {
         columns: [
             { label: 'Nama', cell: (t) => `<b>${esc(t.name)}</b>` },
             { label: 'Jenis', cell: (t) => t.type === 'regular' ? '<span class="status success">Reguler</span>' : '<span class="status warning">Khusus</span>' },
+            { label: 'Kategori', cell: (t) => esc(t.category?.name ?? 'Belum dikategorikan') },
             { label: 'Sesi', cell: (t) => esc(sessionsText(t)) },
         ],
-        fields: async () => [
-            { name: 'name', label: 'Nama template shift', required: true, maxlength: 100, hint: 'Contoh: Pagi Reguler, Sore, Malam, atau Split Resto' },
-            { name: 'type', label: 'Jenis shift', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi operasional)' }, { value: 'special', label: 'Khusus / Split (2 sampai 4 sesi)' }], default: 'regular', hint: 'Pilih jenis shift untuk menentukan jumlah sesi.' },
-            { name: 'sessions', label: 'Konfigurasi Sesi Kerja', type: 'sessions', fullWidth: true, hint: 'Atur jam mulai, jam selesai, dan waktu istirahat per sesi.' },
-        ],
+        fields: async (item) => {
+            const categories = (await api('shift-categories')).data;
+            const options = categories.filter((category) => category.is_active || category.id === item?.shift_category_id);
+            return [
+                { name: 'name', label: 'Nama template shift', required: true, maxlength: 100, hint: 'Contoh: Pagi Reguler, Sore, Malam, atau Split Resto' },
+                { name: 'type', label: 'Jenis shift', type: 'select', required: true, options: [{ value: 'regular', label: 'Reguler (1 sesi operasional)' }, { value: 'special', label: 'Khusus / Split (2 sampai 4 sesi)' }], default: 'regular', hint: 'Pilih jenis shift untuk menentukan jumlah sesi.' },
+                { name: 'shift_category_id', label: 'Kategori laporan', type: 'select', numeric: true, blank: 'Belum dikategorikan', options: opts(options), hint: 'Jadwal lama akan memakai kategori ini hanya jika sebelumnya belum dikategorikan.' },
+                { name: 'sessions', label: 'Konfigurasi Sesi Kerja', type: 'sessions', fullWidth: true, hint: 'Atur jam mulai, jam selesai, dan waktu istirahat per sesi.' },
+            ];
+        },
         grid: true,
         deletable: true,
+    },
+    'shift-categories': {
+        title: 'Kategori shift', hint: 'Kategori untuk laporan frekuensi shift. Kategori yang sudah dipakai tetap tersedia untuk riwayat.', singular: 'kategori shift',
+        endpoint: 'shift-categories',
+        columns: [
+            { label: 'Nama kategori', cell: (x) => `<b>${esc(x.name)}</b>` },
+            { label: 'Template shift', cell: (x) => esc(x.templates_count ?? 0) },
+            { label: 'Status', cell: (x) => x.is_active ? '<span class="status success">Aktif</span>' : '<span class="status neutral">Nonaktif</span>' },
+        ],
+        fields: async () => [
+            { name: 'name', label: 'Nama kategori', required: true, maxlength: 100, hint: 'Contoh: Shift 1, Shift 2, Shift 3, atau Middle.' },
+            { name: 'is_active', label: 'Kategori aktif', type: 'checkbox', default: true },
+        ],
+        deletable: false,
     },
     policies: {
         title: 'Aturan kehadiran', hint: 'Aturan perorangan menang atas departemen. Departemen menang atas aturan umum.', singular: 'aturan',

@@ -743,6 +743,10 @@
                             <svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg>
                             <span>Rekap Lembur</span>
                         </button>
+                        <button type="button" class="tab-button" data-report-tab="shift-breakdown" role="tab" aria-selected="false">
+                            <svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>
+                            <span>Frekuensi Shift</span>
+                        </button>
                     </div>
 
                     <!-- Tab 1: Summary Table -->
@@ -822,6 +826,30 @@
                                 </thead>
                                 <tbody id="report-overtime-tbody">
                                     <tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekap lembur...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="report-tab-panel" id="tab-panel-shift-breakdown" hidden>
+                        <div class="panel table-card report-table-scroll">
+                            <div class="panel-heading">
+                                <div>
+                                    <h2>Frekuensi shift berdasarkan kategori</h2>
+                                    <p>Satu jadwal dihitung satu kali jika ada check-in pada salah satu sesinya. Jadwal split tidak dihitung per sesi.</p>
+                                </div>
+                            </div>
+                            <table class="data-table" id="report-shift-breakdown-table">
+                                <thead>
+                                    <tr>
+                                        <th>Karyawan</th>
+                                        <th>Departemen</th>
+                                        <th>Kategori Shift</th>
+                                        <th style="text-align: center;">Jumlah Shift Hadir</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-shift-breakdown-tbody">
+                                    <tr><td colspan="4" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat frekuensi shift...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1103,6 +1131,7 @@
                                 <select id="settings-section-select">
                                     <option value="general">Umum</option>
                                     <option value="templates">Template shift</option>
+                                    <option value="shift-categories">Kategori shift</option>
                                     <option value="policies">Aturan kehadiran</option>
                                     <option value="attendance">Jendela presensi</option>
                                     <option value="departments">Departemen</option>
@@ -1118,6 +1147,7 @@
                             <div class="tabs settings-vertical-tabs" role="tablist" aria-orientation="vertical" aria-label="Bagian pengaturan">
                                 <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Umum</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="shift-categories" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Kategori shift</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Aturan kehadiran</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="attendance" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Jendela presensi</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg><span>Departemen</span></button>
@@ -1244,6 +1274,10 @@
                     <label id="schedule-template-wrap">Shift reguler<select id="schedule-template" required></select></label>
                 </div>
                 <div id="schedule-custom-wrap" class="schedule-custom-wrap" hidden>
+                    <label>Kategori untuk laporan
+                        <select id="schedule-category" required></select>
+                        <small class="field-hint">Wajib untuk jadwal khusus. Hitungan laporan berdasarkan shift yang memiliki check-in.</small>
+                    </label>
                     <label>Nama jadwal<input id="schedule-name" maxlength="100" value="Shift khusus"></label>
                     <div class="schedule-sessions-section">
                         <div class="schedule-sessions-heading">

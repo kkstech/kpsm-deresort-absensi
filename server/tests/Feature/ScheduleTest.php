@@ -9,6 +9,7 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Models\Position;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftCategory;
 use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
 use App\Models\User;
@@ -22,11 +23,14 @@ class ScheduleTest extends TestCase
 
     private Employee $employee;
 
+    private int $shiftCategoryId;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->seed(MasterDataSeeder::class);
         $this->travelTo('2026-10-24 03:00:00'); // 10.00 WIB
+        $this->shiftCategoryId = ShiftCategory::query()->create(['name' => 'Shift Testing'])->id;
         $this->employee = $this->makeEmployee('FO-1', 'Front Office');
         $this->actingAs(User::factory()->role('admin')->create());
     }
@@ -49,6 +53,7 @@ class ScheduleTest extends TestCase
             'employee_id' => $this->employee->id,
             'work_date' => '2026-10-25',
             'name' => 'Split malam',
+            'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '22:00', 'end_date' => '2026-10-26', 'end_time' => '02:00'],
                 ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '04:00', 'end_date' => '2026-10-26', 'end_time' => '08:00'],
@@ -66,6 +71,7 @@ class ScheduleTest extends TestCase
             'employee_id' => $this->employee->id,
             'work_date' => '2026-10-25',
             'name' => 'Split melewati batas siklus',
+            'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
                 ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '07:00', 'end_date' => '2026-10-26', 'end_time' => '08:01'],
@@ -79,6 +85,7 @@ class ScheduleTest extends TestCase
             'employee_id' => $this->employee->id,
             'work_date' => '2026-10-25',
             'name' => 'Split penuh dengan shift malam',
+            'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '07:00', 'end_date' => '2026-10-25', 'end_time' => '15:00'],
                 ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '23:00', 'end_date' => '2026-10-26', 'end_time' => '07:00'],
@@ -94,6 +101,7 @@ class ScheduleTest extends TestCase
             'employee_id' => $this->employee->id,
             'work_date' => '2026-10-25',
             'name' => 'Split melebihi batas kerja',
+            'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '07:00', 'end_date' => '2026-10-25', 'end_time' => '15:00'],
                 ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '22:00', 'end_date' => '2026-10-26', 'end_time' => '07:00'],
@@ -126,6 +134,7 @@ class ScheduleTest extends TestCase
             'employee_id' => $this->employee->id,
             'work_date' => '2026-10-25',
             'name' => 'Split',
+            'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
                 ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '10:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
                 ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '16:00'],

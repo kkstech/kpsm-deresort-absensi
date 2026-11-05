@@ -23,6 +23,7 @@ function addMonths(d, n) {
 /* ---------- Data ---------- */
 let employees = [];
 let templates = [];
+let categories = [];
 let entries = [];
 const STATUS = { DRAFT: ['warning', 'Draft'], PUBLISHED: ['success', 'Terbit'], IN_PROGRESS: ['blue', 'Berjalan'], COMPLETED: ['neutral', 'Selesai'] };
 
@@ -288,6 +289,15 @@ function fillScheduleSessions(sessions = [{}, {}]) {
     $('#schedule-add-session').hidden = sessions.length >= 4;
 }
 
+function renderScheduleCategories(selectedId = null, existing = false) {
+    const select = $('#schedule-category');
+    if (!select) return;
+    const options = categories.filter((category) => category.is_active || category.id === selectedId);
+    const placeholder = existing && !selectedId ? 'Belum dikategorikan' : 'Pilih kategori';
+    select.innerHTML = `<option value="">${placeholder}</option>${options.map((category) => `<option value="${category.id}">${esc(category.name)}${category.is_active ? '' : ' (nonaktif)'}</option>`).join('')}`;
+    select.value = selectedId ?? '';
+}
+
 function openScheduleModal() {
     editingSchedule = null;
     $('#schedule-modal-title').textContent = 'Buat jadwal';
@@ -299,6 +309,9 @@ function openScheduleModal() {
     $('#schedule-date').disabled = false;
     $('#schedule-mode').value = 'template';
     $('#schedule-name').value = 'Shift khusus';
+    renderScheduleCategories();
+    $('#schedule-category').disabled = false;
+    $('#schedule-category').required = true;
     $('#schedule-reason-wrap').hidden = true;
     $('#schedule-reason').value = '';
     fillScheduleSessions();
@@ -323,11 +336,15 @@ function openScheduleEdit(assignment) {
     $('#schedule-date').disabled = true;
     $('#schedule-mode').value = 'custom';
     $('#schedule-name').value = assignment.template_name;
+    renderScheduleCategories(assignment.shift_category_id ?? null, Boolean(assignment.shift_category_id || !assignment.shift_template_id));
     $('#schedule-reason-wrap').hidden = isDraft;
     $('#schedule-reason').required = !isDraft;
     $('#schedule-reason').value = isDraft ? 'Penyesuaian jadwal draft' : '';
     fillScheduleSessions(assignment.sessions);
     setScheduleMode('custom');
+    const categoryRequired = Boolean(assignment.shift_template_id && !assignment.shift_category_id);
+    $('#schedule-category').disabled = !categoryRequired;
+    $('#schedule-category').required = categoryRequired;
     errorBox.hidden = true;
     modal.showModal();
 }
@@ -354,6 +371,7 @@ async function saveSchedule() {
         work_date: $('#schedule-date').value || null,
         ...(custom ? {
             name: $('#schedule-name').value.trim() || 'Shift khusus',
+            shift_category_id: editingSchedule?.shift_category_id ?? (Number($('#schedule-category').value) || null),
             sessions: collectScheduleSessions(),
             ...(editingSchedule ? { expected_revision: editingSchedule.revision, reason: $('#schedule-reason').value.trim() } : {}),
         } : { shift_template_id: Number($('#schedule-template').value) || null }),
@@ -376,6 +394,12 @@ async function saveSchedule() {
         return;
     }
     if (custom) {
+        const categoryRequired = !editingSchedule || Boolean(editingSchedule.shift_template_id && !editingSchedule.shift_category_id);
+        if (!body.shift_category_id && categoryRequired) {
+            errorBox.textContent = 'Pilih kategori untuk shift khusus.';
+            errorBox.hidden = false;
+            return;
+        }
         if (!body.sessions.length) {
             errorBox.textContent = 'Minimal satu sesi shift harus ditentukan.';
             errorBox.hidden = false;
@@ -1070,7 +1094,7 @@ export function focusEmployee(query) {
 
 let ready;
 export function initSchedule() {
-    ready ??= Promise.all([api('employees', { query: { status: 'active' } }), lookup('templates')]).then(([emp, tpl]) => {
+    ready ??= Promise.all([api('employees', { query: { status: 'active' } }), lookup('templates'), api('shift-categories')]).then(([emp, tpl, categoryResponse]) => {
         employees = emp.data.map((e) => ({
             id: e.id,
             name: e.name,
@@ -1078,10 +1102,11 @@ export function initSchedule() {
             position: e.position?.name ?? 'Tanpa Jabatan',
         }));
         templates = tpl;
+        categories = categoryResponse.data;
         const options = employees.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
         $('#person-filter').innerHTML = `<option value="all">Semua karyawan</option>${options}`;
         $('#schedule-employee').innerHTML = `<option value="">Pilih karyawan</option>${options}`;
-        $('#schedule-template').innerHTML = templates.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(templateText(t))}</option>`).join('');
+        $('#schedule-template').innerHTML = templates.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(templateText(t))} · ${esc(t.category?.name ?? 'Belum dikategorikan')}</option>`).join('');
         $('#employee-list').innerHTML = employees.map((e) => `<option value="${esc(e.name)}"></option>`).join('');
     }).catch((error) => { ready = null; throw error; });
     return ready;

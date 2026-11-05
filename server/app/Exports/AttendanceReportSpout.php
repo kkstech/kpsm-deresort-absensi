@@ -10,7 +10,7 @@ use OpenSpout\Writer\XLSX\Writer;
 
 class AttendanceReportSpout
 {
-    public function export(array $summary, iterable $details, string $filePath): void
+    public function export(array $summary, iterable $details, iterable $shiftBreakdown, string $filePath): void
     {
         $site = SiteSetting::current();
         $siteName = $site->site_name ?? 'Sistem Absensi Resort';
@@ -207,6 +207,29 @@ class AttendanceReportSpout
                 $al['meal_amount'],
                 $al['transport_amount'],
                 $al['total_amount'],
+            ]));
+        }
+
+        // ======================= SHEET 3: FREKUENSI SHIFT =======================
+        $writer->addNewSheetAndMakeItCurrent();
+        $sheet3 = $writer->getCurrentSheet();
+        $sheet3->setName('Frekuensi Shift');
+        $writer->addRow(Row::fromValuesWithStyle([$siteName], $titleStyle));
+        $writer->addRow(Row::fromValuesWithStyle(['FREKUENSI SHIFT PER KARYAWAN'], $titleStyle));
+        $writer->addRow(Row::fromValuesWithStyle(["Periode: {$filters['from']} s.d. {$filters['to']} | Hanya shift dengan check-in"], $subTitleStyle));
+        $writer->addRow(Row::fromValues(['']));
+        $writer->addRow(Row::fromValuesWithStyle(['No', 'NIK', 'Nama Karyawan', 'Departemen', 'Kategori Shift', 'Jumlah Shift'], $headerStyle));
+
+        $breakdownNo = 1;
+        foreach ($shiftBreakdown as $item) {
+            $employee = $item['employee'];
+            $writer->addRow(Row::fromValues([
+                $breakdownNo++,
+                $employee['code'],
+                $employee['name'],
+                $employee['department'],
+                $item['category_name'],
+                $item['shift_count'],
             ]));
         }
 

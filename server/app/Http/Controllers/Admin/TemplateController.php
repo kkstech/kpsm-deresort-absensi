@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\ShiftAssignment;
 use App\Models\ShiftTemplate;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +17,7 @@ class TemplateController extends Controller
 {
     public function index(): JsonResponse
     {
-        return response()->json(['data' => ShiftTemplate::query()->with('sessions')->orderBy('name')->get()]);
+        return response()->json(['data' => ShiftTemplate::query()->with(['sessions', 'category'])->orderBy('name')->get()]);
     }
 
     public function store(Request $request): JsonResponse
@@ -25,7 +26,10 @@ class TemplateController extends Controller
         [$data, $sessions] = $this->validated($request);
 
         $template = DB::transaction(function () use ($data, $sessions) {
-            $template = ShiftTemplate::query()->create($data);
+            $template = ShiftTemplate::query()->create([
+                ...$data,
+                'category_first_assigned_at' => empty($data['shift_category_id']) ? null : now(),
+            ]);
             $template->sessions()->createMany($sessions);
             Audit::log('templates.created', $template, null, [...$data, 'sessions' => $sessions]);
 
@@ -43,9 +47,19 @@ class TemplateController extends Controller
 
         DB::transaction(function () use ($template, $data, $sessions) {
             $before = [...$template->attributesToArray(), 'sessions' => $template->sessions->toArray()];
+            $firstCategory = $template->category_first_assigned_at === null && ! empty($data['shift_category_id']);
+            if ($firstCategory) {
+                $data['category_first_assigned_at'] = now();
+            }
             $template->update($data);
             $template->sessions()->delete();
             $template->sessions()->createMany($sessions);
+            if ($firstCategory) {
+                ShiftAssignment::query()
+                    ->where('shift_template_id', $template->id)
+                    ->whereNull('shift_category_id')
+                    ->update(['shift_category_id' => $data['shift_category_id']]);
+            }
             Audit::log('templates.updated', $template, $before, [...$data, 'sessions' => $sessions]);
         });
 
@@ -67,6 +81,7 @@ class TemplateController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100', Rule::unique('shift_templates', 'name')->ignore($template?->id)],
             'type' => ['required', 'in:regular,special'],
+            'shift_category_id' => ['nullable', 'integer', Rule::exists('shift_categories', 'id')->where('is_active', true)],
             'repeat_pattern' => ['nullable', 'in:weekly'],
             'sessions' => ['required', 'array', 'min:1', 'max:4'],
             'sessions.*.local_start' => ['required', 'date_format:H:i'],

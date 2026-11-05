@@ -13,6 +13,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class ScheduleController extends Controller
 {
@@ -90,6 +91,7 @@ class ScheduleController extends Controller
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'work_date' => ['required', 'date_format:Y-m-d'],
             'shift_template_id' => ['nullable', 'integer', 'exists:shift_templates,id', 'required_without:sessions'],
+            'shift_category_id' => ['required_with:sessions', 'integer', Rule::exists('shift_categories', 'id')->where('is_active', true)],
             'name' => ['nullable', 'string', 'max:100'],
             'reason' => ['nullable', 'string', 'max:500'],
             'sessions' => ['required_without:shift_template_id', 'array', 'min:2', 'max:4'],
@@ -127,7 +129,7 @@ class ScheduleController extends Controller
     {
         Gate::authorize('admin');
         $isDraft = $assignment->status === 'DRAFT';
-        $data = $request->validate([
+        $rules = [
             'expected_revision' => ['required', 'integer', 'min:1'],
             'reason' => [$isDraft ? 'nullable' : 'required', 'string', 'min:3', 'max:500'],
             'sessions' => ['required', 'array', 'min:1', 'max:4'],
@@ -138,7 +140,11 @@ class ScheduleController extends Controller
             'sessions.*.end_date' => ['required', 'date_format:Y-m-d'],
             'sessions.*.end_time' => ['required', 'date_format:H:i'],
             'sessions.*.unpaid_break_minutes' => ['nullable', 'integer', 'between:0,720'],
-        ]);
+        ];
+        if ($assignment->shift_template_id && ! $assignment->shift_category_id) {
+            $rules['shift_category_id'] = ['required', 'integer', Rule::exists('shift_categories', 'id')->where('is_active', true)];
+        }
+        $data = $request->validate($rules);
 
         $assignment = $this->schedules->upsertCustom(
             $assignment->employee,

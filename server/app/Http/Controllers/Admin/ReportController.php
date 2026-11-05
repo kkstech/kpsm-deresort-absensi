@@ -64,6 +64,17 @@ class ReportController extends Controller
         ]);
     }
 
+    public function shiftBreakdown(Request $request, ReportService $reportService): JsonResponse
+    {
+        $filters = $reportService->validatedFilters($request);
+
+        return response()->json([
+            'filters' => $filters,
+            'period_status' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
+            'data' => $reportService->getShiftBreakdown($request->user(), $filters),
+        ]);
+    }
+
     public function overtime(Request $request, ReportService $reportService): JsonResponse
     {
         $filters = $reportService->validatedFilters($request);
@@ -111,9 +122,10 @@ class ReportController extends Controller
         $filters = $reportService->validatedFilters($request);
         $summary = $reportService->getSummary($request->user(), $filters);
         $details = $reportService->getAllDetailsForExport($request->user(), $filters);
+        $shiftBreakdown = $reportService->getShiftBreakdown($request->user(), $filters);
 
         $tempPath = tempnam(sys_get_temp_dir(), 'laporan_absensi_').'.xlsx';
-        $spout->export($summary, $details, $tempPath);
+        $spout->export($summary, $details, $shiftBreakdown, $tempPath);
 
         $filename = "laporan_kehadiran_{$filters['from']}_{$filters['to']}.xlsx";
 
@@ -132,7 +144,18 @@ class ReportController extends Controller
             $filters['department_name'] = $dept?->name;
         }
 
-        if ($type === 'detail') {
+        if ($type === 'shift-breakdown') {
+            $rows = $reportService->getShiftBreakdown($request->user(), $filters);
+            $pdf = Pdf::loadView('reports.shift-breakdown-pdf', [
+                'site' => SiteSetting::current(),
+                'rows' => $rows,
+                'filters' => $filters,
+                'periodStatus' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
+                'generatedAtLocal' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
+            ])->setPaper('a4', 'landscape');
+
+            $filename = "frekuensi_shift_{$filters['from']}_{$filters['to']}.pdf";
+        } elseif ($type === 'detail') {
             $details = $reportService->getAllDetailsForExport($request->user(), $filters);
             $periodStatus = $reportService->determinePeriodStatus($filters['from'], $filters['to']);
 

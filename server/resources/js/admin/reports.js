@@ -242,6 +242,7 @@ function initReportsUi() {
             $('#tab-panel-summary').hidden = activeTab !== 'summary';
             $('#tab-panel-details').hidden = activeTab !== 'details';
             $('#tab-panel-overtime').hidden = activeTab !== 'overtime';
+            $('#tab-panel-shift-breakdown').hidden = activeTab !== 'shift-breakdown';
 
             state.page = 1;
             loadCurrentTab();
@@ -337,7 +338,49 @@ async function loadCurrentTab() {
         await loadDetailsTab();
     } else if (activeTab === 'overtime') {
         await loadOvertimeTab();
+    } else if (activeTab === 'shift-breakdown') {
+        await loadShiftBreakdownTab();
     }
+}
+
+async function loadShiftBreakdownTab() {
+    const tbody = $('#report-shift-breakdown-tbody');
+    if (tbody) tbody.innerHTML = getLoadingStateHtml(4, 'Memuat frekuensi shift...');
+
+    try {
+        const query = {
+            from: state.from,
+            to: state.to,
+            department_id: state.department_id,
+            employee_id: state.employee_id,
+            q: state.q,
+        };
+        const response = await api('reports/shift-breakdown', { query });
+        renderPeriodStatus(response.period_status);
+        renderShiftBreakdownTable(response.data);
+    } catch (error) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:32px;color:var(--danger,#dc2626);font-weight:500;">${esc(error.message)}</td></tr>`;
+        toast('Gagal memuat frekuensi shift: ' + error.message, 'error');
+    }
+}
+
+function renderShiftBreakdownTable(rows) {
+    const tbody = $('#report-shift-breakdown-tbody');
+    if (!tbody) return;
+    if (!rows?.length) {
+        tbody.innerHTML = getEmptyStateHtml(4, 'Belum ada shift yang memiliki check-in pada periode ini.');
+        return;
+    }
+
+    tbody.innerHTML = rows.map((row) => {
+        const employee = row.employee;
+        return `<tr>
+            <td data-label="Karyawan"><b>${esc(employee.name)}</b><small style="display:block;color:var(--muted);">${esc(employee.code)}</small></td>
+            <td data-label="Departemen">${esc(employee.department)}</td>
+            <td data-label="Kategori Shift">${esc(row.category_name)}</td>
+            <td data-label="Jumlah Shift Hadir" style="text-align:center;font-weight:700;">${esc(row.shift_count)}</td>
+        </tr>`;
+    }).join('');
 }
 
 async function loadSummaryTab() {
@@ -830,7 +873,7 @@ function triggerExport(format) {
     if (state.q) params.set('q', state.q);
 
     if (format === 'pdf') {
-        const type = activeTab === 'details' ? 'detail' : 'summary';
+        const type = activeTab === 'details' ? 'detail' : activeTab === 'shift-breakdown' ? 'shift-breakdown' : 'summary';
         params.set('type', type);
         window.location.assign(`/admin/api/reports/export/pdf?${params.toString()}`);
     } else {

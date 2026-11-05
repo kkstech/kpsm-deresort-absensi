@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'template_name', 'template_type', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
+#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'shift_category_id', 'template_name', 'template_type', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
 class ShiftAssignment extends Model
 {
     public const ACTIVE = ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'COMPLETED'];
@@ -21,6 +21,11 @@ class ShiftAssignment extends Model
     public function template(): BelongsTo
     {
         return $this->belongsTo(ShiftTemplate::class, 'shift_template_id');
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ShiftCategory::class, 'shift_category_id');
     }
 
     public function sessions(): HasMany
@@ -56,15 +61,18 @@ class ShiftAssignment extends Model
     public function toApi(): array
     {
         $now = WorkTime::now();
-        $this->loadMissing('employee.workLocation');
+        $this->loadMissing(['employee.workLocation', 'category']);
         $unrecordedPolicySnapshot = null;
 
         return [
             'id' => $this->id,
             'employee_id' => $this->employee_id,
             'work_date' => $this->work_date,
+            'shift_template_id' => $this->shift_template_id,
             'template_name' => $this->template_name,
             'template_type' => $this->template_type,
+            'shift_category_id' => $this->shift_category_id,
+            'shift_category_name' => $this->category?->name ?? 'Belum dikategorikan',
             'status' => $this->status,
             'revision' => $this->revision,
             'rules_version' => $this->rules_version,

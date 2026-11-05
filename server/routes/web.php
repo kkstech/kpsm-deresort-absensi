@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\OvertimeAdminController;
 use App\Http\Controllers\Admin\PolicyController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\ScheduleController;
+use App\Http\Controllers\Admin\ShiftCategoryController;
 use App\Http\Controllers\Admin\SiteSettingController;
 use App\Http\Controllers\Admin\TemplateController;
 use App\Http\Controllers\Admin\UserController;
@@ -42,6 +43,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('reports/filters', [ReportController::class, 'filters']);
         Route::get('reports/summary', [ReportController::class, 'summary']);
         Route::get('reports/details', [ReportController::class, 'details']);
+        Route::get('reports/shift-breakdown', [ReportController::class, 'shiftBreakdown']);
         Route::get('reports/overtime', [ReportController::class, 'overtime']);
         Route::post('reports/finalize', [ReportController::class, 'finalize']);
         Route::post('reports/reopen', [ReportController::class, 'reopen']);
@@ -83,6 +85,9 @@ Route::middleware(['auth', 'admin'])->group(function () {
 
         Route::apiResource('locations', LocationController::class)->except('show');
         Route::apiResource('templates', TemplateController::class)->except('show');
+        Route::get('shift-categories', [ShiftCategoryController::class, 'index']);
+        Route::post('shift-categories', [ShiftCategoryController::class, 'store']);
+        Route::put('shift-categories/{shiftCategory}', [ShiftCategoryController::class, 'update'])->whereNumber('shiftCategory');
         Route::apiResource('policies', PolicyController::class)->except('show');
 
         Route::get('unlinked-users', [EmployeeController::class, 'unlinkedUsers']);

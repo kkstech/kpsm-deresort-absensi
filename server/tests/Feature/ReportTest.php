@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\AutoCheckoutAttendance;
 use App\Actions\PublishSchedule;
+use App\Exports\AttendanceReportSpout;
 use App\Models\AllowanceResult;
 use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
@@ -12,6 +13,7 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Models\OvertimeOrder;
 use App\Models\Position;
+use App\Models\ShiftCategory;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use App\Services\ReportService;
@@ -420,6 +422,76 @@ class ReportTest extends TestCase
         $response->assertOk();
         $this->assertStringContainsString('spreadsheetml.sheet', $response->headers->get('Content-Type'));
         $this->assertStringContainsString('laporan_kehadiran_2026-10-01_2026-10-31.xlsx', $response->headers->get('Content-Disposition'));
+
+        $summary = app(ReportService::class)->getSummary($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
+        $details = app(ReportService::class)->getAllDetailsForExport($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
+        $breakdown = app(ReportService::class)->getShiftBreakdown($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
+        $path = tempnam(sys_get_temp_dir(), 'shift-report-');
+        try {
+            app(AttendanceReportSpout::class)->export($summary, $details, $breakdown, $path);
+            $archive = new \ZipArchive;
+            $this->assertTrue($archive->open($path));
+            $workbook = $archive->getFromName('xl/workbook.xml');
+            $archive->close();
+            $this->assertStringContainsString('Frekuensi Shift', $workbook);
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function test_shift_breakdown_counts_one_per_assignment_and_groups_uncategorized_shifts(): void
+    {
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $employee = $this->createEmployee($engineering, 'ENG-SHIFT-001', 'Karyawan Breakdown');
+        $admin = User::factory()->role('admin')->create();
+        $category = ShiftCategory::query()->create(['name' => 'Shift Split', 'is_active' => true]);
+        $splitTemplate = ShiftTemplate::query()->with('sessions')->where('name', 'Khusus 2 sesi')->firstOrFail();
+        $splitTemplate->update(['shift_category_id' => $category->id]);
+
+        $splitAssignment = app(PublishSchedule::class)->upsert($employee, '2026-10-25', $splitTemplate, $admin);
+        app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$employee->id]);
+        foreach ($splitAssignment->fresh('sessions')->sessions as $session) {
+            AttendanceRecord::query()->create([
+                'shift_session_id' => $session->id,
+                'employee_id' => $employee->id,
+                'check_in_at' => '2026-10-25 01:00:00',
+                'status' => 'IN_PROGRESS',
+            ]);
+        }
+
+        $legacyCategory = ShiftCategory::query()->create(['name' => 'Kategori Lama', 'is_active' => true]);
+        $uncategorized = app(PublishSchedule::class)->upsertCustom($employee, '2026-10-26', [
+            'name' => 'Shift khusus lama',
+            'shift_category_id' => $legacyCategory->id,
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '08:00', 'end_date' => '2026-10-26', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '13:00', 'end_date' => '2026-10-26', 'end_time' => '17:00'],
+            ],
+        ], $admin);
+        $uncategorized->update(['shift_category_id' => null]); // Simulate a legacy custom assignment from before categories existed.
+        app(PublishSchedule::class)->publish('2026-10-26', '2026-10-26', [$employee->id]);
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $uncategorized->sessions->firstOrFail()->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => '2026-10-26 01:00:00',
+            'status' => 'IN_PROGRESS',
+        ]);
+        $this->schedule($employee, '2026-10-27'); // Scheduled without a check-in; must not count.
+
+        $response = $this->actingAs($admin)
+            ->getJson('/admin/api/reports/shift-breakdown?from=2026-10-01&to=2026-10-31&employee_id='.$employee->id)
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $rows = collect($response->json('data'))->keyBy('category_name');
+        $this->assertSame(1, $rows->get('Shift Split')['shift_count']);
+        $this->assertSame(1, $rows->get('Belum dikategorikan')['shift_count']);
+        $this->assertSame($employee->id, $rows->first()['employee']['id']);
+
+        $this->actingAs($admin)
+            ->getJson('/admin/api/reports/shift-breakdown?from=2026-10-01&to=2026-10-31&q=Karyawan%20Breakdown')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
     }
 
     public function test_reports_export_pdf_returns_pdf_file_download(): void
@@ -443,6 +515,11 @@ class ReportTest extends TestCase
 
         $detailResponse->assertOk();
         $this->assertStringContainsString('application/pdf', $detailResponse->headers->get('Content-Type'));
+
+        $breakdownResponse = $this->actingAs($admin)
+            ->get('/admin/api/reports/export/pdf?from=2026-10-01&to=2026-10-31&type=shift-breakdown');
+        $breakdownResponse->assertOk();
+        $this->assertStringContainsString('application/pdf', $breakdownResponse->headers->get('Content-Type'));
     }
 
     public function test_reports_validation_rejects_invalid_date_range(): void

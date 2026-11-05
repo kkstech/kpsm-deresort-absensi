@@ -385,6 +385,56 @@ class ReportService
         return $paginator;
     }
 
+    public function getShiftBreakdown(User $user, array $filters): Collection
+    {
+        return ShiftAssignment::query()
+            ->join('employees', 'employees.id', '=', 'shift_assignments.employee_id')
+            ->leftJoin('departments', 'departments.id', '=', 'employees.department_id')
+            ->leftJoin('shift_categories', 'shift_categories.id', '=', 'shift_assignments.shift_category_id')
+            ->whereBetween('shift_assignments.work_date', [$filters['from'], $filters['to']])
+            ->whereIn('shift_assignments.status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
+            ->whereIn('employees.id', $this->visibleActiveEmployees($user)->select('employees.id'))
+            ->whereHas('sessions', fn (Builder $query) => $query->whereHas('attendanceRecord', fn (Builder $record) => $record->whereNotNull('check_in_at')))
+            ->when(! empty($filters['department_id']), fn (Builder $query) => $query->where('employees.department_id', $filters['department_id']))
+            ->when(! empty($filters['employee_id']), fn (Builder $query) => $query->where('employees.id', $filters['employee_id']))
+            ->when(! empty($filters['q']), function (Builder $query) use ($filters) {
+                $term = trim($filters['q']);
+                $query->where(fn (Builder $employee) => $employee->where('employees.name', 'like', "%{$term}%")
+                    ->orWhere('employees.code', 'like', "%{$term}%"));
+            })
+            ->select([
+                'employees.id as employee_id',
+                'employees.code as employee_code',
+                'employees.name as employee_name',
+                'departments.name as department_name',
+                'shift_assignments.shift_category_id',
+                'shift_categories.name as category_name',
+            ])
+            ->selectRaw('COUNT(DISTINCT shift_assignments.id) as shift_count')
+            ->groupBy(
+                'employees.id',
+                'employees.code',
+                'employees.name',
+                'departments.name',
+                'shift_assignments.shift_category_id',
+                'shift_categories.name',
+            )
+            ->orderBy('employees.name')
+            ->orderBy('shift_categories.name')
+            ->get()
+            ->map(fn ($row) => [
+                'employee' => [
+                    'id' => $row->employee_id,
+                    'code' => $row->employee_code,
+                    'name' => $row->employee_name,
+                    'department' => $row->department_name ?? '-',
+                ],
+                'category_id' => $row->shift_category_id,
+                'category_name' => $row->category_name ?? 'Belum dikategorikan',
+                'shift_count' => (int) $row->shift_count,
+            ]);
+    }
+
     public function getAllDetailsForExport(User $user, array $filters): Collection
     {
         $sessionQuery = ShiftSession::query()

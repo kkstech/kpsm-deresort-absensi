@@ -4,11 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['type', 'name', 'repeat_pattern'])]
+#[Fillable(['type', 'name', 'repeat_pattern', 'shift_category_id', 'category_first_assigned_at'])]
 class ShiftTemplate extends Model
 {
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ShiftCategory::class, 'shift_category_id');
+    }
+
     public function sessions(): HasMany
     {
         return $this->hasMany(ShiftTemplateSession::class)->orderBy('seq');

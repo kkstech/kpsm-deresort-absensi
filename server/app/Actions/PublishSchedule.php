@@ -8,6 +8,7 @@ use App\Models\AttendancePolicy;
 use App\Models\Employee;
 use App\Models\EmploymentTerm;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftCategory;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use App\Support\Audit;
@@ -39,9 +40,13 @@ class PublishSchedule
             $before = $assignment?->load('sessions')->toArray();
             $assignment ??= new ShiftAssignment(['employee_id' => $employee->id, 'work_date' => $workDate, 'created_by' => $actor->id, 'revision' => 0]);
             $wasPublished = $assignment->exists && $assignment->status === 'PUBLISHED';
+            $categoryId = $assignment->status === 'CANCELLED'
+                ? $template->shift_category_id
+                : ($assignment->shift_category_id ?? $template->shift_category_id);
             $this->archiveCurrentSessions($assignment);
             $assignment->fill([
                 'shift_template_id' => $template->id,
+                'shift_category_id' => $categoryId,
                 'template_name' => $template->name,
                 'template_type' => $template->type,
                 'rules_version' => 2,
@@ -113,6 +118,7 @@ class PublishSchedule
             }
             $assignment->fill([
                 'shift_template_id' => null,
+                'shift_category_id' => $data['shift_category_id'] ?? $assignment->shift_category_id,
                 'template_name' => $data['name'] ?? 'Shift khusus',
                 'template_type' => count($next) > 1 ? 'special' : 'regular',
                 'rules_version' => 2,
@@ -323,7 +329,11 @@ class PublishSchedule
                     $this->upsert($assignment->employee, $target, $assignment->template, $actor);
                     $created++;
                 } elseif ($assignment->sessions->isNotEmpty()) {
-                    $sourceWorkDate = CarbonImmutable::parse($assignment->work_date);
+                    if (! $assignment->shift_category_id || ! ShiftCategory::query()->whereKey($assignment->shift_category_id)->where('is_active', true)->exists()) {
+                        throw new BusinessRuleException('SHIFT_CATEGORY_REQUIRED', 'Jadwal khusus tanpa kategori aktif perlu diperbarui sebelum disalin.', 422);
+                    }
+
+                    $sourceWorkDate = CarbonImmutable::parse($assignment->work_date, WorkTime::tz());
                     $sessionsData = $assignment->sessions->map(function ($s) use ($sourceWorkDate, $target) {
                         $startOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->start_at)->startOfDay(), false);
                         $endOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->end_at)->startOfDay(), false);
@@ -340,6 +350,7 @@ class PublishSchedule
 
                     $this->upsertCustom($assignment->employee, $target, [
                         'name' => $assignment->template_name,
+                        'shift_category_id' => $assignment->shift_category_id,
                         'sessions' => $sessionsData,
                     ], $actor);
                     $created++;
