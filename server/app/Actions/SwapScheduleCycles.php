@@ -9,6 +9,7 @@ use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\EmploymentTerm;
 use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\LeaveYear;
 use App\Models\ShiftAssignment;
 use App\Models\User;
@@ -265,11 +266,11 @@ class SwapScheduleCycles
                 continue;
             }
             if (! $decision) {
-                $blockers[] = ['code' => 'ROSTER_DECISION_REQUIRED', ...$row, 'message' => 'Pilih roster off, cuti reguler, atau Deposit Off untuk karyawan yang tidak mendapat shift pengganti.'];
+                $blockers[] = ['code' => 'ROSTER_DECISION_REQUIRED', ...$row, 'message' => 'Pilih roster off atau jenis cuti untuk karyawan yang tidak mendapat shift pengganti.'];
 
                 continue;
             }
-            if (! in_array($decision['action'], ['roster_off', 'regular', 'day_off'], true) || trim($decision['reason']) === '') {
+            if (($decision['action'] !== 'roster_off' && ! LeaveType::query()->where('code', $decision['action'])->exists()) || trim($decision['reason']) === '') {
                 $blockers[] = ['code' => 'ROSTER_DECISION_INVALID', ...$row, 'message' => 'Pilihan roster dan alasannya wajib diisi.'];
 
                 continue;
@@ -282,7 +283,8 @@ class SwapScheduleCycles
                         $blockers[] = ['code' => 'LEAVE_BALANCE_NOT_OPEN', ...$row, 'message' => 'Saldo tahun terkait belum dikonfirmasi HR.'];
                     } else {
                         $balance = app(CalculateLeaveBalance::class)->for(Employee::query()->findOrFail($source['employee_id']), $year);
-                        if (($balance[$decision['action']]['available'] ?? 0) < 1) {
+                        $typeBalance = collect($balance['types'])->firstWhere('code', $decision['action']);
+                        if (($typeBalance['available'] ?? 0) < 1) {
                             $blockers[] = ['code' => 'LEAVE_BALANCE_INSUFFICIENT', ...$row, 'message' => 'Kuota tidak mencukupi untuk pilihan cuti ini.'];
                         }
                     }

@@ -6,6 +6,8 @@ use App\Models\Department;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\EmployeeLevel;
+use App\Models\LeaveType;
+use App\Models\LeaveYear;
 use App\Models\Position;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftExchangeRequest;
@@ -299,12 +301,17 @@ class ShiftExchangeTest extends TestCase
     {
         $token1 = $this->mobileLogin($this->user1, 'phone-1');
         $ass1 = $this->createAssignment($this->emp1, '2026-10-26', 'Reguler');
+        LeaveType::query()->create([
+            'code' => 'birthday_leave', 'name' => 'Cuti Ulang Tahun', 'default_quota' => 1, 'is_active' => true,
+        ]);
+        $leaveYear = LeaveYear::query()->create(['year' => 2026, 'opening_confirmed_at' => '2026-10-24 03:00:00']);
+        $leaveYear->ensureTypeQuotas();
 
         $createRes = $this->withToken($token1)->postJson('/api/v1/shift-exchanges', [
             'shift_assignment_id' => $ass1->id,
             'target_employee_id' => $this->emp2->id,
             'swap_mode' => 'delegation',
-            'vacancy_action' => 'roster_off',
+            'vacancy_action' => 'birthday_leave',
             'reason' => 'Pelimpahan shift ke Bob',
         ]);
         $requestId = $createRes->json('data.id');
@@ -316,7 +323,7 @@ class ShiftExchangeTest extends TestCase
         $this->app['auth']->forgetGuards();
         $decideRes = $this->withToken($adminToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
             'decision' => 'APPROVED',
-            'vacancy_action' => 'roster_off',
+            'vacancy_action' => 'birthday_leave',
             'reason' => 'Pelimpahan shift disetujui',
         ]);
 
@@ -324,6 +331,12 @@ class ShiftExchangeTest extends TestCase
 
         $freshAss1 = ShiftAssignment::query()->find($ass1->id);
         $this->assertSame($this->emp2->id, $freshAss1->employee_id, 'ass1 is now transferred to emp2');
+        $this->assertDatabaseHas('leave_requests', [
+            'employee_id' => $this->emp1->id,
+            'work_date' => '2026-10-26',
+            'type' => 'birthday_leave',
+            'status' => 'APPROVED',
+        ]);
     }
 
     public function test_admin_can_preview_and_commit_direct_swap_via_mobile_api(): void

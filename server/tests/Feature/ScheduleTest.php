@@ -7,6 +7,8 @@ use App\Models\AttendancePeriod;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\LeaveType;
+use App\Models\LeaveYear;
 use App\Models\Position;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftCategory;
@@ -220,6 +222,47 @@ class ScheduleTest extends TestCase
             'moves' => $moves, 'vacancy_decisions' => [$decision], 'confirm_cross_unit' => true, 'preview_token' => $ready->json('preview_token'), 'reason' => 'Permintaan tukar shift',
         ])->assertOk();
         $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.roster_off_recorded']);
+    }
+
+    public function test_schedule_swap_accepts_a_dynamic_leave_type_for_a_vacancy(): void
+    {
+        $replacement = $this->makeEmployee('FO-DYNAMIC', 'Front Office');
+        LeaveType::query()->create([
+            'code' => 'birthday_leave', 'name' => 'Cuti Ulang Tahun', 'default_quota' => 1, 'is_active' => true,
+        ]);
+        $year = LeaveYear::query()->create(['year' => 2026, 'opening_confirmed_at' => '2026-10-24 03:00:00']);
+        $year->ensureTypeQuotas();
+        $schedule = $this->assign('2026-10-26', 'Reguler')->assertCreated()->json('data');
+        $moves = [[
+            'assignment_id' => $schedule['id'],
+            'expected_revision' => $schedule['revision'],
+            'to_employee_id' => $replacement->id,
+        ]];
+        $decision = [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-26',
+            'action' => 'birthday_leave',
+            'reason' => 'Cuti ulang tahun',
+        ];
+
+        $preview = $this->postJson('/admin/api/schedule/swap/preview', [
+            'moves' => $moves,
+            'vacancy_decisions' => [$decision],
+        ])->assertOk()->assertJsonPath('can_commit', true);
+
+        $this->postJson('/admin/api/schedule/swap', [
+            'moves' => $moves,
+            'vacancy_decisions' => [$decision],
+            'preview_token' => $preview->json('preview_token'),
+            'reason' => 'Pindah jadwal sesuai permintaan',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('leave_requests', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-26',
+            'type' => 'birthday_leave',
+            'status' => 'APPROVED',
+        ]);
     }
 
     public function test_schedule_swap_with_chain_replacement_to_another_employee(): void

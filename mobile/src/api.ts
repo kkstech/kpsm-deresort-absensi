@@ -182,7 +182,7 @@ export type ShiftExchangeItem = {
   id: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   swap_mode: 'direct' | 'delegation';
-  vacancy_action?: 'roster_off' | 'regular' | 'day_off' | null;
+  vacancy_action?: string | null;
   reason: string;
   decision_reason?: string | null;
   decided_by_name?: string | null;

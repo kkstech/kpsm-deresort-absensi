@@ -8,6 +8,7 @@ const leavePerPage = 20;
 let leaveMeta = null;
 const balanceTable = $('#leave-balance-table');
 const settingsForm = $('#leave-settings-form');
+const quotaFields = $('#leave-quota-fields');
 const requestSearch = $('#leave-request-search');
 const statusFilter = $('#leave-status-filter');
 const balanceSearch = $('#leave-balance-search');
@@ -22,7 +23,7 @@ let allRequests = [];
 let allBalances = [];
 
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
-const typeLabel = { regular: 'Cuti Reguler', day_off: 'Deposit Off' };
+const typeName = (item) => item.leave_type?.name ?? item.type ?? 'Cuti';
 const statusLabel = {
     PENDING: ['warning', 'Menunggu Persetujuan'],
     APPROVED: ['success', 'Disetujui'],
@@ -69,8 +70,7 @@ async function loadSettings() {
         const { data } = await api('leave-settings', { query: { year: requestedYear } });
         yearSettings = data;
         settingsForm.elements.year.value = data.year;
-        settingsForm.elements.regular_quota.value = data.regular_quota;
-        settingsForm.elements.day_off_quota.value = data.day_off_quota;
+        renderQuotaFields(data.quotas ?? []);
 
         const isOpened = Boolean(data.opening_confirmed_at);
         const openingDate = data.opening_confirmed_at ? new Date(data.opening_confirmed_at).toLocaleDateString('id-ID') : '';
@@ -97,6 +97,26 @@ async function loadSettings() {
     } catch (error) {
         $('#leave-opening-state').textContent = error.message;
     }
+}
+
+function renderQuotaFields(quotas) {
+    if (!quotaFields) return;
+    quotaFields.replaceChildren(...quotas.map((type) => {
+        const label = document.createElement('label');
+        const title = document.createElement('span');
+        const input = document.createElement('input');
+        const hint = document.createElement('small');
+        title.textContent = type.name;
+        input.type = 'number';
+        input.min = '0';
+        input.max = '60';
+        input.required = true;
+        input.value = type.quota;
+        input.dataset.leaveQuota = type.type;
+        hint.textContent = type.is_active ? `Default baru: ${type.default_quota} hari/tahun` : 'Jenis nonaktif; saldo lama tetap dihitung.';
+        label.append(title, input, hint);
+        return label;
+    }));
 }
 
 async function loadRequests(page = leavePage) {
@@ -198,8 +218,6 @@ function renderRequestsTable() {
             ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);',textContent:'${esc(initial)}'}))">`
             : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);">${esc(initial)}</span>`;
 
-        const typeTone = item.type === 'regular' ? 'blue' : 'neutral';
-
         return `
             <tr>
                 <td data-label="Tanggal">${dateHtml}</td>
@@ -213,7 +231,7 @@ function renderRequestsTable() {
                     </div>
                 </td>
                 <td data-label="Jenis">
-                    <span class="status ${typeTone}">${esc(typeLabel[item.type] ?? item.type)}</span>
+                    <span class="status neutral">${esc(typeName(item))}</span>
                 </td>
                 <td data-label="Alasan" style="max-width:240px;line-height:1.4;">
                     <span>${esc(item.reason)}</span>
@@ -312,13 +330,15 @@ function renderBalancesTable() {
             ? `<img src="${esc(item.avatar_url)}" alt="${esc(item.name)}" class="avatar" style="width:34px;height:34px;border-radius:8px;object-fit:cover;margin-right:12px;flex-shrink:0;" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar',style:'width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);',textContent:'${esc(initial)}'}))">`
             : `<span class="avatar" style="width:34px;height:34px;border-radius:8px;display:inline-grid;place-items:center;margin-right:12px;flex-shrink:0;font-size:12px;background:#e2ece4;color:var(--primary);">${esc(initial)}</span>`;
 
-        const regAvail = item.regular.available;
-        const regEntitled = item.regular.entitled;
-        const regTone = regAvail > regEntitled / 2 ? 'high' : regAvail > 0 ? 'medium' : 'empty';
-
-        const doAvail = item.day_off.available;
-        const doEntitled = item.day_off.entitled;
-        const doTone = doAvail > doEntitled / 2 ? 'high' : doAvail > 0 ? 'medium' : 'empty';
+        const typeCells = (item.types ?? []).map((type) => {
+            const tone = type.available > type.entitled / 2 ? 'high' : type.available > 0 ? 'medium' : 'empty';
+            return `
+                <td data-label="${esc(type.name)}">
+                    <div class="quota-meter"><span class="quota-meter-badge ${tone}">${type.available} / ${type.entitled} hari</span></div>
+                    <small style="display:block;margin-top:4px;color:var(--muted);">${type.used} dipakai · ${type.reserved} dipesan</small>
+                </td>
+            `;
+        }).join('');
 
         return `
             <tr>
@@ -331,22 +351,7 @@ function renderBalancesTable() {
                         </div>
                     </div>
                 </td>
-                <td data-label="Cuti Reguler">
-                    <div class="quota-meter">
-                        <span class="quota-meter-badge ${regTone}">${regAvail} / ${regEntitled} hari</span>
-                    </div>
-                    <small style="display:block;margin-top:4px;color:var(--muted);">
-                        ${item.regular.used} dipakai · ${item.regular.reserved} dipesan
-                    </small>
-                </td>
-                <td data-label="Deposit Off">
-                    <div class="quota-meter">
-                        <span class="quota-meter-badge ${doTone}">${doAvail} / ${doEntitled} hari</span>
-                    </div>
-                    <small style="display:block;margin-top:4px;color:var(--muted);">
-                        ${item.day_off.used} dipakai · ${item.day_off.reserved} dipesan
-                    </small>
-                </td>
+                ${typeCells}
                 <td data-label="Aksi" class="row-actions">
                     <button type="button" class="action-btn" data-adjust-quota="${item.employee_id}" title="Sesuaikan kuota cuti" aria-label="Sesuaikan kuota cuti ${esc(item.name)}">
                         ${icon('adjust')}
@@ -356,14 +361,14 @@ function renderBalancesTable() {
         `;
     }).join('');
 
+    const typeHeaders = (rows[0]?.types ?? []).map((type) => `<th scope="col" style="min-width:180px;">${esc(type.name)}</th>`).join('');
     balanceTable.innerHTML = `
         <div class="table-scroll">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th scope="col" style="min-width:220px;">Karyawan</th>
-                        <th scope="col" style="min-width:180px;">Cuti Reguler</th>
-                        <th scope="col" style="min-width:180px;">Deposit Off</th>
+                        ${typeHeaders}
                         <th scope="col" style="min-width:80px;text-align:right;">Atur</th>
                     </tr>
                 </thead>
@@ -388,6 +393,7 @@ function switchTab(tabKey) {
 
 async function adjustQuota(employeeId) {
     const { data } = await api('employees', { query: { status: 'active' } });
+    const leaveTypeRows = yearSettings?.quotas ?? (await api('leave-types')).data.map((type) => ({ type: type.code, name: type.name, is_active: type.is_active }));
     const employee = data.find((item) => item.id === Number(employeeId));
     if (!employee) return;
     const year = yearSettings?.year ?? Number(todayKey().slice(0, 4));
@@ -395,7 +401,7 @@ async function adjustQuota(employeeId) {
         title: `Atur Kuota · ${employee.name}`,
         hint: 'Penyesuaian kuota tercatat terpisah dan dapat diaudit secara riil.',
         fields: [
-            { name: 'type', label: 'Jenis kuota', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Deposit Off' }] },
+            { name: 'type', label: 'Jenis kuota', type: 'select', required: true, options: leaveTypeRows.map((type) => ({ value: type.type, label: `${type.name}${type.is_active ? '' : ' (Nonaktif)'}` })) },
             { name: 'year', label: 'Tahun kuota', type: 'number', required: true, min: 2000, max: 2100 },
             { name: 'delta', label: 'Perubahan hari (+ / -)', type: 'number', required: true, min: -60, max: 60, hint: 'Gunakan angka positif untuk menambah, negatif untuk mengurangi.' },
             { name: 'reason', label: 'Alasan penyesuaian', required: true, maxlength: 1000 },
@@ -410,14 +416,17 @@ async function adjustQuota(employeeId) {
 }
 
 function openDirectLeave() {
-    api('employees', { query: { status: 'active' } }).then(({ data: employees }) => openForm({
+    Promise.all([
+        api('employees', { query: { status: 'active' } }),
+        api('leave-types'),
+    ]).then(([{ data: employees }, { data: leaveTypes }]) => openForm({
         title: 'Catat Cuti Karyawan',
         hint: 'Cuti langsung oleh admin. Absensi yang sudah tercatat pada hari tersebut tidak dapat diganti menjadi cuti.',
         fields: [
             { name: 'employee_id', label: 'Karyawan', type: 'select', numeric: true, required: true, blank: 'Pilih karyawan…', options: employees.map((item) => ({ value: item.id, label: `${item.name} (${item.code})` })) },
             { name: 'work_date', label: 'Tanggal mulai', type: 'date', required: true, default: todayKey() },
             { name: 'end_date', label: 'Tanggal akhir (opsional, jika > 1 hari)', type: 'date' },
-            { name: 'type', label: 'Jenis cuti', type: 'select', required: true, options: [{ value: 'regular', label: 'Cuti Reguler' }, { value: 'day_off', label: 'Deposit Off' }] },
+            { name: 'type', label: 'Jenis cuti', type: 'select', required: true, options: leaveTypes.filter((type) => type.is_active).map((type) => ({ value: type.code, label: `${type.name} · ${type.default_quota} hari/tahun` })) },
             { name: 'reason', label: 'Alasan pencatatan', required: true, maxlength: 1000 },
         ],
         onSubmit: async (body) => {
@@ -432,7 +441,7 @@ function openDirectLeave() {
 function decide(item, decision) {
     openForm({
         title: `${decision === 'APPROVED' ? 'Setujui' : 'Tolak'} Cuti · ${item.employee?.name ?? 'Karyawan'}`,
-        hint: `${typeLabel[item.type]} · ${formatDateIndo(item.work_date)}. Cuti yang disetujui akan mengosongkan jadwal hari tersebut bila belum ada absensi.`,
+        hint: `${typeName(item)} · ${formatDateIndo(item.work_date)}. Cuti yang disetujui akan mengosongkan jadwal hari tersebut bila belum ada absensi.`,
         fields: [{ name: 'decision_reason', label: 'Catatan keputusan', required: true, maxlength: 1000 }],
         onSubmit: async (body) => {
             await api(`leaves/${item.id}/decision`, { method: 'POST', body: { ...body, decision } });
@@ -496,8 +505,10 @@ settingsForm.addEventListener('submit', async (event) => {
     try {
         await api('leave-settings', { method: 'PUT', body: {
             year: Number(settingsForm.elements.year.value),
-            regular_quota: Number(settingsForm.elements.regular_quota.value),
-            day_off_quota: Number(settingsForm.elements.day_off_quota.value),
+            quotas: [...quotaFields.querySelectorAll('[data-leave-quota]')].map((input) => ({
+                type: input.dataset.leaveQuota,
+                quota: Number(input.value),
+            })),
             reason: settingsForm.elements.reason.value.trim(),
         } });
         toast('Kuota tahunan disimpan.');
@@ -540,7 +551,7 @@ table.addEventListener('click', async (event) => {
     if (!item) return;
     if (button.dataset.action === 'approve') decide(item, 'APPROVED');
     if (button.dataset.action === 'reject') decide(item, 'REJECTED');
-    if (button.dataset.action === 'cancel' && await confirmDialog({ title: 'Batalkan cuti yang disetujui?', message: `Kuota ${typeLabel[item.type]?.toLowerCase() ?? 'cuti'} untuk ${item.work_date} akan dikembalikan.`, confirmLabel: 'Batalkan cuti', danger: true })) cancelApproved(item);
+    if (button.dataset.action === 'cancel' && await confirmDialog({ title: 'Batalkan cuti yang disetujui?', message: `Kuota ${typeName(item).toLowerCase()} untuk ${item.work_date} akan dikembalikan.`, confirmLabel: 'Batalkan cuti', danger: true })) cancelApproved(item);
 });
 
 export async function showLeaves() {

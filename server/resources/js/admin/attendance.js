@@ -1,4 +1,4 @@
-import { api, isAdmin, isSuperAdmin, role } from './api';
+import { api, isAdmin, isSuperAdmin, lookup, role } from './api';
 import { $, $$, esc, icon, renderPagination, renderSkeletonTable, toast } from './ui';
 
 const today = document.body.dataset.today;
@@ -730,7 +730,12 @@ function renderShiftExchangeItem(item) {
     </article>`;
 }
 
-function decisionShiftExchangeModal(item) {
+async function decisionShiftExchangeModal(item) {
+    const leaveTypes = await lookup('leave-types');
+    const leaveOptions = leaveTypes
+        .filter((type) => type.is_active || type.code === item.vacancy_action)
+        .map((type) => `<option value="${esc(type.code)}" ${item.vacancy_action === type.code ? 'selected' : ''}>${esc(type.name)}${type.is_active ? '' : ' (Nonaktif)'}</option>`)
+        .join('');
     const hasVacancy = item.swap_mode === 'delegation'
         || (item.target_assignment && item.assignment?.work_date !== item.target_assignment.work_date);
     const fields = `
@@ -750,8 +755,7 @@ function decisionShiftExchangeModal(item) {
         ${hasVacancy ? `<label id="shift-exchange-vacancy-control">Penanganan roster pemohon
             <select name="vacancy_action">
                 <option value="roster_off" ${item.vacancy_action === 'roster_off' || !item.vacancy_action ? 'selected' : ''}>Roster Off</option>
-                <option value="regular" ${item.vacancy_action === 'regular' ? 'selected' : ''}>Cuti</option>
-                <option value="day_off" ${item.vacancy_action === 'day_off' ? 'selected' : ''}>Deposit Off</option>
+                ${leaveOptions}
             </select>
         </label>` : ''}
         <label id="shift-exchange-cross-unit-control">Konfirmasi perpindahan lintas departemen
@@ -1035,7 +1039,7 @@ export async function showApprovals() {
                 </div>`;
             exchangeQueue.querySelectorAll('[data-shift-exchange-review]').forEach((button) => button.addEventListener('click', () => {
                 const item = exchangeList.find((exchange) => exchange.id === Number(button.dataset.shiftExchangeReview));
-                if (item) decisionShiftExchangeModal(item);
+                if (item) decisionShiftExchangeModal(item).catch((failure) => toast(failure.message, 'error'));
             }));
         }
     } catch (failure) {

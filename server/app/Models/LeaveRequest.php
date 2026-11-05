@@ -35,6 +35,11 @@ class LeaveRequest extends Model
         return $this->belongsTo(ShiftAssignment::class, 'shift_assignment_id');
     }
 
+    public function leaveType(): BelongsTo
+    {
+        return $this->belongsTo(LeaveType::class, 'type', 'code');
+    }
+
     public function isMultiDay(): bool
     {
         return (int) $this->days_count > 1 || (! empty($this->end_date) && $this->end_date !== $this->work_date);

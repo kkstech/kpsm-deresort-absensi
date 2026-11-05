@@ -256,6 +256,61 @@ class HrWorkflowTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.status', 'PENDING');
     }
 
+    public function test_leave_types_are_master_data_with_year_specific_quotas_and_inactive_history(): void
+    {
+        $user = User::factory()->create();
+        $employee = $this->employee('LEV-TYPE', '2025-01-01', $user);
+        $device = DeviceRegistration::query()->create(['user_id' => $user->id, 'device_uuid' => 'leave-type-phone']);
+        $token = $user->createToken("device:{$device->id}")->plainTextToken;
+
+        $this->postJson('/admin/api/leave-settings/confirm', ['reason' => 'Saldo awal diperiksa HRD'])->assertOk();
+        $created = $this->postJson('/admin/api/leave-types', [
+            'name' => 'Cuti Khusus', 'default_quota' => 6, 'is_active' => true,
+        ])->assertCreated()->assertJsonPath('data.code', 'cuti_khusus');
+        $typeId = $created->json('data.id');
+
+        $settings = $this->getJson('/admin/api/leave-settings?year=2026')->assertOk()->json('data');
+        $currentQuota = collect($settings['quotas'])->firstWhere('type', 'cuti_khusus');
+        $this->assertSame(0, $currentQuota['quota']);
+        $this->assertSame(6, $currentQuota['default_quota']);
+
+        $this->putJson('/admin/api/leave-settings', [
+            'year' => 2026,
+            'quotas' => [['type' => 'cuti_khusus', 'quota' => 6]],
+            'reason' => 'Tetapkan kuota cuti khusus',
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $types = $this->withToken($token)->getJson('/api/v1/leave-types')->assertOk()->json('data');
+        $this->assertTrue(collect($types)->contains('code', 'cuti_khusus'));
+        $newYearBalance = $this->withToken($token)->getJson('/api/v1/me/leave-balance?year=2027')->assertOk()->json('data');
+        $this->assertSame(6, collect($newYearBalance['types'])->firstWhere('code', 'cuti_khusus')['quota']);
+
+        $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-10', 'type' => 'cuti_khusus', 'reason' => 'Keperluan khusus',
+        ])->assertCreated()->assertJsonPath('data.leave_type.name', 'Cuti Khusus');
+        $currentBalance = $this->withToken($token)->getJson('/api/v1/me/leave-balance?year=2026')->assertOk()->json('data');
+        $currentTypeBalance = collect($currentBalance['types'])->firstWhere('code', 'cuti_khusus');
+        $this->assertSame(1, $currentTypeBalance['reserved']);
+        $this->assertSame(5, $currentTypeBalance['available']);
+
+        $this->app['auth']->forgetGuards();
+        $this->actingAs($this->admin)->putJson("/admin/api/leave-types/{$typeId}", [
+            'name' => 'Cuti Khusus', 'default_quota' => 6, 'is_active' => false,
+        ])->assertOk();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)->getJson('/api/v1/leaves')
+            ->assertOk()->assertJsonPath('data.0.leave_type.name', 'Cuti Khusus');
+        $this->withToken($token)->postJson('/api/v1/leaves', [
+            'work_date' => '2026-11-12', 'type' => 'cuti_khusus', 'reason' => 'Keperluan khusus lain',
+        ])->assertUnprocessable();
+        $inactiveBalance = $this->withToken($token)->getJson('/api/v1/me/leave-balance?year=2026')->assertOk()->json('data');
+        $inactiveTypeBalance = collect($inactiveBalance['types'])->firstWhere('code', 'cuti_khusus');
+        $this->assertFalse($inactiveTypeBalance['is_active']);
+        $this->assertSame(1, $inactiveTypeBalance['reserved']);
+    }
+
     public function test_contract_change_is_historical_and_expiry_does_not_deactivate_employee(): void
     {
         $this->postJson('/admin/api/employees', [

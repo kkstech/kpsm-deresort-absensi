@@ -82,6 +82,21 @@ const tabs = {
         ],
         deletable: false,
     },
+    'leave-types': {
+        title: 'Jenis cuti', hint: 'Jenis aktif tersedia untuk pengajuan. Kuota default dipakai saat saldo tahun baru dibuat.', singular: 'jenis cuti',
+        columns: [
+            { label: 'Nama jenis', cell: (x) => `<b>${esc(x.name)}</b><small>${esc(x.code)}</small>` },
+            { label: 'Kuota default', cell: (x) => `${esc(x.default_quota)} hari / tahun` },
+            { label: 'Status', cell: (x) => x.is_active ? '<span class="status success">Aktif</span>' : '<span class="status neutral">Nonaktif</span>' },
+        ],
+        fields: async () => [
+            { name: 'name', label: 'Nama jenis cuti', required: true, maxlength: 100 },
+            { name: 'default_quota', label: 'Kuota default (hari per tahun)', type: 'number', required: true, min: 0, max: 60, default: 0, hint: 'Perubahan ini berlaku untuk tahun saldo yang belum dibuat. Kuota tahun yang sudah ada diatur pada menu Cuti.' },
+            { name: 'is_active', label: 'Jenis cuti aktif', type: 'checkbox', default: true },
+        ],
+        endpoint: 'leave-types',
+        deletable: false,
+    },
     policies: {
         title: 'Aturan kehadiran', hint: 'Aturan perorangan menang atas departemen. Departemen menang atas aturan umum.', singular: 'aturan',
         columns: [

@@ -11,7 +11,9 @@ use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\LeaveAdjustment;
 use App\Models\LeaveRequest as LeaveRequestModel;
+use App\Models\LeaveType;
 use App\Models\LeaveYear;
+use App\Models\LeaveYearQuota;
 use App\Models\ShiftAssignment;
 use App\Support\Audit;
 use App\Support\WorkflowNotifier;
@@ -21,6 +23,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class LeaveController extends Controller
 {
@@ -28,9 +32,9 @@ class LeaveController extends Controller
     {
         Gate::authorize('admin');
         $year = (int) ($request->validate(['year' => ['nullable', 'integer', 'between:2000,2100']])['year'] ?? substr(WorkTime::today(), 0, 4));
-        $item = LeaveYear::query()->firstOrCreate(['year' => $year], ['regular_quota' => 12, 'day_off_quota' => 4]);
+        $item = $this->yearSettings($year);
 
-        return response()->json(['data' => $item]);
+        return response()->json(['data' => $this->formatYearSettings($item)]);
     }
 
     public function balances(Request $request): JsonResponse
@@ -54,29 +58,47 @@ class LeaveController extends Controller
         Gate::authorize('admin');
         $data = $request->validate([
             'year' => ['nullable', 'integer', 'between:2000,2100'],
-            'regular_quota' => ['required', 'integer', 'between:0,60'],
-            'day_off_quota' => ['required', 'integer', 'between:0,60'],
+            'quotas' => ['sometimes', 'array', 'min:1'],
+            'quotas.*.type' => ['required_with:quotas', 'string', 'distinct', Rule::exists('leave_types', 'code')],
+            'quotas.*.quota' => ['required_with:quotas', 'integer', 'between:0,60'],
+            'regular_quota' => ['sometimes', 'integer', 'between:0,60'],
+            'day_off_quota' => ['sometimes', 'integer', 'between:0,60'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
+        if (! isset($data['quotas'])) {
+            if (! isset($data['regular_quota'], $data['day_off_quota'])) {
+                throw ValidationException::withMessages(['quotas' => 'Kuota per jenis cuti wajib diisi.']);
+            }
+            $data['quotas'] = [
+                ['type' => 'regular', 'quota' => $data['regular_quota']],
+                ['type' => 'day_off', 'quota' => $data['day_off_quota']],
+            ];
+        }
         $year = (int) ($data['year'] ?? substr(WorkTime::today(), 0, 4));
         $item = DB::transaction(function () use ($year, $data) {
-            $item = LeaveYear::query()->where('year', $year)->lockForUpdate()->firstOrCreate(['year' => $year], ['regular_quota' => 12, 'day_off_quota' => 4]);
-            $before = $item->attributesToArray();
-            $item->update(['regular_quota' => $data['regular_quota'], 'day_off_quota' => $data['day_off_quota']]);
+            $item = $this->yearSettings($year, true);
+            $before = $this->formatYearSettings($item);
+            $types = LeaveType::query()->whereIn('code', collect($data['quotas'])->pluck('type'))->get()->keyBy('code');
+            foreach ($data['quotas'] as $quotaData) {
+                $type = $types->get($quotaData['type']);
+                LeaveYearQuota::query()->where('leave_year_id', $item->id)->where('leave_type_id', $type->id)
+                    ->lockForUpdate()->firstOrFail()->update(['quota' => $quotaData['quota']]);
+            }
             foreach (Employee::query()->where('status', 'active')->orderBy('id')->lockForUpdate()->get() as $employee) {
                 $balance = $this->balanceFor($employee, $year);
-                foreach (['regular', 'day_off'] as $type) {
-                    if ($balance[$type]['available'] < 0 || $balance[$type]['used'] + $balance[$type]['reserved'] > $balance[$type]['entitled']) {
-                        throw new BusinessRuleException('LEAVE_QUOTA_BELOW_USAGE', 'Kuota tidak dapat diturunkan di bawah cuti yang sudah dipakai atau masih dipesan.', 409, ['employee_id' => $employee->id, 'type' => $type]);
+                foreach ($balance['types'] as $typeBalance) {
+                    if ($typeBalance['available'] < 0 || $typeBalance['entitled'] < $typeBalance['used'] + $typeBalance['reserved']) {
+                        throw new BusinessRuleException('LEAVE_QUOTA_BELOW_USAGE', 'Kuota tidak dapat diturunkan di bawah cuti yang sudah dipakai atau masih dipesan.', 409, ['employee_id' => $employee->id, 'type' => $typeBalance['code']]);
                     }
                 }
             }
-            Audit::log('leave.year_quotas_updated', $item, $before, [...$item->attributesToArray(), 'reason' => $data['reason']]);
+            $after = $this->formatYearSettings($item->fresh());
+            Audit::log('leave.year_quotas_updated', $item, $before, [...$after, 'reason' => $data['reason']]);
 
-            return $item;
+            return $item->fresh();
         });
 
-        return response()->json(['data' => $item]);
+        return response()->json(['data' => $this->formatYearSettings($item)]);
     }
 
     public function confirmOpening(Request $request): JsonResponse
@@ -85,7 +107,7 @@ class LeaveController extends Controller
         $data = $request->validate(['year' => ['nullable', 'integer', 'between:2000,2100'], 'reason' => ['required', 'string', 'min:3', 'max:1000']]);
         $year = (int) ($data['year'] ?? substr(WorkTime::today(), 0, 4));
         $item = DB::transaction(function () use ($year, $data, $request) {
-            $item = LeaveYear::query()->where('year', $year)->lockForUpdate()->firstOrCreate(['year' => $year], ['regular_quota' => 12, 'day_off_quota' => 4]);
+            $item = $this->yearSettings($year, true);
             if ($item->opening_confirmed_at) {
                 return $item;
             }
@@ -96,7 +118,7 @@ class LeaveController extends Controller
             return $item;
         });
 
-        return response()->json(['data' => $item]);
+        return response()->json(['data' => $this->formatYearSettings($item)]);
     }
 
     public function balance(Request $request): JsonResponse
@@ -122,7 +144,7 @@ class LeaveController extends Controller
         if ($employee->status !== 'active') {
             throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
         }
-        $requests = LeaveRequestModel::query()->where('employee_id', $employee->id)->orderByDesc('work_date')->limit(100)->get();
+        $requests = LeaveRequestModel::query()->with('leaveType')->where('employee_id', $employee->id)->orderByDesc('work_date')->limit(100)->get();
 
         return response()->json(['data' => $requests]);
     }
@@ -133,7 +155,7 @@ class LeaveController extends Controller
         $data = $request->validate([
             'work_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.CarbonImmutable::parse(WorkTime::today())->addDays(14)->toDateString()],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
-            'type' => ['required', 'in:regular,day_off'],
+            'type' => ['required', 'string', Rule::exists('leave_types', 'code')->where('is_active', true)],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
@@ -168,8 +190,9 @@ class LeaveController extends Controller
             }
 
             $balance = $this->balanceFor($lockedEmployee, $year);
-            if (($balance[$data['type']]['available'] ?? 0) < $daysCount) {
-                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota cuti ini ({$balance[$data['type']]['available']}) tidak mencukupi untuk {$daysCount} hari cuti.");
+            $typeBalance = $this->balanceForType($balance, $data['type']);
+            if ($typeBalance['available'] < $daysCount) {
+                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota {$typeBalance['name']} ({$typeBalance['available']}) tidak mencukupi untuk {$daysCount} hari cuti.");
             }
 
             $assignment = ShiftAssignment::query()
@@ -195,6 +218,7 @@ class LeaveController extends Controller
             return $item;
         });
 
+        $item->load('leaveType');
         app(WorkflowNotifier::class)->leaveRequested($item);
 
         return response()->json(['data' => $item], 201);
@@ -220,7 +244,7 @@ class LeaveController extends Controller
             return $item;
         });
 
-        return response()->json(['data' => $leave->fresh()]);
+        return response()->json(['data' => $leave->fresh()->load('leaveType')]);
     }
 
     public function index(Request $request): JsonResponse
@@ -233,7 +257,7 @@ class LeaveController extends Controller
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes'],
         ]);
-        $query = LeaveRequestModel::query()->with('employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,status,template_name')
+        $query = LeaveRequestModel::query()->with('leaveType', 'employee:id,code,name,department_id,avatar_path', 'employee.department:id,name', 'assignment:id,status,template_name')
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereRaw('COALESCE(end_date, work_date) >= ?', [$from]))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('work_date', '<=', $to))
@@ -333,7 +357,7 @@ class LeaveController extends Controller
 
         app(WorkflowNotifier::class)->leaveDecision($item);
 
-        return response()->json(['data' => $item->fresh()]);
+        return response()->json(['data' => $item->fresh()->load('leaveType')]);
     }
 
     public function direct(Request $request): JsonResponse
@@ -343,7 +367,7 @@ class LeaveController extends Controller
             'employee_id' => ['required', 'integer', 'exists:employees,id'],
             'work_date' => ['required', 'date_format:Y-m-d'],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
-            'type' => ['required', 'in:regular,day_off'],
+            'type' => ['required', 'string', Rule::exists('leave_types', 'code')->where('is_active', true)],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
@@ -376,8 +400,9 @@ class LeaveController extends Controller
                 throw new BusinessRuleException('LEAVE_ALREADY_REQUESTED', 'Sudah ada pengajuan cuti aktif pada rentang tanggal ini.');
             }
 
-            if (($this->balanceFor($employee, $year)[$data['type']]['available'] ?? 0) < $daysCount) {
-                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota cuti ini tidak mencukupi untuk {$daysCount} hari cuti.");
+            $typeBalance = $this->balanceForType($this->balanceFor($employee, $year), $data['type']);
+            if ($typeBalance['available'] < $daysCount) {
+                throw new BusinessRuleException('LEAVE_BALANCE_INSUFFICIENT', "Sisa kuota {$typeBalance['name']} tidak mencukupi untuk {$daysCount} hari cuti.");
             }
 
             $assignments = ShiftAssignment::query()->with('sessions')->where('employee_id', $employee->id)
@@ -421,6 +446,7 @@ class LeaveController extends Controller
             return $item;
         });
 
+        $item->load('leaveType');
         app(WorkflowNotifier::class)->leaveDecision($item);
 
         return response()->json(['data' => $item], 201);
@@ -447,19 +473,20 @@ class LeaveController extends Controller
             return $item;
         });
 
+        $leave->load('leaveType');
         app(WorkflowNotifier::class)->leaveCancelled($leave);
 
-        return response()->json(['data' => $leave->fresh()]);
+        return response()->json(['data' => $leave->fresh()->load('leaveType')]);
     }
 
     public function adjust(Request $request, Employee $employee): JsonResponse
     {
         Gate::authorize('admin');
-        $data = $request->validate(['year' => ['required', 'integer', 'between:2000,2100'], 'type' => ['required', 'in:regular,day_off'], 'delta' => ['required', 'integer', 'between:-60,60', 'not_in:0'], 'reason' => ['required', 'string', 'min:3', 'max:1000']]);
+        $data = $request->validate(['year' => ['required', 'integer', 'between:2000,2100'], 'type' => ['required', 'string', Rule::exists('leave_types', 'code')], 'delta' => ['required', 'integer', 'between:-60,60', 'not_in:0'], 'reason' => ['required', 'string', 'min:3', 'max:1000']]);
         $item = DB::transaction(function () use ($employee, $data, $request) {
             Employee::query()->lockForUpdate()->findOrFail($employee->id);
             $current = $this->balanceFor($employee, $data['year']);
-            $available = $current[$data['type']]['available'] + $data['delta'];
+            $available = $this->balanceForType($current, $data['type'])['available'] + $data['delta'];
             if ($available < 0) {
                 throw new BusinessRuleException('LEAVE_QUOTA_BELOW_USAGE', 'Kuota baru lebih kecil dari cuti yang telah dipakai dan dipesan.');
             }
@@ -475,6 +502,43 @@ class LeaveController extends Controller
     private function balanceFor(Employee $employee, int $year): array
     {
         return app(CalculateLeaveBalance::class)->for($employee, $year);
+    }
+
+    private function balanceForType(array $balance, string $code): array
+    {
+        return collect($balance['types'])->firstWhere('code', $code)
+            ?? ['code' => $code, 'name' => $code, 'entitled' => 0, 'used' => 0, 'reserved' => 0, 'available' => 0];
+    }
+
+    private function yearSettings(int $year, bool $lock = false): LeaveYear
+    {
+        $query = LeaveYear::query()->where('year', $year);
+        if ($lock) {
+            $query->lockForUpdate();
+        }
+        $item = $query->firstOrCreate(['year' => $year]);
+        $item->ensureTypeQuotas();
+
+        return $item->load('quotas.leaveType');
+    }
+
+    private function formatYearSettings(LeaveYear $item): array
+    {
+        $item->loadMissing('quotas.leaveType');
+        $quotas = $item->quotas->map(fn (LeaveYearQuota $quota) => [
+            'type' => $quota->leaveType->code,
+            'name' => $quota->leaveType->name,
+            'is_active' => (bool) $quota->leaveType->is_active,
+            'default_quota' => (int) $quota->leaveType->default_quota,
+            'quota' => (int) $quota->quota,
+        ])->values()->all();
+        $quotaByType = collect($quotas)->keyBy('type');
+        $data = $item->attributesToArray();
+        $data['quotas'] = $quotas;
+        $data['regular_quota'] = (int) ($quotaByType->get('regular')['quota'] ?? 0);
+        $data['day_off_quota'] = (int) ($quotaByType->get('day_off')['quota'] ?? 0);
+
+        return $data;
     }
 
     private function employee(Request $request): Employee

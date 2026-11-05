@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\DatabaseBackupController;
 use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Admin\EmployeeLevelController;
 use App\Http\Controllers\Admin\LeaveController;
+use App\Http\Controllers\Admin\LeaveTypeController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\OvertimeAdminController;
 use App\Http\Controllers\Admin\PolicyController;
@@ -127,6 +128,9 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('allowances', [AllowanceController::class, 'recap']);
 
         Route::get('leave-settings', [LeaveController::class, 'settings']);
+        Route::get('leave-types', [LeaveTypeController::class, 'index']);
+        Route::post('leave-types', [LeaveTypeController::class, 'store']);
+        Route::put('leave-types/{leaveType}', [LeaveTypeController::class, 'update'])->whereNumber('leaveType');
         Route::get('leave-balances', [LeaveController::class, 'balances']);
         Route::put('leave-settings', [LeaveController::class, 'updateSettings']);
         Route::post('leave-settings/confirm', [LeaveController::class, 'confirmOpening']);

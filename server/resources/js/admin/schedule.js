@@ -24,6 +24,8 @@ function addMonths(d, n) {
 let employees = [];
 let templates = [];
 let categories = [];
+let leaveTypes = [];
+let leaveTypesPromise;
 let entries = [];
 const STATUS = { DRAFT: ['warning', 'Draft'], PUBLISHED: ['success', 'Terbit'], IN_PROGRESS: ['blue', 'Berjalan'], COMPLETED: ['neutral', 'Selesai'] };
 
@@ -801,7 +803,15 @@ function invalidateSwapPreview(clearResult = true) {
     if (clearResult) $('#schedule-swap-result').replaceChildren();
 }
 
-function openSwap(assignment) {
+async function openSwap(assignment) {
+    try {
+        leaveTypesPromise ??= lookup('leave-types');
+        leaveTypes = await leaveTypesPromise;
+    } catch (error) {
+        leaveTypesPromise = null;
+        toast(error.message, 'error');
+        return;
+    }
     swapPreview = null;
     $('#schedule-swap-result').replaceChildren();
     $('#schedule-swap-extra-moves').replaceChildren();
@@ -827,7 +837,8 @@ function renderSwapPreview(result) {
     const root = $('#schedule-swap-result');
     const blockers = result.blockers.map((item) => `<li>${esc(item.message)}</li>`).join('');
     const moves = result.moves.map((item) => `<li>${esc(item.work_date)} · ${esc(item.shift)}: ${esc(item.from_employee)} → ${esc(item.to_employee)}</li>`).join('');
-    const vacancies = result.vacancies.map((item) => `<div class="schedule-swap-vacancy" data-employee-id="${item.employee_id}" data-work-date="${esc(item.work_date)}"><strong>${esc(item.name)} · ${esc(item.work_date)}</strong><label>Tindak lanjut<select data-vacancy-action required><option value="">Pilih roster</option><option value="roster_off">Roster off</option><option value="regular">Potong cuti reguler</option><option value="day_off">Potong Deposit Off</option></select></label><label>Alasan<input data-vacancy-reason maxlength="1000" required></label></div>`).join('');
+    const leaveOptions = leaveTypes.filter((type) => type.is_active).map((type) => `<option value="${esc(type.code)}">Potong ${esc(type.name)}</option>`).join('');
+    const vacancies = result.vacancies.map((item) => `<div class="schedule-swap-vacancy" data-employee-id="${item.employee_id}" data-work-date="${esc(item.work_date)}"><strong>${esc(item.name)} · ${esc(item.work_date)}</strong><label>Tindak lanjut<select data-vacancy-action required><option value="">Pilih roster</option><option value="roster_off">Roster off</option>${leaveOptions}</select></label><label>Alasan<input data-vacancy-reason maxlength="1000" required></label></div>`).join('');
     root.innerHTML = `<section><strong>Jadwal yang ditukar</strong><ul>${moves}</ul></section>${vacancies ? `<section><strong>Jadwal yang kosong</strong>${vacancies}</section>` : ''}${blockers ? `<div class="form-error"><strong>Belum bisa diterapkan</strong><ul>${blockers}</ul></div>` : '<p class="field-hint">Konflik sudah diperiksa. Setelah semua pilihan roster valid, jalankan pratinjau sekali lagi.</p>'}`;
     $('#schedule-swap-save').disabled = !result.can_commit;
 }

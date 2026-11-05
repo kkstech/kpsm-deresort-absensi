@@ -6,6 +6,7 @@ use App\Actions\SwapScheduleCycles;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
+use App\Models\LeaveType;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftExchangeRequest;
 use App\Support\Audit;
@@ -13,6 +14,7 @@ use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ShiftExchangeController extends Controller
 {
@@ -73,7 +75,7 @@ class ShiftExchangeController extends Controller
             'target_employee_id' => ['required', 'integer', 'exists:employees,id'],
             'swap_mode' => ['required', 'in:direct,delegation'],
             'target_assignment_id' => ['nullable', 'required_if:swap_mode,direct', 'integer', 'exists:shift_assignments,id'],
-            'vacancy_action' => ['nullable', 'in:roster_off,regular,day_off'],
+            'vacancy_action' => ['nullable', Rule::in($this->vacancyActionCodes())],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
 
@@ -209,10 +211,14 @@ class ShiftExchangeController extends Controller
             throw new BusinessRuleException('STATE_CONFLICT', 'Pengajuan ini sudah pernah diproses sebelumnya.', 409);
         }
 
+        $allowedVacancyActions = $this->vacancyActionCodes();
+        if ($shiftExchange->vacancy_action) {
+            $allowedVacancyActions[] = $shiftExchange->vacancy_action;
+        }
         $data = $request->validate([
             'decision' => ['required', 'in:APPROVED,REJECTED'],
             'reason' => ['nullable', 'string', 'max:1000'],
-            'vacancy_action' => ['nullable', 'in:roster_off,regular,day_off'],
+            'vacancy_action' => ['nullable', Rule::in(array_unique($allowedVacancyActions))],
             'confirm_cross_unit' => ['sometimes', 'boolean'],
         ]);
 
@@ -430,6 +436,11 @@ class ShiftExchangeController extends Controller
             ]);
 
         return response()->json(['data' => $assignments]);
+    }
+
+    private function vacancyActionCodes(): array
+    {
+        return ['roster_off', ...LeaveType::query()->where('is_active', true)->pluck('code')->all()];
     }
 
     private function format(ShiftExchangeRequest $req, ?int $currentEmployeeId = null): array

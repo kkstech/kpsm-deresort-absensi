@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\AttendancePolicy;
 use App\Models\Department;
+use App\Models\LeaveType;
 use App\Models\Position;
 use App\Models\ShiftTemplate;
 use App\Models\WorkLocation;
@@ -13,6 +14,15 @@ class MasterDataSeeder extends Seeder
 {
     public function run(): void
     {
+        LeaveType::query()->firstOrCreate(
+            ['code' => 'regular'],
+            ['name' => 'Cuti Reguler', 'default_quota' => 12, 'is_active' => true],
+        );
+        LeaveType::query()->firstOrCreate(
+            ['code' => 'day_off'],
+            ['name' => 'Deposit Off', 'default_quota' => 4, 'is_active' => true],
+        );
+
         foreach (['Front Office', 'Engineering', 'Finance', 'Housekeeping', 'Security', 'F&B Service'] as $name) {
             Department::query()->firstOrCreate(['name' => $name]);
             Position::query()->firstOrCreate(['name' => $name]);

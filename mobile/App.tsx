@@ -67,7 +67,15 @@ type ColleaguePage = {
   data: Colleague[];
   meta?: { offset?: number; limit?: number; next_offset?: number; has_more?: boolean };
 };
-type LeaveBalance = { year: number; opening_confirmed: boolean; regular: { entitled: number; used: number; reserved: number; available: number }; day_off: { entitled: number; used: number; reserved: number; available: number } };
+type LeaveTypeInfo = { id?: number; code: string; name: string; default_quota: number; is_active: boolean };
+type LeaveTypeBalance = LeaveTypeInfo & { quota: number; entitled: number; used: number; reserved: number; available: number };
+type LeaveBalance = {
+  year: number;
+  opening_confirmed: boolean;
+  types?: LeaveTypeBalance[];
+  regular?: Omit<LeaveTypeBalance, keyof LeaveTypeInfo | 'quota'>;
+  day_off?: Omit<LeaveTypeBalance, keyof LeaveTypeInfo | 'quota'>;
+};
 type WorkRequest = {
   id: number;
   work_date: string;
@@ -80,6 +88,7 @@ type WorkRequest = {
   allowed_until?: string | null;
   allowed_minutes?: number | null;
   type?: string;
+  leave_type?: LeaveTypeInfo | null;
   reason: string;
   status: string;
   decision_reason?: string;
@@ -195,6 +204,22 @@ function normalizeExchangeItem(item: ShiftExchangeItem): ShiftExchangeItem {
     employee: item.employee ? normalizeColleague(item.employee) : null,
     target_employee: item.target_employee ? normalizeColleague(item.target_employee) : null,
   };
+}
+
+function leaveTypeName(types: LeaveTypeInfo[], code?: string | null): string {
+  return types.find((type) => type.code === code)?.name ?? code ?? 'Cuti';
+}
+
+function vacancyActionLabel(action: string | null | undefined, types: LeaveTypeInfo[]): string {
+  return action === 'roster_off' ? 'Roster Off' : `Potong ${leaveTypeName(types, action)}`;
+}
+
+function leaveBalanceTypes(balance: LeaveBalance | null): LeaveTypeBalance[] {
+  if (balance?.types) return balance.types;
+  return [
+    ...(balance?.regular ? [{ code: 'regular', name: 'Cuti Reguler', is_active: true, default_quota: 0, quota: balance.regular.entitled, ...balance.regular }] : []),
+    ...(balance?.day_off ? [{ code: 'day_off', name: 'Deposit Off', is_active: true, default_quota: 0, quota: balance.day_off.entitled, ...balance.day_off }] : []),
+  ];
 }
 
 const dateRange = () => {
@@ -759,6 +784,7 @@ function Main() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeInfo[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkRequest[]>([]);
   const [lateRequests, setLateRequests] = useState<WorkRequest[]>([]);
   const [corrections, setCorrections] = useState<WorkRequest[]>([]);
@@ -803,7 +829,7 @@ function Main() {
   const [requestKind, setRequestKind] = useState<RequestKind>('leave');
   const [workDate, setWorkDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [leaveType, setLeaveType] = useState<'regular' | 'day_off'>('regular');
+  const [leaveType, setLeaveType] = useState('regular');
   const [reason, setReason] = useState('');
   const [minutes, setMinutes] = useState('');
   const [allowedUntil, setAllowedUntil] = useState('');
@@ -846,7 +872,7 @@ function Main() {
   const [colleagueQuery, setColleagueQuery] = useState('');
   const [swapMode, setSwapMode] = useState<'direct' | 'delegation'>('direct');
   const [swapTargetAssId, setSwapTargetAssId] = useState<number | null>(null);
-  const [swapVacancyAction, setSwapVacancyAction] = useState<'roster_off' | 'regular' | 'day_off'>('roster_off');
+  const [swapVacancyAction, setSwapVacancyAction] = useState('roster_off');
   const [targetEmpSchedules, setTargetEmpSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [loadingTargetSchedules, setLoadingTargetSchedules] = useState(false);
 
@@ -861,7 +887,7 @@ function Main() {
   const [directTargetSchedules, setDirectTargetSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [directTargetAssId, setDirectTargetAssId] = useState<number | null>(null);
   const [directSwapMode, setDirectSwapMode] = useState<'direct' | 'delegation'>('direct');
-  const [directVacancyAction, setDirectVacancyAction] = useState<'roster_off' | 'regular' | 'day_off'>('roster_off');
+  const [directVacancyAction, setDirectVacancyAction] = useState('roster_off');
   const [directCrossUnitConfirm, setDirectCrossUnitConfirm] = useState(false);
   const [directReason, setDirectReason] = useState('');
   const [directPreview, setDirectPreview] = useState<SwapPreviewResult | null>(null);
@@ -890,7 +916,7 @@ function Main() {
   const [decisionItem, setDecisionItem] = useState<ShiftExchangeItem | null>(null);
   const [decisionType, setDecisionType] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
   const [decisionReason, setDecisionReason] = useState('');
-  const [decisionVacancyAction, setDecisionVacancyAction] = useState<'roster_off' | 'regular' | 'day_off'>('roster_off');
+  const [decisionVacancyAction, setDecisionVacancyAction] = useState('roster_off');
   const [decisionCrossUnitConfirm, setDecisionCrossUnitConfirm] = useState(false);
   const [decisionBusy, setDecisionBusy] = useState(false);
 
@@ -1182,7 +1208,7 @@ function Main() {
     setLoading(true);
     setError('');
     const range = dateRange();
-    const cacheKeys = ['profile', 'assignments', 'balance', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
+    const cacheKeys = ['profile', 'assignments', 'balance', 'leaveTypes', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
     const cacheUserId = activeUserIdRef.current;
     const cachedValues = await Promise.all(cacheKeys.map((key) => readUserCache<unknown>(key, cacheUserId)));
     if (!isCurrentSession()) return;
@@ -1246,6 +1272,7 @@ function Main() {
     const tasks: Array<{ key: string; promise: Promise<any> }> = [
       { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile }>(url, 'me', authToken) },
       { key: 'notifications', promise: request<NotificationFeed>(url, 'notifications', authToken) },
+      { key: 'leaveTypes', promise: request<{ data: LeaveTypeInfo[] }>(url, 'leave-types', authToken) },
       ...(isEmployeeAccount ? [
         { key: 'assignments', promise: request<{ data: Assignment[] }>(url, `attendance/me?from=${range.from}&to=${range.to}`, authToken) },
         { key: 'balance', promise: request<{ data: LeaveBalance | null }>(url, 'me/leave-balance', authToken) },
@@ -1342,6 +1369,13 @@ function Main() {
     }
     if (key === 'assignments') setAssignments(value as Assignment[]);
     if (key === 'balance') setBalance(value as LeaveBalance);
+    if (key === 'leaveTypes') {
+      const types = Array.isArray(value) ? value as LeaveTypeInfo[] : [];
+      setLeaveTypes(types);
+      setLeaveType((current) => types.some((type) => type.code === current && type.is_active)
+        ? current
+        : types.find((type) => type.is_active)?.code ?? '');
+    }
     if (key === 'leaveRequests') setLeaveRequests(value as WorkRequest[]);
     if (key === 'lateRequests') setLateRequests(value as WorkRequest[]);
     if (key === 'corrections') setCorrections(value as WorkRequest[]);
@@ -2651,16 +2685,15 @@ function Main() {
 
         {balance && (
           <View style={styles.balanceCard}>
-            <View>
-              <Text style={styles.cardEyebrow}>SISA CUTI {balance.year}</Text>
-              <Text style={styles.balanceValue}>{balance.regular.available}<Text style={styles.balanceUnit}> hari</Text></Text>
-              <Text style={styles.cardCopy}>Reguler · {balance.regular.used} terpakai</Text>
-            </View>
-            <View style={styles.balanceDivider} />
-            <View>
-              <Text style={styles.cardEyebrow}>DEPOSIT OFF</Text>
-              <Text style={styles.balanceValue}>{balance.day_off.available}<Text style={styles.balanceUnit}> hari</Text></Text>
-              <Text style={styles.cardCopy}>{balance.day_off.used} terpakai</Text>
+            <Text style={styles.cardEyebrow}>SISA CUTI {balance.year}</Text>
+            <View style={styles.balanceTypesGrid}>
+              {leaveBalanceTypes(balance).map((type) => (
+                <View key={type.code} style={styles.balanceTypeItem}>
+                  <Text style={styles.balanceTypeName}>{type.name}</Text>
+                  <Text style={styles.balanceValue}>{type.available}<Text style={styles.balanceUnit}> hari</Text></Text>
+                  <Text style={styles.cardCopy}>{type.used} terpakai</Text>
+                </View>
+              ))}
             </View>
           </View>
         )}
@@ -2985,10 +3018,10 @@ function Main() {
               <View style={{ marginTop: 14 }}>
                 <Text style={styles.fieldLabel}>Status Anda Saat Melepas Shift:</Text>
                 <View style={styles.segmentRow}>
-                  {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
-                    <Pressable key={opt} onPress={() => setSwapVacancyAction(opt)} style={[styles.segment, swapVacancyAction === opt && styles.segmentActive]}>
-                      <Text style={[styles.segmentText, swapVacancyAction === opt && styles.segmentTextActive]}>
-                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Deposit Off'}
+                  {[{ code: 'roster_off', name: 'Roster Off' }, ...leaveTypes.filter((type) => type.is_active)].map((option) => (
+                    <Pressable key={option.code} onPress={() => setSwapVacancyAction(option.code)} style={[styles.segment, swapVacancyAction === option.code && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, swapVacancyAction === option.code && styles.segmentTextActive]}>
+                        {option.name}
                       </Text>
                     </Pressable>
                   ))}
@@ -3041,7 +3074,7 @@ function Main() {
                 <Text style={styles.wizardSummaryVal}>
                   {swapMode === 'direct'
                     ? (selectedTargetSchedule ? `${localDate(selectedTargetSchedule.work_date)} (${selectedTargetSchedule.template_name})` : '—')
-                    : `Pelepasan (${swapVacancyAction === 'roster_off' ? 'Roster Off' : swapVacancyAction === 'regular' ? 'Cuti' : 'Deposit Off'})`}
+                    : `Pelepasan (${vacancyActionLabel(swapVacancyAction, leaveTypes)})`}
                 </Text>
               </View>
             </View>
@@ -3256,12 +3289,15 @@ function Main() {
             )}
 
             <View style={styles.segmentRow}>
-              <Pressable onPress={() => setLeaveType('regular')} style={[styles.segment, leaveType === 'regular' && styles.segmentActive]}>
-                <Text style={[styles.segmentText, leaveType === 'regular' && styles.segmentTextActive]}>Cuti reguler</Text>
-              </Pressable>
-              <Pressable onPress={() => setLeaveType('day_off')} style={[styles.segment, leaveType === 'day_off' && styles.segmentActive]}>
-                <Text style={[styles.segmentText, leaveType === 'day_off' && styles.segmentTextActive]}>Deposit Off</Text>
-              </Pressable>
+              {leaveTypes.filter((type) => type.is_active).map((type) => {
+                const available = leaveBalanceTypes(balance).find((item) => item.code === type.code)?.available;
+                const exhausted = typeof available === 'number' && available <= 0;
+                return (
+                  <Pressable key={type.code} accessibilityRole="button" accessibilityState={{ disabled: exhausted }} disabled={exhausted} onPress={() => setLeaveType(type.code)} style={[styles.segment, leaveType === type.code && styles.segmentActive, exhausted && styles.disabled]}>
+                    <Text style={[styles.segmentText, leaveType === type.code && styles.segmentTextActive]}>{type.name}{typeof available === 'number' ? ` · ${available} hari` : ''}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
             <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pilihan Alasan Cuti Cepat:</Text>
@@ -3505,7 +3541,7 @@ function Main() {
                   <Text style={styles.metaLabel}>Jadwal pengganti: <Text style={styles.metaValue}>{localDate(item.target_assignment.work_date)} ({item.target_assignment.template_name})</Text></Text>
                 )}
                 {item.swap_mode === 'delegation' && item.vacancy_action && (
-                  <Text style={styles.metaLabel}>Status roster pemohon: <Text style={styles.metaValue}>{item.vacancy_action === 'roster_off' ? 'Roster Off' : item.vacancy_action === 'regular' ? 'Potong Cuti' : 'Potong Deposit Off'}</Text></Text>
+                  <Text style={styles.metaLabel}>Status roster pemohon: <Text style={styles.metaValue}>{vacancyActionLabel(item.vacancy_action, leaveTypes)}</Text></Text>
                 )}
                 <Text style={styles.metaLabel}>Alasan pemohon: <Text style={styles.metaValue}>"{item.reason}"</Text></Text>
                 {item.decision_reason && (
@@ -3646,7 +3682,7 @@ function Main() {
             {balance && (
               <View style={styles.balanceStrip}>
                 <Text style={styles.cardTitle}>Tersedia tahun {balance.year}</Text>
-                <Text style={styles.cardCopy}>Cuti reguler {balance.regular.available} hari · Deposit Off {balance.day_off.available} hari{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
+                <Text style={styles.cardCopy}>{leaveBalanceTypes(balance).map((type) => `${type.name} ${type.available} hari`).join(' · ')}{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
               </View>
             )}
 
@@ -3675,7 +3711,7 @@ function Main() {
 
             <Text style={styles.sectionTitle}>Riwayat pengajuan</Text>
             {[
-              ...leaveRequests.map((item) => ({ ...item, group: 'Cuti', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...leaveRequests.map((item) => ({ ...item, group: item.leave_type?.name ?? leaveTypeName(leaveTypes, item.type), sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...lateRequests.map((item) => ({ ...item, group: 'Izin absensi', reason: `${item.permission_type === 'temporary_exit' ? `Keluar ${item.leave_at ? clock(item.leave_at) : '—'} · kembali ${item.return_at ? clock(item.return_at) : '—'}` : item.permission_type === 'early_departure' ? `Pulang ${item.leave_at ? clock(item.leave_at) : '—'}` : `Izin terlambat${item.allowed_until ? ` · target ${clock(item.allowed_until)}` : item.allowed_minutes ? ` · ${item.allowed_minutes} menit` : ''}`} · ${item.reason}`, sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu persetujuan' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...(isAdminOrSupervisor ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
               ...shiftExchanges.map((item) => ({
@@ -4070,10 +4106,10 @@ function Main() {
               <View style={{ marginTop: 12 }}>
                 <Text style={styles.fieldLabel}>Tindak Lanjut Roster Pemohon:</Text>
                 <View style={styles.segmentRow}>
-                  {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
-                    <Pressable key={opt} onPress={() => setDecisionVacancyAction(opt)} style={[styles.segment, decisionVacancyAction === opt && styles.segmentActive]}>
-                      <Text style={[styles.segmentText, decisionVacancyAction === opt && styles.segmentTextActive]}>
-                        {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti' : 'Deposit Off'}
+                  {[{ code: 'roster_off', name: 'Roster Off', is_active: true }, ...leaveTypes.filter((type) => type.is_active || type.code === decisionItem?.vacancy_action)].map((option) => (
+                    <Pressable key={option.code} onPress={() => setDecisionVacancyAction(option.code)} style={[styles.segment, decisionVacancyAction === option.code && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, decisionVacancyAction === option.code && styles.segmentTextActive]}>
+                        {option.name}{option.is_active === false ? ' · nonaktif' : ''}
                       </Text>
                     </Pressable>
                   ))}
@@ -4224,10 +4260,10 @@ function Main() {
                 <>
                   <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Tindak Lanjut Roster Karyawan Asal</Text>
                   <View style={styles.segmentRow}>
-                    {(['roster_off', 'regular', 'day_off'] as const).map((opt) => (
-                      <Pressable key={opt} onPress={() => { setDirectVacancyAction(opt); setDirectPreview(null); }} style={[styles.segment, directVacancyAction === opt && styles.segmentActive]}>
-                        <Text style={[styles.segmentText, directVacancyAction === opt && styles.segmentTextActive]}>
-                          {opt === 'roster_off' ? 'Roster Off' : opt === 'regular' ? 'Cuti Reguler' : 'Deposit Off'}
+                    {[{ code: 'roster_off', name: 'Roster Off' }, ...leaveTypes.filter((type) => type.is_active)].map((option) => (
+                      <Pressable key={option.code} onPress={() => { setDirectVacancyAction(option.code); setDirectPreview(null); }} style={[styles.segment, directVacancyAction === option.code && styles.segmentActive]}>
+                        <Text style={[styles.segmentText, directVacancyAction === option.code && styles.segmentTextActive]}>
+                          {option.name}
                         </Text>
                       </Pressable>
                     ))}
@@ -4473,7 +4509,10 @@ const styles = StyleSheet.create({
   actionButton: { minHeight: 50, justifyContent: 'center', alignItems: 'center', marginTop: 12, borderRadius: 12, backgroundColor: colors.accent },
   actionButtonText: { color: colors.primary, fontSize: 14.5, fontWeight: '800' },
   actionHint: { color: '#3A4D1A', fontSize: 12, marginTop: 2, fontWeight: '600' },
-  balanceCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, marginTop: 14, borderRadius: 14, backgroundColor: '#E9F0E8' },
+  balanceCard: { gap: 10, padding: 18, marginTop: 14, borderRadius: 14, backgroundColor: '#E9F0E8' },
+  balanceTypesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  balanceTypeItem: { width: '47%' },
+  balanceTypeName: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   balanceStrip: { padding: 16, marginTop: 14, borderRadius: 12, backgroundColor: colors.successSoft },
   balanceDivider: { width: 1, alignSelf: 'stretch', backgroundColor: '#CBD8CC' },
   cardEyebrow: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: .8, marginTop: 8 },
@@ -4516,8 +4555,8 @@ const styles = StyleSheet.create({
   inputWithIcon: { paddingRight: 48 },
   inputEyeIcon: { position: 'absolute', right: 0, top: 0, bottom: 0, width: 48, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   multiline: { minHeight: 90, paddingTop: 12, textAlignVertical: 'top' },
-  segmentRow: { flexDirection: 'row', gap: 7, marginTop: 12 },
-  segment: { minHeight: 46, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
+  segmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 12 },
+  segment: { minHeight: 46, flexGrow: 1, flexBasis: 140, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: '#fff' },
   segmentActive: { borderColor: colors.primary, backgroundColor: colors.primary },
   segmentText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
   segmentTextActive: { color: '#fff' },

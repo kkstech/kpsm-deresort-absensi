@@ -7,6 +7,7 @@ use App\Actions\SwapScheduleCycles;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
+use App\Models\LeaveType;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftTemplate;
 use Carbon\CarbonImmutable;
@@ -30,7 +31,7 @@ class ScheduleController extends Controller
             'vacancy_decisions' => ['sometimes', 'array', 'max:20'],
             'vacancy_decisions.*.employee_id' => ['required', 'integer', 'exists:employees,id'],
             'vacancy_decisions.*.work_date' => ['required', 'date_format:Y-m-d'],
-            'vacancy_decisions.*.action' => ['required', 'in:roster_off,regular,day_off'],
+            'vacancy_decisions.*.action' => ['required', Rule::in($this->vacancyActionCodes())],
             'vacancy_decisions.*.reason' => ['required', 'string', 'max:1000'],
             'confirm_cross_unit' => ['sometimes', 'boolean'],
         ]);
@@ -49,7 +50,7 @@ class ScheduleController extends Controller
             'vacancy_decisions' => ['sometimes', 'array', 'max:20'],
             'vacancy_decisions.*.employee_id' => ['required', 'integer', 'exists:employees,id'],
             'vacancy_decisions.*.work_date' => ['required', 'date_format:Y-m-d'],
-            'vacancy_decisions.*.action' => ['required', 'in:roster_off,regular,day_off'],
+            'vacancy_decisions.*.action' => ['required', Rule::in($this->vacancyActionCodes())],
             'vacancy_decisions.*.reason' => ['required', 'string', 'min:3', 'max:1000'],
             'confirm_cross_unit' => ['sometimes', 'boolean'],
             'preview_token' => ['required', 'uuid'],
@@ -262,6 +263,11 @@ class ScheduleController extends Controller
         return EmployeeController::visibleTo($request->user())
             ->when($data['employee_id'] ?? null, fn ($q, $id) => $q->where('id', $id))
             ->pluck('id')->all();
+    }
+
+    private function vacancyActionCodes(): array
+    {
+        return ['roster_off', ...LeaveType::query()->where('is_active', true)->pluck('code')->all()];
     }
 
     private function range(Request $request, int $maxDays): array

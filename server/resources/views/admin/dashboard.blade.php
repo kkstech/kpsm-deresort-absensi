@@ -983,14 +983,7 @@
                                     <span>Tahun Saldo</span>
                                     <input type="number" name="year" min="2000" max="2100" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
                                 </label>
-                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
-                                    <span>Cuti Reguler (Hari/Tahun)</span>
-                                    <input type="number" name="regular_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
-                                </label>
-                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
-                                    <span>Deposit Off (Hari/Tahun)</span>
-                                    <input type="number" name="day_off_quota" min="0" max="60" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
-                                </label>
+                                <div id="leave-quota-fields" class="leave-quota-fields" aria-live="polite"></div>
                                 <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); grid-column: 1 / -1;">
                                     <span>Alasan Perubahan Kuota</span>
                                     <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kuota standar tahunan 2026" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
@@ -1132,6 +1125,7 @@
                                     <option value="general">Umum</option>
                                     <option value="templates">Template shift</option>
                                     <option value="shift-categories">Kategori shift</option>
+                                    <option value="leave-types">Jenis cuti</option>
                                     <option value="policies">Aturan kehadiran</option>
                                     <option value="attendance">Jendela presensi</option>
                                     <option value="departments">Departemen</option>
@@ -1148,6 +1142,7 @@
                                 <button type="button" role="tab" aria-selected="true" data-settings-tab="general"><svg class="icon" aria-hidden="true"><use href="#i-sliders"/></svg><span>Umum</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="shift-categories" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Kategori shift</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="leave-types" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg><span>Jenis cuti</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Aturan kehadiran</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="attendance" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Jendela presensi</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg><span>Departemen</span></button>
