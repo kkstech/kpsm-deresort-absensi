@@ -445,7 +445,8 @@ function decide(item, decision) {
         fields: [{ name: 'decision_reason', label: 'Catatan keputusan', required: true, maxlength: 1000 }],
         onSubmit: async (body) => {
             await api(`leaves/${item.id}/decision`, { method: 'POST', body: { ...body, decision } });
-            toast(decision === 'APPROVED' ? 'Cuti disetujui.' : 'Pengajuan ditolak.');
+            const rejected = decision === 'REJECTED';
+            toast(rejected ? 'Pengajuan ditolak.' : 'Cuti disetujui.', rejected ? 'rejected' : 'success');
             await Promise.all([loadRequests(), loadBalances()]);
         },
     });

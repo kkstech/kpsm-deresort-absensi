@@ -3460,10 +3460,22 @@ function Main() {
   }
 
   function renderNotificationCard(item: AppNotification) {
-    const isRejected = item.data.context?.status === 'REJECTED' || item.data.title?.toLowerCase().includes('ditolak');
+    const status = item.data.context?.status;
+    const title = item.data.title?.toLowerCase() ?? '';
+    const outcome = status === 'APPROVED' || title.includes('disetujui')
+      ? 'approved'
+      : status === 'REJECTED' || title.includes('ditolak') ? 'rejected' : null;
     return (
-      <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread, isRejected && styles.notificationCardRejected]}>
-        {isRejected && <View style={styles.notificationRejectedIcon} accessible accessibilityLabel="Pengajuan ditolak"><Ionicons name="close-circle" size={20} color={colors.danger} /></View>}
+      <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread, outcome === 'approved' && styles.notificationCardApproved, outcome === 'rejected' && styles.notificationCardRejected]}>
+        {outcome && (
+          <View
+            style={[styles.notificationStatusIcon, outcome === 'approved' ? styles.notificationStatusApproved : styles.notificationStatusRejected]}
+            accessible
+            accessibilityLabel={outcome === 'approved' ? 'Pengajuan disetujui' : 'Pengajuan ditolak'}
+          >
+            <Ionicons name={outcome === 'approved' ? 'checkmark-circle' : 'close-circle'} size={20} color={outcome === 'approved' ? colors.primary : colors.danger} />
+          </View>
+        )}
         <View style={styles.notificationContent}>
           <Text style={styles.cardTitle}>{item.data.title || 'Notifikasi'}</Text>
           <Text style={styles.cardCopy}>{item.data.body || ''}</Text>
@@ -4543,8 +4555,11 @@ const styles = StyleSheet.create({
   notificationList: { gap: 8, marginTop: 12 },
   notificationCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: '#fff' },
   notificationCardUnread: { borderColor: '#9AB8A8', backgroundColor: '#F1F7F3' },
+  notificationCardApproved: { borderColor: '#4F8E64', backgroundColor: colors.successSoft },
   notificationCardRejected: { borderColor: colors.danger, backgroundColor: colors.dangerSoft },
-  notificationRejectedIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#FBD9D7' },
+  notificationStatusIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  notificationStatusApproved: { backgroundColor: '#D7EADD' },
+  notificationStatusRejected: { backgroundColor: '#FBD9D7' },
   notificationContent: { flex: 1, gap: 3 },
   notificationDate: { marginTop: 3, color: colors.muted, fontSize: 11.5 },
   notificationReadButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },

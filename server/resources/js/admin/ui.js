@@ -52,8 +52,9 @@ export function icon(name, size = 16) {
 let toastCalledInCycle = false;
 export function toast(message, tone = 'success') {
     toastCalledInCycle = true;
-    window.toastMagic?.[tone === 'error' ? 'error' : 'success']({
-        heading: tone === 'error' ? 'Gagal' : 'Berhasil',
+    const rejected = tone === 'rejected';
+    window.toastMagic?.[tone === 'error' || rejected ? 'error' : 'success']({
+        heading: rejected ? 'Ditolak' : tone === 'error' ? 'Gagal' : 'Berhasil',
         description: message,
     });
 }
