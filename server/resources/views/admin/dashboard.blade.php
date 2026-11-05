@@ -1126,6 +1126,7 @@
                                     <option value="templates">Template shift</option>
                                     <option value="shift-categories">Kategori shift</option>
                                     <option value="leave-types">Jenis cuti</option>
+                                    <option value="leave-reasons">Alasan cuti cepat</option>
                                     <option value="policies">Aturan kehadiran</option>
                                     <option value="attendance">Jendela presensi</option>
                                     <option value="departments">Departemen</option>
@@ -1143,6 +1144,7 @@
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="templates" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Template shift</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="shift-categories" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg><span>Kategori shift</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="leave-types" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg><span>Jenis cuti</span></button>
+                                <button type="button" role="tab" aria-selected="false" data-settings-tab="leave-reasons" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-file-text"/></svg><span>Alasan cuti cepat</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="policies" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-shield-check"/></svg><span>Aturan kehadiran</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="attendance" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span>Jendela presensi</span></button>
                                 <button type="button" role="tab" aria-selected="false" data-settings-tab="departments" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-building"/></svg><span>Departemen</span></button>

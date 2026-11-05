@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\EmployeeController;
 use App\Http\Controllers\Admin\LeaveController;
+use App\Http\Controllers\Admin\LeaveReasonController;
 use App\Http\Controllers\Admin\LeaveTypeController;
 use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Api\V1\AttendanceController;
@@ -27,6 +28,7 @@ Route::prefix('v1')->group(function () {
         Route::get('me/schedule', [AttendanceController::class, 'schedule']);
         Route::get('me/leave-balance', [LeaveController::class, 'balance']);
         Route::get('leave-types', [LeaveTypeController::class, 'mobileIndex']);
+        Route::get('leave-reasons', [LeaveReasonController::class, 'mobileIndex']);
         Route::get('leaves', [LeaveController::class, 'employeeIndex']);
         Route::post('leaves', [LeaveController::class, 'store']);
         Route::post('leaves/{leave}/cancel', [LeaveController::class, 'cancelEmployee'])->whereNumber('leave');

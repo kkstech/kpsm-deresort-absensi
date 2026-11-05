@@ -97,6 +97,19 @@ const tabs = {
         endpoint: 'leave-types',
         deletable: false,
     },
+    'leave-reasons': {
+        title: 'Alasan cuti cepat', hint: 'Alasan aktif tampil sebagai pilihan cepat pada formulir pengajuan cuti karyawan.', singular: 'alasan cuti',
+        columns: [
+            { label: 'Alasan', cell: (item) => `<b>${esc(item.name)}</b>` },
+            { label: 'Status', cell: (item) => item.is_active ? '<span class="status success">Aktif</span>' : '<span class="status neutral">Nonaktif</span>' },
+        ],
+        fields: async () => [
+            { name: 'name', label: 'Teks alasan', required: true, maxlength: 120, hint: 'Dipilih sebagai teks awal yang masih bisa diubah karyawan.' },
+            { name: 'is_active', label: 'Tampilkan pada alasan cepat', type: 'checkbox', default: true },
+        ],
+        endpoint: 'leave-reasons',
+        deletable: false,
+    },
     policies: {
         title: 'Aturan kehadiran', hint: 'Aturan perorangan menang atas departemen. Departemen menang atas aturan umum.', singular: 'aturan',
         columns: [

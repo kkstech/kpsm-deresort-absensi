@@ -68,6 +68,7 @@ type ColleaguePage = {
   meta?: { offset?: number; limit?: number; next_offset?: number; has_more?: boolean };
 };
 type LeaveTypeInfo = { id?: number; code: string; name: string; default_quota: number; is_active: boolean };
+type LeaveReasonInfo = { id: number; name: string; is_active?: boolean };
 type LeaveTypeBalance = LeaveTypeInfo & { quota: number; entitled: number; used: number; reserved: number; available: number };
 type LeaveBalance = {
   year: number;
@@ -785,6 +786,7 @@ function Main() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeInfo[]>([]);
+  const [leaveReasons, setLeaveReasons] = useState<LeaveReasonInfo[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkRequest[]>([]);
   const [lateRequests, setLateRequests] = useState<WorkRequest[]>([]);
   const [corrections, setCorrections] = useState<WorkRequest[]>([]);
@@ -1208,7 +1210,7 @@ function Main() {
     setLoading(true);
     setError('');
     const range = dateRange();
-    const cacheKeys = ['profile', 'assignments', 'balance', 'leaveTypes', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
+    const cacheKeys = ['profile', 'assignments', 'balance', 'leaveTypes', 'leaveReasons', 'leaveRequests', 'lateRequests', 'corrections', 'shiftExchanges', 'overtimes', 'colleagues', 'adminShiftExchanges', 'adminSchedules', 'allEmployees', 'notifications'];
     const cacheUserId = activeUserIdRef.current;
     const cachedValues = await Promise.all(cacheKeys.map((key) => readUserCache<unknown>(key, cacheUserId)));
     if (!isCurrentSession()) return;
@@ -1273,6 +1275,7 @@ function Main() {
       { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile }>(url, 'me', authToken) },
       { key: 'notifications', promise: request<NotificationFeed>(url, 'notifications', authToken) },
       { key: 'leaveTypes', promise: request<{ data: LeaveTypeInfo[] }>(url, 'leave-types', authToken) },
+      { key: 'leaveReasons', promise: request<{ data: LeaveReasonInfo[] }>(url, 'leave-reasons', authToken) },
       ...(isEmployeeAccount ? [
         { key: 'assignments', promise: request<{ data: Assignment[] }>(url, `attendance/me?from=${range.from}&to=${range.to}`, authToken) },
         { key: 'balance', promise: request<{ data: LeaveBalance | null }>(url, 'me/leave-balance', authToken) },
@@ -1376,6 +1379,7 @@ function Main() {
         ? current
         : types.find((type) => type.is_active)?.code ?? '');
     }
+    if (key === 'leaveReasons') setLeaveReasons(Array.isArray(value) ? value as LeaveReasonInfo[] : []);
     if (key === 'leaveRequests') setLeaveRequests(value as WorkRequest[]);
     if (key === 'lateRequests') setLateRequests(value as WorkRequest[]);
     if (key === 'corrections') setCorrections(value as WorkRequest[]);
@@ -3302,13 +3306,15 @@ function Main() {
 
             <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pilihan Alasan Cuti Cepat:</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
-              {['Cuti Tahunan', 'Acara Keluarga', 'Istirahat / Liburan', 'Keperluan Pribadi'].map((opt) => (
+              {leaveReasons.map((item) => (
                 <Pressable
-                  key={opt}
-                  onPress={() => setReason(opt)}
-                  style={[styles.quickChip, reason === opt && styles.quickChipActive]}
+                  key={item.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: reason === item.name }}
+                  onPress={() => setReason(item.name)}
+                  style={[styles.quickChip, reason === item.name && styles.quickChipActive]}
                 >
-                  <Text style={[styles.quickChipText, reason === opt && styles.quickChipTextActive]}>{opt}</Text>
+                  <Text style={[styles.quickChipText, reason === item.name && styles.quickChipTextActive]}>{item.name}</Text>
                 </Pressable>
               ))}
             </ScrollView>

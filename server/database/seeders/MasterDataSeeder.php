@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\AttendancePolicy;
 use App\Models\Department;
+use App\Models\LeaveReason;
 use App\Models\LeaveType;
 use App\Models\Position;
 use App\Models\ShiftTemplate;
@@ -22,6 +23,9 @@ class MasterDataSeeder extends Seeder
             ['code' => 'day_off'],
             ['name' => 'Deposit Off', 'default_quota' => 4, 'is_active' => true],
         );
+        foreach (['Cuti Tahunan', 'Acara Keluarga', 'Istirahat / Liburan', 'Keperluan Pribadi'] as $name) {
+            LeaveReason::query()->firstOrCreate(['name' => $name], ['is_active' => true]);
+        }
 
         foreach (['Front Office', 'Engineering', 'Finance', 'Housekeeping', 'Security', 'F&B Service'] as $name) {
             Department::query()->firstOrCreate(['name' => $name]);
