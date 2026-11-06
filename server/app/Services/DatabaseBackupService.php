@@ -163,10 +163,10 @@ class DatabaseBackupService
 
     private function dump(string $sqlPath): void
     {
-        $credentialsPath = $this->credentialsFile();
+        $connection = $this->mysqlConnectionConfig();
+        $credentialsPath = $this->credentialsFile($connection);
 
         try {
-            $connection = config('database.connections.mysql');
             $database = (string) $connection['database'];
             $process = new Process([
                 'mysqldump',
@@ -300,7 +300,8 @@ class DatabaseBackupService
     {
         $this->dropExistingTables();
         DB::purge('mysql');
-        $credentialsPath = $this->credentialsFile();
+        $connection = $this->mysqlConnectionConfig();
+        $credentialsPath = $this->credentialsFile($connection);
         $input = fopen($sqlPath, 'rb');
 
         if ($input === false) {
@@ -310,7 +311,6 @@ class DatabaseBackupService
         }
 
         try {
-            $connection = config('database.connections.mysql');
             $process = new Process([
                 'mysql',
                 '--defaults-extra-file='.$credentialsPath,
@@ -328,6 +328,11 @@ class DatabaseBackupService
 
         DB::purge('mysql');
         DB::connection('mysql')->getPdo();
+    }
+
+    private function mysqlConnectionConfig(): array
+    {
+        return DB::connection('mysql')->getConfig();
     }
 
     private function dropExistingTables(): void
@@ -353,7 +358,7 @@ class DatabaseBackupService
         }
     }
 
-    private function credentialsFile(): string
+    private function credentialsFile(array $connection): string
     {
         $this->ensureDirectory();
         $path = tempnam($this->directory, 'mysql-client-');
@@ -362,7 +367,6 @@ class DatabaseBackupService
             throw new RuntimeException('Could not create a temporary MySQL credentials file.');
         }
 
-        $connection = config('database.connections.mysql');
         $options = [
             'user' => (string) $connection['username'],
             'password' => (string) $connection['password'],
