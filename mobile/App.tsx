@@ -986,6 +986,14 @@ function Main() {
   }
 
   function openClock(target: 'otStart' | 'otEnd' | 'lateTarget' | 'permissionLeave' | 'permissionReturn') {
+    if ((target === 'lateTarget' || target === 'permissionLeave' || target === 'permissionReturn') && !sessionId) {
+      showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
+      return;
+    }
+    if (target === 'permissionReturn' && !permissionLeaveAt) {
+      showFeedback('error', 'Pilih jam keluar terlebih dahulu.');
+      return;
+    }
     setClockTarget(target);
     setClockVisible(true);
   }
@@ -995,13 +1003,13 @@ function Main() {
     const returnAt = new Date(new Date(leaveAt).getTime() + durationMinutes * 60_000);
     if (!selected) {
       setPermissionReturnAt('');
-      setError('Pilih sesi kerja terlebih dahulu.');
+      showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
       return;
     }
     if (returnAt.getTime() > new Date(selected.end_at).getTime()) {
       setPermissionReturnAt('');
       setPermissionDurationMinutes(null);
-      setError('Durasi melewati akhir sesi. Pilih durasi yang lebih singkat.');
+      showFeedback('error', 'Durasi melewati akhir sesi. Pilih durasi yang lebih singkat.');
       return;
     }
 
@@ -1013,7 +1021,7 @@ function Main() {
     setPermissionDurationMinutes(durationMinutes);
     if (!permissionLeaveAt) {
       setPermissionReturnAt('');
-      setError('Pilih jam keluar terlebih dahulu agar jam kembali dapat dihitung.');
+      showFeedback('error', 'Pilih jam keluar terlebih dahulu agar jam kembali dapat dihitung.');
       return;
     }
 
@@ -1026,14 +1034,28 @@ function Main() {
     } else if (clockTarget === 'otEnd') {
       setOtEndTime(timeStr);
     } else if (clockTarget === 'lateTarget') {
-      const chosenSession = (requestKind === 'late' ? unfinishedSessions : openSessions).find((i) => i.session.id === sessionId);
-      const sessionDate = chosenSession?.assignment.work_date ?? todayKey();
-      const isoStr = `${sessionDate}T${timeStr}:00+07:00`;
-      setAllowedUntil(isoStr);
+      const chosenSession = openSessions.find((item) => item.session.id === sessionId)?.session;
+      if (!chosenSession) {
+        showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
+        return;
+      }
+      const dates = [...new Set([chosenSession.local_start_date, chosenSession.local_end_date].filter(Boolean))] as string[];
+      const selectedTime = dates.map((date) => `${date}T${timeStr}:00+07:00`)
+        .filter((value) => new Date(value) >= new Date(chosenSession.start_at)
+          && new Date(value) <= new Date(chosenSession.end_at))
+        .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+      if (!selectedTime) {
+        showFeedback('error', 'Pilih target jam yang masih berada dalam sesi kerja.');
+        return;
+      }
+      setAllowedUntil(selectedTime);
       setMinutes('');
     } else if (clockTarget === 'permissionLeave' || clockTarget === 'permissionReturn') {
       const selected = openSessions.find((item) => item.session.id === sessionId)?.session;
-      if (!selected) return;
+      if (!selected) {
+        showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
+        return;
+      }
       const dates = [...new Set([selected.local_start_date, selected.local_end_date].filter(Boolean))] as string[];
       const notBefore = clockTarget === 'permissionReturn' && permissionLeaveAt
         ? new Date(permissionLeaveAt).getTime()
@@ -1044,7 +1066,7 @@ function Main() {
           && (clockTarget === 'permissionReturn' ? new Date(value) <= new Date(selected.end_at) : new Date(value) < new Date(selected.end_at)))
         .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
       if (!selectedTime) {
-        setError('Pilih waktu yang masih berada dalam sesi kerja.');
+        showFeedback('error', 'Pilih waktu yang masih berada dalam sesi kerja.');
         return;
       }
       if (clockTarget === 'permissionLeave') {
@@ -1062,6 +1084,10 @@ function Main() {
   }
 
   function applyDurationChip(mins: number) {
+    if (requestKind === 'late' && !sessionId) {
+      showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
+      return;
+    }
     setMinutes(String(mins));
     setAllowedUntil('');
   }
@@ -3358,7 +3384,6 @@ function Main() {
                   ] as Array<[AttendancePermissionType, string]>).map(([value, label]) => (
                     <Pressable key={value} onPress={() => {
                       setAttendancePermissionType(value);
-                      setSessionId(null);
                       setAllowedUntil('');
                       setMinutes('');
                       setPermissionLeaveAt('');
@@ -3412,7 +3437,7 @@ function Main() {
                   </>
                 ) : (
                   <>
-                    <PickerTrigger label={attendancePermissionType === 'temporary_exit' ? 'Rencana jam keluar' : 'Rencana jam pulang'} value={permissionLeaveAt ? clock(permissionLeaveAt) : ''} placeholder="Pilih jam keluar" icon="time" onPress={() => openClock('permissionLeave')} />
+                    <PickerTrigger label={attendancePermissionType === 'temporary_exit' ? 'Rencana jam keluar' : 'Rencana jam pulang'} value={permissionLeaveAt ? clock(permissionLeaveAt) : ''} placeholder={attendancePermissionType === 'temporary_exit' ? 'Pilih jam keluar' : 'Pilih jam pulang'} icon="time" onPress={() => openClock('permissionLeave')} />
                     {attendancePermissionType === 'temporary_exit' && (
                       <>
                         <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Durasi keluar sementara:</Text>
