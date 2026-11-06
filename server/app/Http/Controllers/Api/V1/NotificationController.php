@@ -17,7 +17,7 @@ class NotificationController extends Controller
     {
         abort_unless($request->user()->isAdmin() || $request->user()->isSupervisor(), 403);
 
-        return response()->json($this->feed($request));
+        return response()->json($this->feed($request, true));
     }
 
     public function read(Request $request, string $notification): JsonResponse
@@ -25,13 +25,26 @@ class NotificationController extends Controller
         $item = $request->user()->notifications()->whereKey($notification)->firstOrFail();
         $item->markAsRead();
 
-        return response()->json($this->feed($request));
+        return response()->json($this->feed($request, $request->is('admin/api/*')));
     }
 
-    private function feed(Request $request): array
+    private function feed(Request $request, bool $hideOvertimeRecommendations = false): array
     {
         $user = $request->user();
-        $items = $user->notifications()->latest()->limit(100)->get()->map(fn ($item) => [
+        $notifications = $user->notifications();
+        $unreadNotifications = $user->unreadNotifications();
+
+        if ($hideOvertimeRecommendations) {
+            $excludeOvertimeRecommendations = fn ($query) => $query->where(function ($query) {
+                $query->whereNull('data->kind')
+                    ->orWhere('data->kind', '!=', 'overtime_recommendation');
+            });
+
+            $excludeOvertimeRecommendations($notifications);
+            $excludeOvertimeRecommendations($unreadNotifications);
+        }
+
+        $items = $notifications->latest()->limit(100)->get()->map(fn ($item) => [
             'id' => $item->id,
             'type' => $item->data['kind'] ?? $item->type,
             'data' => $item->data,
@@ -39,6 +52,6 @@ class NotificationController extends Controller
             'created_at' => $item->created_at?->toISOString(),
         ]);
 
-        return ['data' => $items, 'unread_count' => $user->unreadNotifications()->count()];
+        return ['data' => $items, 'unread_count' => $unreadNotifications->count()];
     }
 }
