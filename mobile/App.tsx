@@ -73,6 +73,7 @@ type LeaveTypeBalance = LeaveTypeInfo & { quota: number; entitled: number; used:
 type LeaveBalance = {
   year: number;
   opening_confirmed: boolean;
+  minimum_notice_days?: number;
   types?: LeaveTypeBalance[];
   regular?: Omit<LeaveTypeBalance, keyof LeaveTypeInfo | 'quota'>;
   day_off?: Omit<LeaveTypeBalance, keyof LeaveTypeInfo | 'quota'>;
@@ -156,9 +157,9 @@ const localDate = (value?: string | Date | null) => {
   return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(typeof value === 'string' ? new Date(`${value.slice(0, 10)}T12:00:00+07:00`) : value);
 };
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
-const minimumLeaveDate = () => {
+const minimumLeaveDate = (minimumNoticeDays = 14) => {
   const date = new Date(`${todayKey()}T12:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + 14);
+  date.setUTCDate(date.getUTCDate() + minimumNoticeDays);
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(date);
 };
 const clock = (value?: string | null) => value ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
@@ -786,6 +787,13 @@ function Main() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const minimumNoticeDays = balance?.minimum_notice_days ?? 14;
+  const minimumNoticeCopy = minimumNoticeDays === 0
+    ? 'Tanggal cuti dapat dipilih mulai hari ini.'
+    : `Pengajuan harus dibuat minimal ${minimumNoticeDays} hari sebelum tanggal mulai.`;
+  const minimumNoticeError = minimumNoticeDays === 0
+    ? 'Tanggal mulai cuti tidak boleh sebelum hari ini.'
+    : `Pengajuan cuti harus dibuat minimal ${minimumNoticeDays} hari sebelum tanggal mulai.`;
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeInfo[]>([]);
   const [leaveReasons, setLeaveReasons] = useState<LeaveReasonInfo[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkRequest[]>([]);
@@ -1834,7 +1842,7 @@ function Main() {
         const cleanStart = workDate.trim();
         const cleanEnd = endDate.trim();
         if (!cleanStart || reason.trim().length < 3) throw new Error('Pilih tanggal mulai dan tulis alasan minimal 3 karakter.');
-        if (cleanStart < minimumLeaveDate()) throw new Error('Pengajuan cuti harus dibuat minimal 14 hari sebelum tanggal mulai.');
+        if (cleanStart < minimumLeaveDate(minimumNoticeDays)) throw new Error(minimumNoticeError);
         if (cleanEnd && cleanEnd < cleanStart) throw new Error('Tanggal akhir cuti tidak boleh mendahului tanggal mulai.');
         await request(baseUrl, 'leaves', token, {
           method: 'POST',
@@ -3244,7 +3252,7 @@ function Main() {
         {requestKind === 'leave' ? (
           <>
             <Text style={styles.cardTitle}>Pengajuan Cuti</Text>
-            <Text style={styles.cardCopy}>Pilih tanggal cuti menggunakan kalender interaktif di bawah ini.</Text>
+            <Text style={styles.cardCopy}>Pilih tanggal cuti menggunakan kalender interaktif di bawah ini. {minimumNoticeCopy}</Text>
 
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={{ flex: 1 }}>
@@ -3253,7 +3261,7 @@ function Main() {
                   value={workDate ? localDate(workDate) : ''}
                   placeholder="Pilih tanggal"
                   icon="calendar"
-                  onPress={() => openCalendar('leaveStart', minimumLeaveDate())}
+                  onPress={() => openCalendar('leaveStart', minimumLeaveDate(minimumNoticeDays))}
                 />
               </View>
               <View style={{ flex: 1 }}>

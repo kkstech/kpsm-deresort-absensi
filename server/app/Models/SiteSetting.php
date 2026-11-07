@@ -16,6 +16,7 @@ class SiteSetting extends Model
         'favicon_path',
         'checkin_early_minutes',
         'retirement_age_years',
+        'leave_minimum_notice_days',
     ];
 
     protected $appends = ['logo_url', 'favicon_url'];
@@ -28,6 +29,11 @@ class SiteSetting extends Model
     public static function checkInEarlyMinutes(): int
     {
         return Cache::rememberForever('attendance.checkin_early_minutes', fn (): int => (int) (static::current()->checkin_early_minutes ?? config('attendance.checkin_early_minutes')));
+    }
+
+    public static function leaveMinimumNoticeDays(): int
+    {
+        return (int) static::current()->leave_minimum_notice_days;
     }
 
     public function getLogoUrlAttribute(): ?string
@@ -45,6 +51,7 @@ class SiteSetting extends Model
         return [
             'checkin_early_minutes' => 'integer',
             'retirement_age_years' => 'integer',
+            'leave_minimum_notice_days' => 'integer',
         ];
     }
 }

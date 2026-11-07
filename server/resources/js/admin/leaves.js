@@ -70,6 +70,7 @@ async function loadSettings() {
         const { data } = await api('leave-settings', { query: { year: requestedYear } });
         yearSettings = data;
         settingsForm.elements.year.value = data.year;
+        settingsForm.elements.minimum_notice_days.value = data.minimum_notice_days ?? 14;
         renderQuotaFields(data.quotas ?? []);
 
         const isOpened = Boolean(data.opening_confirmed_at);
@@ -511,9 +512,10 @@ settingsForm.addEventListener('submit', async (event) => {
                 type: input.dataset.leaveQuota,
                 quota: Number(input.value),
             })),
+            minimum_notice_days: Number(settingsForm.elements.minimum_notice_days.value),
             reason: settingsForm.elements.reason.value.trim(),
         } });
-        toast('Kuota tahunan disimpan.');
+        toast('Pengaturan cuti disimpan.');
         settingsForm.elements.reason.value = '';
         await loadSettings();
         await loadBalances();

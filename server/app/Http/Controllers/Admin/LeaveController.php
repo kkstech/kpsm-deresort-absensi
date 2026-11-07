@@ -15,6 +15,7 @@ use App\Models\LeaveType;
 use App\Models\LeaveYear;
 use App\Models\LeaveYearQuota;
 use App\Models\ShiftAssignment;
+use App\Models\SiteSetting;
 use App\Support\Audit;
 use App\Support\WorkflowNotifier;
 use App\Support\WorkTime;
@@ -63,6 +64,7 @@ class LeaveController extends Controller
             'quotas.*.quota' => ['required_with:quotas', 'integer', 'between:0,60'],
             'regular_quota' => ['sometimes', 'integer', 'between:0,60'],
             'day_off_quota' => ['sometimes', 'integer', 'between:0,60'],
+            'minimum_notice_days' => ['sometimes', 'integer', 'between:0,365'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
         ]);
         if (! isset($data['quotas'])) {
@@ -83,6 +85,14 @@ class LeaveController extends Controller
                 $type = $types->get($quotaData['type']);
                 LeaveYearQuota::query()->where('leave_year_id', $item->id)->where('leave_type_id', $type->id)
                     ->lockForUpdate()->firstOrFail()->update(['quota' => $quotaData['quota']]);
+            }
+            if (array_key_exists('minimum_notice_days', $data)) {
+                $siteSetting = SiteSetting::query()->lockForUpdate()->findOrFail(1);
+                $beforeSiteSetting = $siteSetting->attributesToArray();
+                $siteSetting->update(['leave_minimum_notice_days' => $data['minimum_notice_days']]);
+                if ((int) $beforeSiteSetting['leave_minimum_notice_days'] !== (int) $data['minimum_notice_days']) {
+                    Audit::log('leave.notice_rule_updated', $siteSetting, $beforeSiteSetting, [...$siteSetting->attributesToArray(), 'reason' => $data['reason']]);
+                }
             }
             foreach (Employee::query()->where('status', 'active')->orderBy('id')->lockForUpdate()->get() as $employee) {
                 $balance = $this->balanceFor($employee, $year);
@@ -132,7 +142,10 @@ class LeaveController extends Controller
         }
         $year = (int) ($request->validate(['year' => ['nullable', 'integer', 'between:2000,2100']])['year'] ?? substr(WorkTime::today(), 0, 4));
 
-        return response()->json(['data' => $this->balanceFor($employee, $year)]);
+        $balance = $this->balanceFor($employee, $year);
+        $balance['minimum_notice_days'] = SiteSetting::leaveMinimumNoticeDays();
+
+        return response()->json(['data' => $balance]);
     }
 
     public function employeeIndex(Request $request): JsonResponse
@@ -153,7 +166,7 @@ class LeaveController extends Controller
     {
         $employee = $this->employee($request);
         $data = $request->validate([
-            'work_date' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.CarbonImmutable::parse(WorkTime::today())->addDays(14)->toDateString()],
+            'work_date' => ['required', 'date_format:Y-m-d'],
             'end_date' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:work_date'],
             'type' => ['required', 'string', Rule::exists('leave_types', 'code')->where('is_active', true)],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
@@ -169,6 +182,18 @@ class LeaveController extends Controller
             $settings = LeaveYear::query()->where('year', $year)->lockForUpdate()->first();
             if (! $settings?->opening_confirmed_at) {
                 throw new BusinessRuleException('LEAVE_BALANCE_NOT_OPEN', 'HR belum mengonfirmasi saldo cuti tahun ini.');
+            }
+            $siteSetting = SiteSetting::current();
+            $minimumDate = CarbonImmutable::parse(WorkTime::today())
+                ->addDays((int) $siteSetting->leave_minimum_notice_days)
+                ->toDateString();
+            if ($startDate < $minimumDate) {
+                $message = $siteSetting->leave_minimum_notice_days === 0
+                    ? 'Tanggal mulai cuti tidak boleh sebelum hari ini.'
+                    : "Pengajuan cuti harus dibuat minimal {$siteSetting->leave_minimum_notice_days} hari sebelum tanggal mulai.";
+                throw ValidationException::withMessages([
+                    'work_date' => $message,
+                ]);
             }
             AttendancePeriod::assertOpen($startDate);
             if ($endDate !== $startDate) {
@@ -545,6 +570,7 @@ class LeaveController extends Controller
         $data['quotas'] = $quotas;
         $data['regular_quota'] = (int) ($quotaByType->get('regular')['quota'] ?? 0);
         $data['day_off_quota'] = (int) ($quotaByType->get('day_off')['quota'] ?? 0);
+        $data['minimum_notice_days'] = SiteSetting::leaveMinimumNoticeDays();
 
         return $data;
     }

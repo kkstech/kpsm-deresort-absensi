@@ -971,7 +971,7 @@
                         <div class="panel leave-year-panel" style="padding: 20px;">
                             <div class="panel-heading" style="margin-bottom: 16px; padding: 0 0 16px; border-bottom: 1px solid var(--line);">
                                 <div>
-                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Pengaturan Kuota &amp; Saldo Tahunan</h2>
+                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Kuota Tahunan &amp; Aturan Pengajuan</h2>
                                     <p id="leave-opening-state" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat status saldo…</p>
                                 </div>
                                 <button type="button" class="primary-button" id="leave-opening-confirm" style="height: 40px; min-height: 40px; padding: 0 18px;">
@@ -983,14 +983,19 @@
                                     <span>Tahun Saldo</span>
                                     <input type="number" name="year" min="2000" max="2100" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
                                 </label>
+                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
+                                    <span>Jarak Minimal Pengajuan (hari)</span>
+                                    <input type="number" name="minimum_notice_days" min="0" max="365" required aria-describedby="leave-notice-hint" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                    <small id="leave-notice-hint" style="font-size: 12px; font-weight: 400; line-height: 1.5;">Berlaku untuk semua tahun. 0 berarti dapat mengajukan pada hari yang sama.</small>
+                                </label>
                                 <div id="leave-quota-fields" class="leave-quota-fields" aria-live="polite"></div>
                                 <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); grid-column: 1 / -1;">
-                                    <span>Alasan Perubahan Kuota</span>
-                                    <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kuota standar tahunan 2026" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
+                                    <span>Alasan Perubahan</span>
+                                    <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kuota atau aturan pengajuan cuti" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
                                 </label>
                                 <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
                                     <button type="submit" class="secondary-button" style="min-height: 42px; height: 42px; padding: 0 20px;">
-                                        Simpan Kuota
+                                        Simpan Pengaturan
                                     </button>
                                 </div>
                                 <p class="form-error" id="leave-settings-error" role="alert" hidden style="grid-column: 1 / -1;"></p>
