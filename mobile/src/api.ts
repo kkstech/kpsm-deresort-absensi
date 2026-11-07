@@ -225,8 +225,19 @@ export type SwapPreviewResult = {
   can_commit: boolean;
 };
 
-export type OutboxStatus = 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted';
-export type OutboxRow = { event_uuid: string; batch_uuid: string; payload: string; created_at: string; first_sent_at: string | null; local_sequence: number; status: OutboxStatus; message: string | null };
+export type OutboxStatus = 'uncertain' | 'synced' | 'rejected' | 'needs_correction' | 'correction_submitted' | 'legacy_review';
+export type OutboxRow = {
+  event_uuid: string;
+  batch_uuid: string;
+  payload: string;
+  created_at: string;
+  first_sent_at: string | null;
+  local_sequence: number;
+  status: OutboxStatus;
+  message: string | null;
+  owner_user_id: number | null;
+  origin_url: string | null;
+};
 
 export type OvertimeItem = {
   id: number;
@@ -295,13 +306,40 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
     await connection.execAsync(`CREATE TABLE IF NOT EXISTS attendance_outbox (
     event_uuid TEXT PRIMARY KEY, batch_uuid TEXT NOT NULL, payload TEXT NOT NULL,
     created_at TEXT NOT NULL, first_sent_at TEXT, local_sequence INTEGER NOT NULL,
-    status TEXT NOT NULL, message TEXT
+    status TEXT NOT NULL, message TEXT, owner_user_id INTEGER, origin_url TEXT
   );
   CREATE TABLE IF NOT EXISTS app_cache (cache_key TEXT PRIMARY KEY, value TEXT NOT NULL, saved_at TEXT NOT NULL);`);
+    const columns = await connection.getAllAsync<{ name: string }>('PRAGMA table_info(attendance_outbox)');
+    const columnNames = new Set(columns.map((column) => column.name));
+    if (!columnNames.has('owner_user_id')) await connection.execAsync('ALTER TABLE attendance_outbox ADD COLUMN owner_user_id INTEGER');
+    if (!columnNames.has('origin_url')) await connection.execAsync('ALTER TABLE attendance_outbox ADD COLUMN origin_url TEXT');
     await connection.runAsync("DELETE FROM attendance_outbox WHERE status = 'pending'");
     return connection;
   });
   return database;
+}
+
+export async function migrateOutbox(previousUrl: string | null, currentUrl: string, ownerUserId: number | null): Promise<OutboxRow[]> {
+  const connection = await db();
+  const rows = await connection.getAllAsync<Pick<OutboxRow, 'event_uuid' | 'status' | 'origin_url' | 'owner_user_id' | 'message'>>(
+    'SELECT event_uuid,status,origin_url,owner_user_id,message FROM attendance_outbox',
+  );
+  const currentOrigin = normalizeBaseUrl(currentUrl);
+  for (const row of rows) {
+    const origin = row.origin_url || previousUrl || null;
+    const legacy = ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status)
+      && (!origin || normalizeBaseUrl(origin) !== currentOrigin);
+    await connection.runAsync(
+      'UPDATE attendance_outbox SET owner_user_id = COALESCE(owner_user_id, ?), origin_url = COALESCE(NULLIF(origin_url, \'\'), ?), payload = ?, status = ?, message = ? WHERE event_uuid = ?',
+      ownerUserId,
+      origin,
+      '{}',
+      legacy ? 'legacy_review' : row.status,
+      legacy ? 'Event berasal dari alamat server sebelumnya dan tidak dikirim ke production. Hubungi HR untuk pemeriksaan.' : row.message,
+      row.event_uuid,
+    );
+  }
+  return outboxRows();
 }
 
 export async function saveCache(key: string, value: unknown): Promise<void> {
@@ -319,18 +357,18 @@ export async function clearCache(): Promise<void> {
   } catch {}
 }
 
-export async function enqueueUncertainEvent(payload: Record<string, unknown>): Promise<OutboxRow> {
+export async function enqueueUncertainEvent(eventUuid: string, ownerUserId: number | null, originUrl: string, firstSentAt: string): Promise<OutboxRow> {
   const connection = await db();
   const latest = await connection.getFirstAsync<{ value: number }>('SELECT COALESCE(MAX(local_sequence),0) AS value FROM attendance_outbox');
   const local_sequence = (latest?.value ?? 0) + 1;
-  const enriched: Record<string, unknown> = { ...payload, local_sequence };
+  const createdAt = new Date().toISOString();
   const row: OutboxRow = {
-    event_uuid: String(enriched.event_uuid), batch_uuid: uuid(), payload: JSON.stringify(enriched),
-    created_at: new Date().toISOString(), first_sent_at: new Date().toISOString(),
-    local_sequence, status: 'uncertain', message: null,
+    event_uuid: eventUuid, batch_uuid: uuid(), payload: '{}',
+    created_at: createdAt, first_sent_at: firstSentAt,
+    local_sequence, status: 'uncertain', message: null, owner_user_id: ownerUserId, origin_url: normalizeBaseUrl(originUrl),
   };
-  await connection.runAsync('INSERT OR IGNORE INTO attendance_outbox(event_uuid,batch_uuid,payload,created_at,first_sent_at,local_sequence,status,message) VALUES(?,?,?,?,?,?,?,?)',
-    row.event_uuid, row.batch_uuid, row.payload, row.created_at, row.first_sent_at, row.local_sequence, row.status, row.message);
+  await connection.runAsync('INSERT OR IGNORE INTO attendance_outbox(event_uuid,batch_uuid,payload,created_at,first_sent_at,local_sequence,status,message,owner_user_id,origin_url) VALUES(?,?,?,?,?,?,?,?,?,?)',
+    row.event_uuid, row.batch_uuid, row.payload, row.created_at, row.first_sent_at, row.local_sequence, row.status, row.message, row.owner_user_id, row.origin_url);
   return row;
 }
 

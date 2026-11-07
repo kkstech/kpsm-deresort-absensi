@@ -37,7 +37,7 @@
     ],
     "android": {
       "package": "id.deresort.attendance",
-      "versionCode": 10,
+      "versionCode": 11,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

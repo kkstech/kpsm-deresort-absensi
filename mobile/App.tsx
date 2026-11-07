@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
-  ApiError, authStore, clearCache, enqueueUncertainEvent, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
+  ApiError, authStore, clearCache, enqueueUncertainEvent, migrateOutbox, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
@@ -774,7 +774,8 @@ async function appendFileToFormData(
 
 function Main() {
   const configuredBaseUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
-  const [baseUrl, setBaseUrl] = useState(configuredBaseUrl || 'http://192.168.106.188:8000');
+  const targetBaseUrl = normalizeBaseUrl(configuredBaseUrl || 'https://deresort.kitaweb.id');
+  const [baseUrl, setBaseUrl] = useState(targetBaseUrl);
   const [token, setToken] = useState<string | null>(null);
   const sessionTokenRef = useRef<string | null>(null);
   const sessionEpochRef = useRef(0);
@@ -958,7 +959,8 @@ function Main() {
     .filter((session) => !session.attendance?.check_out_at && !session.attendance?.provisional_out_at)
     .map((session) => ({ assignment, session }))), [assignments]);
   const openSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session }))), [assignments]);
-  const unresolvedOutbox = outbox.filter((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
+  const unresolvedOutbox = outbox.filter((row) => row.owner_user_id === activeUserIdRef.current
+    && ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status));
 
   const myUpcomingAssignments = useMemo(() => {
     const today = todayKey();
@@ -1099,24 +1101,21 @@ function Main() {
         const [storedUrl, storedToken, storedUserId, device] = await Promise.all([
           authStore.url(), authStore.token(), authStore.userId(), authStore.device(),
         ]);
+        const migratedOutbox = await migrateOutbox(storedUrl, targetBaseUrl, storedUserId);
         if (storedToken && !storedUserId) {
           await clearCache();
         }
         if (!alive) return;
-        if (configuredBaseUrl) {
-          setBaseUrl(configuredBaseUrl);
-          if (storedUrl !== configuredBaseUrl) {
-            await authStore.saveUrl(configuredBaseUrl).catch(() => {});
-          }
-        } else if (storedUrl) {
-          setBaseUrl(storedUrl);
+        setBaseUrl(targetBaseUrl);
+        if (storedUrl !== targetBaseUrl) {
+          await authStore.saveUrl(targetBaseUrl).catch(() => {});
         }
         if (!alive) return;
         sessionTokenRef.current = storedToken;
         activeUserIdRef.current = storedUserId;
         setDeviceId(device);
         setToken(storedToken);
-        setOutbox(await outboxRows());
+        setOutbox(migratedOutbox);
       } catch (failure) {
         if (alive) setError(failure instanceof Error ? failure.message : 'Penyimpanan perangkat tidak tersedia.');
       } finally {
@@ -1266,7 +1265,8 @@ function Main() {
         if (knownProfile) {
           if (cacheUserId && cacheUserId !== knownProfile.id) {
             const rows = await outboxRows();
-            const unresolved = rows.some((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
+            const unresolved = rows.some((row) => row.owner_user_id === cacheUserId
+              && ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status));
             if (unresolved) {
               await handleSessionExpired('Ada status presensi yang belum selesai untuk akun sebelumnya. Masuk kembali dengan akun tersebut untuk memeriksa tanda terima atau menyelesaikannya.', authToken);
               return;
@@ -1570,6 +1570,7 @@ function Main() {
       setPassword('');
       setToken(receivedToken);
       setProfile(loginProfile);
+      setOutbox(await outboxRows());
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Login gagal.');
     } finally { setLoginBusy(false); }
@@ -1579,16 +1580,6 @@ function Main() {
     if (!token || logoutBusy) return;
     setLogoutBusy(true);
     try {
-      const rows = await outboxRows();
-      const unresolved = rows.filter((row) => ['uncertain', 'needs_correction', 'rejected'].includes(row.status));
-      if (unresolved.length > 0) {
-        Alert.alert(
-          'Absensi belum selesai',
-          `Periksa tanda terima atau hubungi HRD untuk ${unresolved.length} event yang belum selesai sebelum keluar.`,
-        );
-        return;
-      }
-
       await request(baseUrl, 'auth/logout', token, { method: 'POST' });
       await handleSessionExpired('', token, true);
     } catch (failure) {
@@ -1602,12 +1593,17 @@ function Main() {
   }
 
   async function syncOutbox(authToken = token, url = baseUrl) {
-    if (!online || !authToken || !url || syncingOutbox) return;
+    const ownerUserId = activeUserIdRef.current;
+    if (!online || !authToken || !url || !ownerUserId || syncingOutbox) return;
     syncingOutbox = true;
     try {
       const rows = await outboxRows();
       for (const row of rows) {
-        if (row.status !== 'uncertain') continue;
+        if (row.status !== 'uncertain' || row.owner_user_id !== ownerUserId) continue;
+        if (!row.origin_url || normalizeBaseUrl(row.origin_url) !== normalizeBaseUrl(url)) {
+          await updateOutbox(row.event_uuid, 'legacy_review', 'Event berasal dari alamat server sebelumnya dan tidak dikirim ke production. Hubungi HR untuk pemeriksaan.');
+          continue;
+        }
         try {
           const receipt = await request<{ received: boolean; data: { status: string; reason_code?: string } }>(url, `attendance/events/${row.event_uuid}`, authToken);
           await updateOutbox(row.event_uuid, receipt.data.status === 'REJECTED' ? 'rejected' : 'synced', receipt.data.reason_code ?? receipt.data.status);
@@ -1638,10 +1634,7 @@ function Main() {
     if (!token) return;
     setRefreshing(true);
     try {
-      await Promise.allSettled([
-        loadData(token, baseUrl),
-        syncOutbox(token, baseUrl),
-      ]);
+      await loadData(token, baseUrl);
     } finally {
       setRefreshing(false);
     }
@@ -1722,6 +1715,7 @@ function Main() {
         photo_captured_at: attendancePhoto.capturedAt,
         ...(attendancePhoto?.base64 ? { photo_base64: attendancePhoto.base64 } : {}),
       };
+      const firstSentAt = new Date().toISOString();
       try {
         const result = await request<{ data: { status: string; reason_code?: string } }>(baseUrl, 'attendance/events', token, { method: 'POST', body: payload });
         if (result.data.status === 'REJECTED') {
@@ -1739,7 +1733,7 @@ function Main() {
         }
       } catch (failure) {
         if (!(failure instanceof ApiError) || failure.status !== 0) throw failure;
-        await enqueueUncertainEvent(payload);
+        await enqueueUncertainEvent(eventUuid, activeUserIdRef.current, baseUrl, firstSentAt);
         showFeedback('error', 'Koneksi terputus saat mengirim. Tanda terima sedang diperiksa.');
         Alert.alert('Status belum pasti', 'Kami mengecek tanda terima server. Event tidak akan dikirim ulang dengan waktu server baru.');
       }
@@ -2201,35 +2195,6 @@ function Main() {
     }
   }
 
-  async function submitOutboxCorrection(row: OutboxRow) {
-    if (!token) return;
-    if (!isAdminOrSupervisor) {
-      Alert.alert('Akses Dibatasi', 'Penyesuaian absensi hanya dapat dilakukan oleh Admin / HRD.');
-      return;
-    }
-    const payload = JSON.parse(row.payload) as { shift_session_id: number; event_type: 'CHECK_IN' | 'CHECK_OUT'; device_at?: string };
-    const eventTime = payload.device_at ?? row.created_at;
-    setBusy(true);
-    try {
-      await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: {
-        shift_session_id: payload.shift_session_id,
-        ...(payload.event_type === 'CHECK_IN' ? { requested_check_in_at: eventTime } : { requested_check_out_at: eventTime }),
-        reason: 'Event absensi tersimpan lokal dan tidak ditemukan pada tanda terima server setelah 120 detik.',
-      } });
-      await updateOutbox(row.event_uuid, 'correction_submitted', 'Koreksi sudah diajukan ke HR.');
-      setOutbox(await outboxRows());
-      showFeedback('success', 'Koreksi absensi berhasil diajukan ke HR.');
-      Alert.alert('Koreksi diajukan', 'HR akan memeriksa waktu dari perangkat sebagai permintaan.');
-      await loadData();
-    } catch (failure) {
-      const msg = failure instanceof Error ? failure.message : 'Coba lagi.';
-      showFeedback('error', msg);
-      Alert.alert('Koreksi belum terkirim', msg);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function openEditProfile() {
     setEditName(profile?.employee?.name ?? profile?.name ?? '');
     setEditPhone(profile?.employee?.phone ?? profile?.phone ?? '');
@@ -2523,21 +2488,13 @@ function Main() {
   };
 
   function outboxCard(row: OutboxRow) {
-    const title = row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'needs_correction' ? (isAdminOrSupervisor ? 'Perlu koreksi HR' : 'Perlu pengecekan HR') : row.status === 'rejected' ? 'Ditolak server' : 'Koreksi diajukan';
+    const title = row.status === 'uncertain' ? 'Memeriksa tanda terima' : row.status === 'legacy_review' ? 'Perlu pemeriksaan HR' : row.status === 'needs_correction' ? 'Perlu pengecekan HR' : row.status === 'rejected' ? 'Ditolak server' : 'Tanda terima diproses';
     return (
       <View style={styles.listCard} key={row.event_uuid}>
         <View style={styles.flex}>
           <Text style={styles.cardTitle}>{title}</Text>
           <Text style={styles.cardCopy}>{row.message ?? localDate(row.created_at)}</Text>
         </View>
-        {row.status === 'needs_correction' && isAdminOrSupervisor && (
-          <Pressable disabled={busy} style={[styles.smallButton, busy && styles.disabled]} onPress={() => submitOutboxCorrection(row)}>
-            <View style={styles.btnContentRow}>
-              {busy && <ActivityIndicator size="small" color={colors.primary} />}
-              <Text style={styles.smallButtonText}>{busy ? 'Mengirim…' : 'Koreksi (Admin)'}</Text>
-            </View>
-          </Pressable>
-        )}
       </View>
     );
   }
@@ -2745,7 +2702,6 @@ function Main() {
           <>
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>Status pengiriman</Text>
-              {outbox.some((row) => row.status === 'uncertain') && online && <Pressable onPress={() => syncOutbox()}><Text style={styles.linkText}>Periksa tanda terima</Text></Pressable>}
             </View>
             {unresolvedOutbox.map(outboxCard)}
           </>
@@ -3971,8 +3927,8 @@ function Main() {
           <Text style={styles.cardTitle}>{baseUrl}</Text>
           <Text style={styles.cardCopy}>Perangkat terdaftar dengan ID tersimpan aman.</Text>
           <Text style={styles.cardEyebrow}>SINKRONISASI</Text>
-          <Text style={styles.cardCopy}>{unresolvedOutbox.length} event belum selesai · {online ? 'online' : 'offline'}</Text>
-          <Pressable disabled={loading || !online} onPress={() => { if (token) { syncOutbox(); loadData(); } }} style={[styles.secondaryButton, (loading || !online) && styles.disabled]}>
+          <Text style={styles.cardCopy}>{unresolvedOutbox.length} event belum selesai · pemeriksaan tanda terima otomatis saat online</Text>
+          <Pressable disabled={loading || !online} onPress={() => { if (token) loadData(); }} style={[styles.secondaryButton, (loading || !online) && styles.disabled]}>
             <View style={styles.btnContentRow}>
               {loading && <ActivityIndicator size="small" color={colors.primary} />}
               <Text style={styles.secondaryButtonText}>{loading ? 'Memperbarui…' : 'Perbarui data'}</Text>
