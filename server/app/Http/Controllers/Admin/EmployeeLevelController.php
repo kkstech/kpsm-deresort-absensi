@@ -8,6 +8,7 @@ use App\Models\EmployeeLevel;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +46,9 @@ class EmployeeLevelController extends Controller
             'name' => $data['name'],
             'requires_super_admin_approval' => $data['requires_super_admin_approval'] ?? $level->requires_super_admin_approval,
         ]);
+        if ($level->wasChanged('requires_super_admin_approval')) {
+            $this->refreshPendingLeaveApprovalTiers();
+        }
         Audit::log('employee_levels.updated', $level, $before);
 
         return response()->json(['data' => $level]);
@@ -92,6 +96,37 @@ class EmployeeLevelController extends Controller
         });
 
         return response()->json(['data' => $assignment]);
+    }
+
+    private function refreshPendingLeaveApprovalTiers(): void
+    {
+        $pendingLeaves = DB::table('leave_requests')
+            ->join('employees', 'employees.id', '=', 'leave_requests.employee_id')
+            ->where('leave_requests.status', 'PENDING')
+            ->get([
+                'leave_requests.id',
+                'leave_requests.work_date',
+                'employees.id as employee_id',
+                'employees.level_id',
+            ]);
+
+        foreach ($pendingLeaves as $leave) {
+            $assignment = DB::table('employee_level_assignments')
+                ->where('employee_id', $leave->employee_id)
+                ->where('effective_from', '<=', $leave->work_date)
+                ->where(fn (Builder $query) => $query->whereNull('effective_to')->orWhere('effective_to', '>=', $leave->work_date))
+                ->orderByDesc('effective_from')
+                ->first(['level_id']);
+
+            $levelId = $assignment?->level_id ?? $leave->level_id;
+            $requiresSuperAdmin = $levelId
+                ? DB::table('employee_levels')->where('id', $levelId)->value('requires_super_admin_approval')
+                : false;
+
+            DB::table('leave_requests')->where('id', $leave->id)->update([
+                'approval_tier' => $requiresSuperAdmin ? 'super_admin' : 'admin',
+            ]);
+        }
     }
 
     public function history(Employee $employee): JsonResponse
