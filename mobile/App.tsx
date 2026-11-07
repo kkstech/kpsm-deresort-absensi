@@ -952,7 +952,7 @@ function Main() {
   const [permissionReturnAt, setPermissionReturnAt] = useState('');
   const [permissionDurationMinutes, setPermissionDurationMinutes] = useState<number | null>(null);
 
-  const isAdminOrSupervisor = ['super_admin', 'admin', 'supervisor'].includes(profile?.role ?? '');
+  const isAdmin = ['super_admin', 'admin'].includes(profile?.role ?? '');
   const hasEmployee = Boolean(profile?.employee);
 
   const unfinishedSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions
@@ -1182,7 +1182,7 @@ function Main() {
   }, [token, baseUrl]);
 
   useEffect(() => {
-    if (!token || !online || tab !== 'Jadwal' || !isAdminOrSupervisor || hasEmployee || !allEmployees.length) return;
+    if (!token || !online || tab !== 'Jadwal' || !isAdmin || hasEmployee || !allEmployees.length) return;
     let active = true;
     const matchingEmployees = allEmployees.filter((employee) => `${employee.name} ${nameOrString(employee.department)} ${employee.code ?? ''}`.toLowerCase().includes(adminScheduleEmployeeQuery.trim().toLowerCase()));
     const pageEmployees = adminScheduleEmpFilter
@@ -1213,7 +1213,7 @@ function Main() {
       })
       .finally(() => { if (active) setAdminScheduleLoading(false); });
     return () => { active = false; };
-  }, [token, baseUrl, online, tab, isAdminOrSupervisor, hasEmployee, allEmployees, adminScheduleEmpFilter, adminScheduleEmployeePage, adminScheduleEmployeeQuery]);
+  }, [token, baseUrl, online, tab, isAdmin, hasEmployee, allEmployees, adminScheduleEmpFilter, adminScheduleEmployeePage, adminScheduleEmployeeQuery]);
 
   useEffect(() => {
     if (!token || !online) return;
@@ -1296,7 +1296,7 @@ function Main() {
     }
     const sessionUserId = activeUserIdRef.current;
     const isEmployeeAccount = Boolean(knownProfile?.employee);
-    const isAdminAccount = ['super_admin', 'admin', 'supervisor'].includes(knownProfile?.role ?? '');
+    const isAdminAccount = ['super_admin', 'admin'].includes(knownProfile?.role ?? '');
     const tasks: Array<{ key: string; promise: Promise<any> }> = [
       { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile }>(url, 'me', authToken) },
       { key: 'notifications', promise: request<NotificationFeed>(url, 'notifications', authToken) },
@@ -1392,7 +1392,7 @@ function Main() {
     if (key === 'profile') {
       const p = normalizeProfile(value as Profile);
       setProfile(p);
-      if (!p?.employee && ['super_admin', 'admin', 'supervisor'].includes(p?.role ?? '')) {
+      if (!p?.employee && ['super_admin', 'admin'].includes(p?.role ?? '')) {
         setPengajuanView('admin');
       }
     }
@@ -1871,7 +1871,7 @@ function Main() {
           }
           await request(baseUrl, 'late-permissions', token, { method: 'POST', body: await formData(lateFields, proof) });
         } else if (requestKind === 'correction') {
-          if (!isAdminOrSupervisor) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
+          if (!isAdmin) throw new Error('Akses koreksi absensi hanya dimiliki oleh Admin / HRD.');
           if (!requestedIn && !requestedOut) throw new Error('Isi minimal waktu check-in atau check-out yang diminta.');
           await request(baseUrl, 'attendance-corrections', token, { method: 'POST', body: await formData({ shift_session_id: String(sessionId), requested_check_in_at: requestedIn, requested_check_out_at: requestedOut, reason: reason.trim() }, proof) });
         }
@@ -2454,7 +2454,7 @@ function Main() {
           ) : (
             <View style={styles.sessionDisabledWrap}>
               <Text style={styles.sessionDisabledText}>{timingNotice}</Text>
-              {!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn && isAdminOrSupervisor && (
+              {!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn && isAdmin && (
                 <Pressable onPress={() => { setRequestKind('correction'); setSessionId(session.id); setTab('Pengajuan'); }} style={styles.smallButton}>
                   <Text style={styles.smallButtonText}>Koreksi (Admin)</Text>
                 </Pressable>
@@ -2503,7 +2503,7 @@ function Main() {
     const pendingHrdCount = adminShiftExchanges.filter((item) => item.status === 'PENDING').length;
 
     // Pure Admin / HRD view (account without dedicated employee schedule)
-    if (!hasEmployee && isAdminOrSupervisor) {
+    if (!hasEmployee && isAdmin) {
       return (
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -2639,7 +2639,7 @@ function Main() {
           {unresolvedOutbox.length > 0 && <Text style={styles.queueCount}>{unresolvedOutbox.length} perlu ditangani</Text>}
         </View>
 
-        {isAdminOrSupervisor && pendingHrdCount > 0 && (
+        {isAdmin && pendingHrdCount > 0 && (
           <Pressable onPress={() => { setTab('Pengajuan'); setPengajuanView('admin'); }} style={styles.adminAlertCard}>
             <Ionicons name="notifications-outline" size={20} color={colors.warning} />
             <View style={styles.flex}>
@@ -2726,7 +2726,7 @@ function Main() {
     const visibleScheduleEmployees = adminScheduleEmpFilter
       ? allEmployees.filter((employee) => employee.id === adminScheduleEmpFilter)
       : matchingScheduleEmployees.slice((adminScheduleEmployeePage - 1) * 10, adminScheduleEmployeePage * 10);
-    const displayedAssignments = (isAdminOrSupervisor && !hasEmployee)
+    const displayedAssignments = (isAdmin && !hasEmployee)
       ? (adminScheduleEmpFilter ? adminSchedules.filter((a) => a.employee_id === adminScheduleEmpFilter) : adminSchedules)
       : assignments;
 
@@ -2750,14 +2750,14 @@ function Main() {
             <Text style={styles.overline}>JADWAL & ROSTER</Text>
             <Text style={styles.heading}>Jadwal kerja</Text>
           </View>
-          {isAdminOrSupervisor && (
+          {isAdmin && (
             <Pressable onPress={() => openDirectSwap()} style={styles.iconButton} accessibilityLabel="Atur Tukar Shift">
               <Ionicons name="swap-horizontal" size={20} color={colors.primary} />
             </Pressable>
           )}
         </View>
 
-        {isAdminOrSupervisor && (
+        {isAdmin && (
           <View style={styles.adminBar}>
             <Text style={styles.fieldLabel}>Filter Karyawan Roster:</Text>
             <TextInput
@@ -2817,7 +2817,7 @@ function Main() {
               </Pill>
             </View>
 
-            {isAdminOrSupervisor && assignment.status !== 'CANCELLED' && (
+            {isAdmin && assignment.status !== 'CANCELLED' && (
               <View style={styles.scheduleActionRow}>
                 <Pressable onPress={() => openDirectSwap(assignment, assignment.employee_id)} style={styles.swapQuickBtn}>
                   <Ionicons name="swap-horizontal" size={14} color={colors.primary} />
@@ -3221,7 +3221,7 @@ function Main() {
     if (requestKind === 'overtime') {
       return renderOvertimeForm();
     }
-    if (requestKind === 'correction' && !isAdminOrSupervisor) {
+    if (requestKind === 'correction' && !isAdmin) {
       return (
         <View style={styles.formCard}>
           <Text style={styles.cardTitle}>Koreksi Absensi</Text>
@@ -3588,7 +3588,7 @@ function Main() {
             <Text style={styles.overline}>LAYANAN & PERSETUJUAN</Text>
             <Text style={styles.heading}>Pengajuan</Text>
           </View>
-          {isAdminOrSupervisor && (
+          {isAdmin && (
             <Pressable onPress={() => openDirectSwap()} style={styles.iconButton} accessibilityLabel="Pengaturan Tukar Shift">
               <Ionicons name="options-outline" size={20} color={colors.primary} />
             </Pressable>
@@ -3624,7 +3624,7 @@ function Main() {
         </View>
 
         {/* View Switcher for Admin / HRD */}
-        {isAdminOrSupervisor && (
+        {isAdmin && (
           <View style={styles.viewSwitcher}>
             {hasEmployee && (
               <Pressable onPress={() => setPengajuanView('mine')} style={[styles.switcherBtn, pengajuanView === 'mine' && styles.switcherBtnActive]}>
@@ -3639,7 +3639,7 @@ function Main() {
           </View>
         )}
 
-        {pengajuanView === 'admin' && isAdminOrSupervisor ? (
+        {pengajuanView === 'admin' && isAdmin ? (
           renderAdminExchangeApproval()
         ) : (
           <>
@@ -3689,7 +3689,7 @@ function Main() {
               const availableRequestKinds: Array<{ key: RequestKind; label: string }> = [
                 { key: 'leave', label: 'Cuti' },
                 { key: 'late', label: 'Izin' },
-                ...(isAdminOrSupervisor ? [{ key: 'correction' as RequestKind, label: 'Koreksi' }] : []),
+                ...(isAdmin ? [{ key: 'correction' as RequestKind, label: 'Koreksi' }] : []),
                 { key: 'swap', label: 'Tukar Shift' },
                 { key: 'overtime', label: 'Lembur' },
               ];
@@ -3712,7 +3712,7 @@ function Main() {
             {[
               ...leaveRequests.map((item) => ({ ...item, group: item.leave_type?.name ?? leaveTypeName(leaveTypes, item.type), sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...lateRequests.map((item) => ({ ...item, group: 'Izin absensi', reason: `${item.permission_type === 'temporary_exit' ? `Keluar ${item.leave_at ? clock(item.leave_at) : '—'} · kembali ${item.return_at ? clock(item.return_at) : '—'}` : item.permission_type === 'early_departure' ? `Pulang ${item.leave_at ? clock(item.leave_at) : '—'}` : `Izin terlambat${item.allowed_until ? ` · target ${clock(item.allowed_until)}` : item.allowed_minutes ? ` · ${item.allowed_minutes} menit` : ''}`} · ${item.reason}`, sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu persetujuan' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
-              ...(isAdminOrSupervisor ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
+              ...(isAdmin ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
               ...shiftExchanges.map((item) => ({
                 id: item.id,
                 work_date: item.assignment?.work_date ?? item.created_at.slice(0, 10),
@@ -3803,7 +3803,7 @@ function Main() {
               </View>
             ))}
 
-            {!leaveRequests.length && !lateRequests.length && (!isAdminOrSupervisor || !corrections.length) && !shiftExchanges.length && !overtimes.length && (
+            {!leaveRequests.length && !lateRequests.length && (!isAdmin || !corrections.length) && !shiftExchanges.length && !overtimes.length && (
               <Text style={styles.cardCopy}>Belum ada pengajuan tersimpan.</Text>
             )}
           </>
@@ -3878,19 +3878,19 @@ function Main() {
           </View>
 
           <Text style={styles.profileName}>{employee?.name ?? profile?.name ?? 'Karyawan'}</Text>
-          <Text style={styles.cardCopy}>{employee?.code ?? (isAdminOrSupervisor ? 'Akun Pengelola' : 'Karyawan')}</Text>
-          <Text style={styles.cardCopy}>{nameOrString(employee?.department, isAdminOrSupervisor ? 'Departemen Manajemen' : 'Departemen belum diatur')}{employee?.position ? ` · ${nameOrString(employee.position)}` : ''}</Text>
+          <Text style={styles.cardCopy}>{employee?.code ?? (isAdmin ? 'Akun Pengelola' : 'Karyawan')}</Text>
+          <Text style={styles.cardCopy}>{nameOrString(employee?.department, isAdmin ? 'Departemen Manajemen' : 'Departemen belum diatur')}{employee?.position ? ` · ${nameOrString(employee.position)}` : ''}</Text>
 
           <View style={styles.profileMetaBox}>
             <View style={styles.profileMetaRow}>
               <Ionicons name="briefcase-outline" size={15} color={colors.muted} />
               <Text style={styles.profileMetaLabel}>Jabatan</Text>
-              <Text style={styles.profileMetaValue}>{nameOrString(employee?.position, isAdminOrSupervisor ? 'Pengelola' : 'Belum diatur')}</Text>
+              <Text style={styles.profileMetaValue}>{nameOrString(employee?.position, isAdmin ? 'Pengelola' : 'Belum diatur')}</Text>
             </View>
             <View style={styles.profileMetaRow}>
               <Ionicons name="business-outline" size={15} color={colors.muted} />
               <Text style={styles.profileMetaLabel}>Departemen</Text>
-              <Text style={styles.profileMetaValue}>{nameOrString(employee?.department, isAdminOrSupervisor ? 'Departemen Manajemen' : 'Belum diatur')}</Text>
+              <Text style={styles.profileMetaValue}>{nameOrString(employee?.department, isAdmin ? 'Departemen Manajemen' : 'Belum diatur')}</Text>
             </View>
             <View style={styles.profileMetaRow}>
               <Ionicons name="mail-outline" size={15} color={colors.muted} />
@@ -3910,7 +3910,7 @@ function Main() {
           </Pressable>
         </View>
 
-        {isAdminOrSupervisor && (
+        {isAdmin && (
           <View style={styles.settingsCard}>
             <Text style={styles.cardEyebrow}>HAK AKSES KHUSUS HRD</Text>
             <Text style={styles.cardTitle}>Pengaturan & Persetujuan Tukar Shift</Text>

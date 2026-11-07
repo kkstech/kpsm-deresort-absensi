@@ -33,7 +33,7 @@ const opts = (list, label = (x) => x.code ? `${x.name} (${x.code})` : x.name) =>
 const hhmm = (t) => String(t).slice(0, 5).replace(':', '.');
 const sessionsText = (t) => t.sessions.map((s) => `${hhmm(s.local_start)}${s.start_day_offset ? ' (+1)' : ''}–${hhmm(s.local_end)}${s.day_offset ? ` (+${s.day_offset})` : ''}`).join(', ');
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
-const roleLabel = { super_admin: 'Super Admin', admin: 'Admin', supervisor: 'Supervisor' };
+const roleLabel = { super_admin: 'Super Admin', admin: 'Admin' };
 const scopeLabel = { global: 'Semua karyawan', department: 'Departemen', employee: 'Perorangan' };
 
 const nameOnly = (singular) => ({
@@ -163,7 +163,7 @@ const tabs = {
         fields: async () => [
             { name: 'code', label: 'Kode level', required: true, maxlength: 32 },
             { name: 'name', label: 'Nama level', required: true, maxlength: 100 },
-            { name: 'requires_super_admin_approval', label: 'Pengajuan level ini perlu persetujuan Super Admin', type: 'checkbox', default: false, hint: 'Jika dicentang, izin, koreksi absensi, lembur, dan tukar shift dari level ini hanya dapat diputuskan Super Admin. Semua cuti tetap memerlukan persetujuan Super Admin.' },
+            { name: 'requires_super_admin_approval', label: 'Cuti level ini perlu persetujuan Super Admin', type: 'checkbox', default: false, hint: 'Jika dicentang, hanya Super Admin yang dapat menyetujui cuti karyawan pada level ini. Jika tidak dicentang, Admin juga dapat menyetujuinya.' },
         ], deletable: true,
     },
     allowances: {
@@ -211,7 +211,7 @@ const tabs = {
         title: 'Akun admin', hint: 'Akun untuk masuk ke admin web.', singular: 'akun',
         columns: [
             { label: 'Nama', cell: (u) => `<b>${esc(u.name)}</b><small>${esc(u.email)}</small>` },
-            { label: 'Peran', cell: (u) => `${esc(roleLabel[u.role])}<small>${esc(u.can_view_all ? 'Semua departemen' : u.department?.name ?? '')}</small>` },
+            { label: 'Peran', cell: (u) => esc(roleLabel[u.role]) },
             { label: 'Profil Karyawan (Absensi)', cell: (u) => u.employee
                 ? `<span class="status success">Terhubung</span><small>${esc(u.employee.code)} - ${esc(u.employee.name)}</small>`
                 : '<span class="status neutral">Belum terhubung</span>'
@@ -225,9 +225,7 @@ const tabs = {
             { name: 'name', label: 'Nama', required: true, maxlength: 120 },
             { name: 'email', label: 'Email login', type: 'email', required: true },
             { name: 'password', label: item ? 'Password baru' : 'Password', type: 'password', required: !item, autocomplete: 'new-password', hint: item ? 'Kosongkan bila tidak diganti.' : 'Minimal 8 karakter.' },
-            { name: 'role', label: 'Peran', type: 'select', required: true, options: Object.entries(roleLabel).map(([value, label]) => ({ value, label })), default: 'supervisor' },
-            { name: 'department_id', label: 'Departemen', type: 'select', numeric: true, blank: 'Tidak terikat departemen', options: opts(await lookup('departments')) },
-            { name: 'can_view_all', label: 'Boleh lihat semua departemen', type: 'checkbox' },
+            { name: 'role', label: 'Peran', type: 'select', required: true, options: Object.entries(roleLabel).map(([value, label]) => ({ value, label })), default: 'admin' },
             { name: 'is_active', label: 'Akun aktif', type: 'checkbox', default: true },
         ],
     },
@@ -585,7 +583,6 @@ async function openLinkEmployee(user) {
                 numeric: true,
                 blank: 'Pilih departemen',
                 options: opts(departments),
-                default: user.department_id,
                 showIf: (v) => v.mode === 'create',
             },
             {

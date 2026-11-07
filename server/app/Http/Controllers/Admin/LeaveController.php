@@ -208,7 +208,7 @@ class LeaveController extends Controller
                 'days_count' => $daysCount,
                 'type' => $data['type'],
                 'status' => 'PENDING',
-                'approval_tier' => 'super_admin',
+                'approval_tier' => $lockedEmployee->approvalTierFor($startDate),
                 'reason' => $data['reason'],
                 'requested_by' => $request->user()->id,
                 'shift_assignment_id' => $assignment?->id,
@@ -261,7 +261,9 @@ class LeaveController extends Controller
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->when($filters['from'] ?? null, fn ($query, $from) => $query->whereRaw('COALESCE(end_date, work_date) >= ?', [$from]))
             ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('work_date', '<=', $to))
-            ->when(! $request->user()->isSuperAdmin(), fn ($query) => $query->where('status', '!=', 'PENDING'))
+            ->when(! $request->user()->isSuperAdmin(), fn ($query) => $query->where(function ($query) {
+                $query->where('status', '!=', 'PENDING')->orWhere('approval_tier', 'admin');
+            }))
             ->orderByRaw("CASE WHEN status = 'PENDING' THEN 0 ELSE 1 END")->orderBy('work_date');
 
         $isAll = $request->boolean('all') || $request->input('per_page') === 'all' || (! $request->has('page') && ! $request->has('per_page'));
@@ -287,15 +289,21 @@ class LeaveController extends Controller
 
     public function decide(Request $request, LeaveRequestModel $leave): JsonResponse
     {
-        if (! $request->user()->isSuperAdmin()) {
-            throw new BusinessRuleException('FORBIDDEN', 'Pengajuan ini membutuhkan persetujuan Super Admin.', 403);
+        if (! $request->user()->canApproveTier($leave->approval_tier)) {
+            throw new BusinessRuleException('FORBIDDEN', 'Anda tidak berwenang menyetujui pengajuan cuti pada level karyawan ini.', 403);
+        }
+        if ((int) $request->user()->id === (int) $leave->requested_by) {
+            throw new BusinessRuleException('SELF_APPROVAL', 'Pengaju tidak dapat menyetujui pengajuan cuti sendiri.', 403);
         }
         $data = $request->validate(['decision' => ['required', 'in:APPROVED,REJECTED'], 'decision_reason' => ['required', 'string', 'min:3', 'max:1000']]);
         $item = DB::transaction(function () use ($request, $leave, $data) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($leave->employee_id);
             $item = LeaveRequestModel::query()->lockForUpdate()->findOrFail($leave->id);
-            if (! $request->user()->isSuperAdmin()) {
-                throw new BusinessRuleException('FORBIDDEN', 'Pengajuan ini membutuhkan persetujuan Super Admin.', 403);
+            if (! $request->user()->canApproveTier($item->approval_tier)) {
+                throw new BusinessRuleException('FORBIDDEN', 'Anda tidak berwenang menyetujui pengajuan cuti pada level karyawan ini.', 403);
+            }
+            if ((int) $request->user()->id === (int) $item->requested_by) {
+                throw new BusinessRuleException('SELF_APPROVAL', 'Pengaju tidak dapat menyetujui pengajuan cuti sendiri.', 403);
             }
             if ($item->status !== 'PENDING') {
                 throw new BusinessRuleException('STATE_CONFLICT', 'Pengajuan sudah diputuskan.');

@@ -130,7 +130,7 @@ function render() {
             } },
             { label: 'Akun app', cell: (e) => {
                 if (!e.user) return '<span class="status neutral">Belum ada</span>';
-                const roleBadge = ['super_admin', 'admin', 'supervisor'].includes(e.user.role)
+                const roleBadge = ['super_admin', 'admin'].includes(e.user.role)
                     ? ` <span class="status blue" style="font-size: 10px; padding: 1px 5px; margin-left: 4px;">${esc(e.user.role)}</span>`
                     : '';
                 return `<b>${esc(e.user.email)}</b>${roleBadge}<small>${e.devices_count} perangkat</small>`;
@@ -265,7 +265,7 @@ async function openAccount(employee) {
                 required: true,
                 options: [
                     { value: 'create', label: `Buat password login mobile baru (Username: ${employee.code})` },
-                    { value: 'link', label: 'Tautkan dengan user yang sudah ada (Admin / Supervisor / User)' },
+                    { value: 'link', label: 'Tautkan dengan user yang sudah ada (Admin / Super Admin / Karyawan)' },
                 ],
                 default: 'create',
             },

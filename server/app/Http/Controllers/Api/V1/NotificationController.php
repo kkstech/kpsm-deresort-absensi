@@ -15,7 +15,7 @@ class NotificationController extends Controller
 
     public function adminIndex(Request $request): JsonResponse
     {
-        abort_unless($request->user()->isAdmin() || $request->user()->isSupervisor(), 403);
+        abort_unless($request->user()->isAdmin(), 403);
 
         return response()->json($this->feed($request, true));
     }

@@ -33,7 +33,7 @@ return new class extends Migration
 
         Schema::table('users', function (Blueprint $table) {
             $table->boolean('is_active')->default(true);
-            $table->string('role')->default('employee'); // super_admin | admin | supervisor | employee
+            $table->string('role')->default('employee'); // super_admin | admin | employee
             $table->boolean('can_view_all')->default(false);
             $table->foreignId('department_id')->nullable()->constrained()->restrictOnDelete();
         });

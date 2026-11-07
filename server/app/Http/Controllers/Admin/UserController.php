@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-/** Akun admin web (super admin, admin, supervisor). Akun karyawan diatur dari menu Karyawan. */
+/** Akun admin web (super admin dan admin). Akun karyawan diatur dari menu Karyawan. */
 class UserController extends Controller
 {
     public function index(): JsonResponse
@@ -23,9 +23,9 @@ class UserController extends Controller
 
         return response()->json(['data' => User::query()
             ->whereIn('role', User::WEB_ROLES)
-            ->with(['department:id,name', 'employee:id,code,name,user_id,department_id,position_id'])
+            ->with(['employee:id,code,name,user_id,department_id,position_id'])
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'phone', 'role', 'is_active', 'can_view_all', 'department_id'])]);
+            ->get(['id', 'name', 'email', 'phone', 'role', 'is_active'])]);
     }
 
     public function store(Request $request): JsonResponse
@@ -97,7 +97,7 @@ class UserController extends Controller
             Audit::log('users.employee_linked', $user, null, ['employee_id' => $employee->id, 'email' => $user->email]);
         });
 
-        return response()->json(['data' => $user->fresh(['department:id,name', 'employee:id,code,name,user_id,department_id,position_id'])]);
+        return response()->json(['data' => $user->fresh(['employee:id,code,name,user_id,department_id,position_id'])]);
     }
 
     public function unlinkEmployee(Request $request, User $user): JsonResponse
@@ -114,7 +114,7 @@ class UserController extends Controller
             Audit::log('users.employee_unlinked', $user, null, ['employee_id' => $employee->id]);
         });
 
-        return response()->json(['data' => $user->fresh(['department:id,name', 'employee:id,code,name,user_id,department_id,position_id'])]);
+        return response()->json(['data' => $user->fresh(['employee:id,code,name,user_id,department_id,position_id'])]);
     }
 
     public function createEmployee(Request $request, User $user): JsonResponse
@@ -159,7 +159,7 @@ class UserController extends Controller
             Audit::log('users.employee_created', $user, null, ['employee_id' => $employee->id]);
         });
 
-        return response()->json(['data' => $user->fresh(['department:id,name', 'employee:id,code,name,user_id,department_id,position_id'])], 201);
+        return response()->json(['data' => $user->fresh(['employee:id,code,name,user_id,department_id,position_id'])], 201);
     }
 
     private function validated(Request $request, ?User $user = null): array
@@ -169,8 +169,6 @@ class UserController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user?->id)],
             'password' => [$user ? 'nullable' : 'required', 'string', 'min:8', 'max:255'],
             'role' => ['required', Rule::in(User::WEB_ROLES)],
-            'department_id' => [$request->input('role') === 'supervisor' && ! $request->boolean('can_view_all') ? 'required' : 'nullable', 'integer', 'exists:departments,id'],
-            'can_view_all' => ['required', 'boolean'],
             'is_active' => ['required', 'boolean'],
         ]);
 

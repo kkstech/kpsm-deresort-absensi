@@ -248,7 +248,7 @@ class EmployeeController extends Controller
             ->whereDoesntHave('employee')
             ->where('is_active', true)
             ->orderBy('name')
-            ->get(['id', 'name', 'email', 'phone', 'role', 'department_id']);
+            ->get(['id', 'name', 'email', 'phone', 'role']);
 
         return response()->json(['data' => $users]);
     }
@@ -583,9 +583,7 @@ class EmployeeController extends Controller
 
     public static function visibleTo(User $user): Builder
     {
-        return Employee::query()->when(! $user->seesAllEmployees(), fn (Builder $q) => $user->isSupervisor() && $user->department_id
-            ? $q->where('department_id', $user->department_id)
-            : $q->where('user_id', $user->id));
+        return Employee::query()->when(! $user->isAdmin(), fn (Builder $query) => $query->where('user_id', $user->id));
     }
 
     private function revokeAll(User $user): void

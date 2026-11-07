@@ -11,7 +11,7 @@ import { initNotifications } from './admin/notifications';
 
 const loaders = { dashboard: showDashboard, schedule: showSchedule, attendance: showMonitoring, requests: showApprovals, employees: showEmployees, leaves: showLeaves, allowances: showAllowances, reports: showReports, settings: showSettings };
 const canSee = (el) => ({
-    web_admin: ['super_admin', 'admin', 'supervisor'].includes(role),
+    web_admin: ['super_admin', 'admin'].includes(role),
     admin: role === 'admin' || role === 'super_admin',
     super_admin: role === 'super_admin',
 })[el.dataset.requires] ?? false;

@@ -70,7 +70,7 @@
                     @else
                         <span class="avatar">{{ \Illuminate\Support\Str::of($me->name)->explode(' ')->take(2)->map(fn ($w) => mb_substr($w, 0, 1))->join('') }}</span>
                     @endif
-                    <span><strong>{{ $me->name }}</strong><small>{{ ['super_admin' => 'Super Admin', 'admin' => 'Admin', 'supervisor' => 'Supervisor'][$me->role] ?? $me->role }}</small></span>
+                    <span><strong>{{ $me->name }}</strong><small>{{ ['super_admin' => 'Super Admin', 'admin' => 'Admin'][$me->role] ?? $me->role }}</small></span>
                 </div>
                 <form method="post" action="{{ route('logout') }}" class="logout-form">
                     @csrf

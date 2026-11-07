@@ -81,7 +81,7 @@ class ShiftExchangeController extends Controller
 
         $requesterEmployee = null;
         if (! empty($data['employee_id'])) {
-            if (! $user->isAdmin() && ! $user->isSupervisor()) {
+            if (! $user->isAdmin()) {
                 throw new BusinessRuleException('FORBIDDEN', 'Hanya admin yang dapat mengajukan tukar shift untuk karyawan lain.', 403);
             }
             $requesterEmployee = Employee::query()->findOrFail($data['employee_id']);
@@ -173,7 +173,6 @@ class ShiftExchangeController extends Controller
         $employee = $user->employee;
 
         $canCancel = $user->isAdmin()
-            || $user->isSupervisor()
             || ($employee && $shiftExchange->employee_id === $employee->id)
             || ($employee && $shiftExchange->target_employee_id === $employee->id);
 
@@ -351,10 +350,6 @@ class ShiftExchangeController extends Controller
             $query->where('id', '!=', $currentEmployeeId);
         }
 
-        if ($user->isSupervisor() && ! $user->can_view_all && $user->department_id !== null) {
-            $query->where('department_id', $user->department_id);
-        }
-
         if ($search !== '') {
             $query->where(function ($query) use ($search) {
                 $like = '%'.$search.'%';
@@ -398,10 +393,6 @@ class ShiftExchangeController extends Controller
         $employee = Employee::query()->findOrFail($data['employee_id']);
         if ($employee->status !== 'active') {
             throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Karyawan tidak aktif.', 422);
-        }
-
-        if ($user->isSupervisor() && ! $user->can_view_all && $user->department_id !== null && $employee->department_id !== $user->department_id) {
-            throw new BusinessRuleException('FORBIDDEN', 'Tidak memiliki akses ke karyawan departemen lain.', 403);
         }
 
         $from = $data['from'] ?? WorkTime::today();
