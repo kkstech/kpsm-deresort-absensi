@@ -202,14 +202,15 @@ function renderRequestsTable() {
 
     const bodyHtml = rows.map((item) => {
         const [tone, label] = statusLabel[item.status] ?? ['neutral', item.status];
-        const actions = item.status === 'PENDING' && isSuperAdmin
+        const canDecide = item.status === 'PENDING' && (isSuperAdmin || item.approval_tier === 'admin');
+        const actions = canDecide
             ? `
                 <button type="button" class="action-btn success" data-action="approve" data-id="${item.id}" title="Setujui permohonan cuti" aria-label="Setujui permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('check')}</button>
                 <button type="button" class="action-btn danger" data-action="reject" data-id="${item.id}" title="Tolak permohonan cuti" aria-label="Tolak permohonan cuti ${esc(item.employee?.name ?? '')}">${icon('x')}</button>
             `
                 : item.status === 'APPROVED' && isSuperAdmin
                 ? `<button type="button" class="action-btn danger" data-action="cancel" data-id="${item.id}" title="Batalkan cuti &amp; kembalikan kuota" aria-label="Batalkan cuti dan kembalikan kuota ${esc(item.employee?.name ?? '')}">${icon('undo')}</button>`
-                : item.status === 'PENDING' ? '<small class="field-hint">Menunggu keputusan Super Admin</small>' : '';
+                : item.status === 'PENDING' ? `<small class="field-hint">Menunggu keputusan ${item.approval_tier === 'admin' ? 'Admin' : 'Super Admin'}</small>` : '';
 
         const dateHtml = formatDateRange(item.work_date, item.end_date, item.days_count);
 
