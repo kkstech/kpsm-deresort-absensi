@@ -176,19 +176,19 @@ class MasterCrudTest extends TestCase
         Storage::disk('public')->assertMissing($oldPath);
     }
 
-    public function test_supervisor_reads_only_own_department_and_cannot_write(): void
+    public function test_admin_can_read_employees_across_departments_and_write(): void
     {
         $fo = Department::query()->where('name', 'Front Office')->value('id');
         $finance = Department::query()->where('name', 'Finance')->value('id');
         $mine = $this->makeEmployee('A-1', $fo);
         $theirs = $this->makeEmployee('B-1', $finance);
 
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $fo]);
-        $this->actingAs($supervisor)->getJson('/admin/api/employees')
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'A-1');
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin)->getJson('/admin/api/employees')
+            ->assertOk()->assertJsonCount(2, 'data')->assertJsonFragment(['code' => 'A-1'])->assertJsonFragment(['code' => 'B-1']);
         $this->getJson("/admin/api/employees/{$mine->id}")->assertOk();
-        $this->getJson("/admin/api/employees/{$theirs->id}")->assertStatus(403);
-        $this->postJson('/admin/api/departments', ['name' => 'Spa'])->assertStatus(403);
+        $this->getJson("/admin/api/employees/{$theirs->id}")->assertOk();
+        $this->postJson('/admin/api/departments', ['name' => 'Spa'])->assertCreated();
     }
 
     public function test_department_in_use_cannot_be_deleted(): void
@@ -291,7 +291,7 @@ class MasterCrudTest extends TestCase
 
     public function test_link_and_unlink_user_from_employee(): void
     {
-        $supervisor = User::factory()->role('supervisor')->create(['name' => 'Supervisor Test', 'email' => 'spv.override@deresort.test']);
+        $employeeUser = User::factory()->role('employee')->create(['name' => 'Employee Test', 'email' => 'employee.override@deresort.test']);
         $fo = Department::query()->where('name', 'Front Office')->value('id');
         $employee = $this->makeEmployee('EMP-LINK-1', $fo);
         $employee->update(['email' => 'old.employee.email@deresort.test']);
@@ -300,11 +300,11 @@ class MasterCrudTest extends TestCase
         $this->assertSame('old.employee.email@deresort.test', $employee->email);
 
         $this->asAdmin()->postJson("/admin/api/employees/{$employee->id}/link-user", [
-            'user_id' => $supervisor->id,
+            'user_id' => $employeeUser->id,
         ])->assertOk();
 
-        $this->assertSame($supervisor->id, $employee->fresh()->user_id);
-        $this->assertSame('spv.override@deresort.test', $employee->fresh()->email, 'Email karyawan otomatis tertimpa email user');
+        $this->assertSame($employeeUser->id, $employee->fresh()->user_id);
+        $this->assertSame('employee.override@deresort.test', $employee->fresh()->email, 'Email karyawan otomatis tertimpa email user');
         $this->assertDatabaseHas('audit_logs', ['action' => 'employees.user_linked', 'subject_id' => $employee->id]);
 
         $this->postJson("/admin/api/employees/{$employee->id}/unlink-user")->assertOk();

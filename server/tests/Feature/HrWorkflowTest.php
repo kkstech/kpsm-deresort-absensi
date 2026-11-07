@@ -163,21 +163,16 @@ class HrWorkflowTest extends TestCase
         ])->assertUnprocessable();
         $this->withToken($token)->postJson('/api/v1/leaves', [
             'work_date' => '2026-11-07', 'type' => 'regular', 'reason' => 'Keperluan keluarga',
-        ])->assertCreated()->assertJsonPath('data.status', 'PENDING')->assertJsonPath('data.approval_tier', 'super_admin');
+        ])->assertCreated()->assertJsonPath('data.status', 'PENDING')->assertJsonPath('data.approval_tier', 'admin');
         $this->withToken($token)->getJson('/api/v1/me/leave-balance')
             ->assertOk()->assertJsonPath('data.regular.reserved', 1)->assertJsonPath('data.regular.available', 8);
 
         $requestId = LeaveRequest::query()->where('employee_id', $employee->id)->value('id');
-        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'super_admin']);
-        LeaveRequest::query()->whereKey($requestId)->update(['approval_tier' => 'admin']);
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'admin']);
         $superAdmin = User::factory()->role('super_admin')->create();
         $this->app['auth']->forgetGuards();
+        $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
         $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
-            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
-        ])->assertForbidden();
-        $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(0, 'data');
-        $this->actingAs($superAdmin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
-        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
         $this->app['auth']->forgetGuards();
@@ -197,7 +192,7 @@ class HrWorkflowTest extends TestCase
             ->assertStatus(409);
     }
 
-    public function test_manager_level_leave_requires_super_admin_and_keeps_submitted_tier(): void
+    public function test_level_setting_change_reroutes_pending_leave_requests(): void
     {
         $user = User::factory()->create();
         $employee = $this->employee('LEV-MGR', '2026-04-15', $user);
@@ -221,18 +216,21 @@ class HrWorkflowTest extends TestCase
         $requestId = $request->json('data.id');
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $superAdmin->id]);
         $this->assertDatabaseMissing('notifications', ['notifiable_id' => $this->admin->id]);
-
-        $level->update(['requires_super_admin_approval' => false]);
-        $this->assertSame('admin', $employee->fresh()->approvalTierFor('2026-11-08'));
-        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'super_admin']);
-
         $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(0, 'data');
-        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
-            'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
+        $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
+            'decision' => 'APPROVED', 'decision_reason' => 'Belum menjadi kewenangan Admin',
         ])->assertForbidden();
 
-        $this->actingAs($superAdmin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
-        $this->postJson("/admin/api/leaves/{$requestId}/decision", [
+        $this->actingAs($this->admin)->putJson("/admin/api/employee-levels/{$level->id}", [
+            'code' => 'MGR',
+            'name' => 'Manager',
+            'requires_super_admin_approval' => false,
+        ])->assertOk()->assertJsonPath('data.requires_super_admin_approval', false);
+        $this->assertSame('admin', $employee->fresh()->approvalTierFor('2026-11-08'));
+        $this->assertDatabaseHas('leave_requests', ['id' => $requestId, 'approval_tier' => 'admin']);
+
+        $this->actingAs($this->admin)->getJson('/admin/api/leaves?status=PENDING')->assertOk()->assertJsonCount(1, 'data');
+        $this->actingAs($this->admin)->postJson("/admin/api/leaves/{$requestId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui',
         ])->assertOk()->assertJsonPath('data.status', 'APPROVED');
     }

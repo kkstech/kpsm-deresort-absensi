@@ -62,23 +62,23 @@ class AttendanceMonitoringTest extends TestCase
             ->assertJsonFragment(['review_reason' => 'AUTO_CHECKOUT']);
     }
 
-    public function test_supervisor_monitoring_and_filter_options_stay_in_their_department(): void
+    public function test_admin_monitoring_and_filter_options_include_all_departments(): void
     {
         $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
         $frontOffice = Department::query()->where('name', 'Front Office')->firstOrFail();
         $visible = $this->schedule($engineering, 'MON-003', 'Nia Utami');
         $hidden = $this->schedule($frontOffice, 'MON-004', 'Doni Pratama');
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $engineering->id]);
+        $admin = User::factory()->role('admin')->create();
 
-        $this->actingAs($supervisor)
+        $this->actingAs($admin)
             ->getJson('/admin/api/attendance?from=2026-10-25&to=2026-10-25')
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.employee.name', 'Nia Utami');
+            ->assertOk()->assertJsonCount(2, 'data');
 
         $this->getJson('/admin/api/attendance/filters')
-            ->assertOk()->assertJsonCount(1, 'employees')->assertJsonPath('employees.0.id', $visible->employee_id);
+            ->assertOk()->assertJsonCount(2, 'employees');
 
         $this->getJson('/admin/api/dashboard/attendance?from=2026-10-25&to=2026-10-25&department_id='.$frontOffice->id)
-            ->assertOk()->assertJsonPath('summary.scheduled_employees', 0)->assertJsonCount(0, 'recent');
+            ->assertOk()->assertJsonPath('summary.scheduled_employees', 1)->assertJsonCount(0, 'recent');
 
         $this->assertNotSame($visible->employee_id, $hidden->employee_id);
     }
@@ -156,15 +156,15 @@ class AttendanceMonitoringTest extends TestCase
 
     public function test_admin_screen_uses_dashboard_and_monitoring_controls_without_demo_data(): void
     {
-        $supervisor = User::factory()->role('supervisor')->create();
+        $admin = User::factory()->role('admin')->create();
 
-        $this->actingAs($supervisor)->get('/admin')->assertOk()
+        $this->actingAs($admin)->get('/admin')->assertOk()
             ->assertSee('id="dashboard-filters"', false)
             ->assertSee('id="monitoring-filters"', false)
             ->assertSee('id="dashboard-activity"', false)
             ->assertSee('id="dashboard-activity-pagination"', false)
             ->assertSee('data-monitoring-state="review"', false)
-            ->assertSee('data-user-id="'.$supervisor->id.'"', false)
+            ->assertSee('data-user-id="'.$admin->id.'"', false)
             ->assertDontSee('Data contoh');
     }
 

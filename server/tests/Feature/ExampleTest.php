@@ -12,7 +12,7 @@ class ExampleTest extends TestCase
 
     public function test_admin_frontend_is_available_after_login(): void
     {
-        $this->actingAs(User::factory()->role('supervisor')->create())
+        $this->actingAs(User::factory()->role('admin')->create())
             ->get('/admin')
             ->assertOk()
             ->assertSee('Deresort Attendance')

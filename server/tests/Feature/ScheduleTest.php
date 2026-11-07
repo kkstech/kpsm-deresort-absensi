@@ -423,16 +423,17 @@ class ScheduleTest extends TestCase
             ->assertJsonPath('skipped.0.work_date', '2026-10-31');
     }
 
-    public function test_supervisor_reads_own_team_only_and_cannot_write(): void
+    public function test_admin_can_read_and_schedule_employees_across_departments(): void
     {
         $other = $this->makeEmployee('FIN-1', 'Finance');
         $this->assign('2026-10-25', 'Reguler');
         $this->postJson('/admin/api/schedule', ['employee_id' => $other->id, 'work_date' => '2026-10-25', 'shift_template_id' => ShiftTemplate::query()->value('id')])->assertCreated();
 
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $other->department_id]);
-        $this->actingAs($supervisor)->getJson('/admin/api/schedule?from=2026-10-19&to=2026-10-25')
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.employee_id', $other->id);
-        $this->postJson('/admin/api/schedule', ['employee_id' => $other->id, 'work_date' => '2026-10-26', 'shift_template_id' => ShiftTemplate::query()->value('id')])->assertStatus(403);
+        $this->getJson('/admin/api/schedule?from=2026-10-19&to=2026-10-25')
+            ->assertOk()->assertJsonCount(2, 'data')
+            ->assertJsonFragment(['employee_id' => $this->employee->id])
+            ->assertJsonFragment(['employee_id' => $other->id]);
+        $this->postJson('/admin/api/schedule', ['employee_id' => $other->id, 'work_date' => '2026-10-26', 'shift_template_id' => ShiftTemplate::query()->value('id')])->assertCreated();
     }
 
     public function test_bulk_schedule_assigns_multiple_employees_and_dates(): void

@@ -9,6 +9,8 @@ use App\Models\Position;
 use App\Models\User;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AuthTest extends TestCase
@@ -30,10 +32,10 @@ class AuthTest extends TestCase
         $this->assertNotEmpty($user->fresh()->remember_token);
     }
 
-    public function test_supervisor_can_login_and_employee_cannot_use_web(): void
+    public function test_admin_can_login_and_employee_cannot_use_web(): void
     {
-        $supervisor = User::factory()->role('supervisor')->create();
-        $this->post('/login', ['email' => $supervisor->email, 'password' => 'password'])->assertRedirect('/admin');
+        $admin = User::factory()->role('admin')->create();
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password'])->assertRedirect('/admin');
         $this->post('/logout');
 
         $employee = User::factory()->create();
@@ -329,7 +331,7 @@ class AuthTest extends TestCase
 
     public function test_upload_and_delete_avatar(): void
     {
-        \Illuminate\Support\Facades\Storage::fake('public');
+        Storage::fake('public');
 
         $user = $this->employeeUser();
         $token = $this->postJson('/api/v1/auth/login', [
@@ -338,7 +340,7 @@ class AuthTest extends TestCase
             'device_uuid' => 'device-avatar-1',
         ])->assertOk()->json('token');
 
-        $file = \Illuminate\Http\UploadedFile::fake()->image('profile.jpg', 200, 200);
+        $file = UploadedFile::fake()->image('profile.jpg', 200, 200);
 
         $upload = $this->withToken($token)->post('/api/v1/me/avatar', [
             'avatar' => $file,
@@ -347,7 +349,7 @@ class AuthTest extends TestCase
         $this->assertNotNull($upload->json('user.avatar_path'));
         $this->assertNotNull($upload->json('user.avatar_url'));
         $this->assertNotNull($user->fresh()->avatar_path);
-        \Illuminate\Support\Facades\Storage::disk('public')->assertExists($user->fresh()->avatar_path);
+        Storage::disk('public')->assertExists($user->fresh()->avatar_path);
 
         // Delete avatar
         $delete = $this->withToken($token)->deleteJson('/api/v1/me/avatar')->assertOk();
@@ -405,7 +407,7 @@ class AuthTest extends TestCase
             'password' => 'password',
             'device_uuid' => 'phone-x',
         ])->assertStatus(401)
-          ->assertJsonPath('code', 'INVALID_CREDENTIALS');
+            ->assertJsonPath('code', 'INVALID_CREDENTIALS');
 
         $this->post('/login', [
             'username' => 'non-existent-user',

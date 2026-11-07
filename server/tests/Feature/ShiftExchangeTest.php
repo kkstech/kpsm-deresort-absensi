@@ -170,10 +170,9 @@ class ShiftExchangeTest extends TestCase
         $this->withToken($adminToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
             'decision' => 'REJECTED', 'reason' => 'Tidak dapat diproses oleh Admin',
         ])->assertForbidden();
-        $supervisor = User::factory()->role('supervisor')->create();
-        $supervisorToken = $this->mobileLogin($supervisor, 'supervisor-phone');
-        $this->withToken($supervisorToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
-            'decision' => 'REJECTED', 'reason' => 'Supervisor tidak dapat memutuskan',
+        $employeeToken = $this->mobileLogin($this->user2, 'employee-phone');
+        $this->withToken($employeeToken)->postJson("/api/v1/shift-exchanges/{$requestId}/decide", [
+            'decision' => 'REJECTED', 'reason' => 'Karyawan tidak dapat memutuskan',
         ])->assertForbidden();
 
         $superAdminToken = $this->mobileLogin($this->adminUser, 'hr-phone');

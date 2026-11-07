@@ -32,7 +32,7 @@ class ReportTest extends TestCase
         $this->travelTo('2026-10-24 03:00:00');
     }
 
-    public function test_reports_filters_returns_scoped_departments_and_employees(): void
+    public function test_reports_filters_return_active_departments_and_employees_for_admin(): void
     {
         $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
         $frontOffice = Department::query()->where('name', 'Front Office')->firstOrFail();
@@ -42,7 +42,6 @@ class ReportTest extends TestCase
         $emp2->update(['status' => 'inactive']);
 
         $admin = User::factory()->role('admin')->create();
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $engineering->id]);
 
         // Admin sees all
         $this->actingAs($admin)
@@ -53,8 +52,8 @@ class ReportTest extends TestCase
             ->assertJsonCount(1, 'employees')
             ->assertJsonPath('employees.0.id', $emp1->id);
 
-        // Supervisor sees only engineering
-        $this->actingAs($supervisor)
+        // Admin sees all departments, with inactive employees excluded.
+        $this->actingAs($admin)
             ->getJson('/admin/api/reports/filters')
             ->assertOk()
             ->assertJsonCount(1, 'departments')
@@ -286,7 +285,7 @@ class ReportTest extends TestCase
     {
         $this->travelTo('2026-11-02 03:00:00');
         $admin = User::factory()->role('admin')->create();
-        $supervisor = User::factory()->role('supervisor')->create();
+        $employeeUser = User::factory()->role('employee')->create();
 
         $this->actingAs($admin)
             ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-02', 'to' => '2026-10-31'])
@@ -294,7 +293,7 @@ class ReportTest extends TestCase
         $this->actingAs($admin)
             ->postJson('/admin/api/reports/finalize', ['from' => '2026-11-01', 'to' => '2026-11-30'])
             ->assertUnprocessable();
-        $this->actingAs($supervisor)
+        $this->actingAs($employeeUser)
             ->postJson('/admin/api/reports/finalize', ['from' => '2026-10-01', 'to' => '2026-10-31'])
             ->assertForbidden();
 

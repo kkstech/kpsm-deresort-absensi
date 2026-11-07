@@ -111,14 +111,8 @@ class AttendanceWorkflowTest extends TestCase
             'is_late' => true,
         ]);
 
-        $otherDepartment = Department::query()->where('name', 'Front Office')->value('id');
-        $outsideSupervisor = User::factory()->role('supervisor')->create(['department_id' => $otherDepartment]);
-        $this->actingAs($outsideSupervisor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
-            'decision' => 'APPROVED', 'decision_reason' => 'Bukti sesuai',
-        ])->assertForbidden();
-
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
-        $this->actingAs($supervisor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
+        $employeeActor = User::factory()->role('employee')->create();
+        $this->actingAs($employeeActor)->postJson("/admin/api/late-permissions/{$permissionId}/decision", [
             'decision' => 'APPROVED', 'decision_reason' => 'Bukti sesuai',
         ])->assertForbidden();
         $admin = User::factory()->role('admin')->create();
@@ -144,10 +138,9 @@ class AttendanceWorkflowTest extends TestCase
         ]);
         $this->assertSame(1, AuditLog::query()->where('action', 'attendance.late_permission.decided')->count());
 
-        $this->actingAs($supervisor)->get("/admin/api/attachments/{$attachment->id}")->assertOk();
-        $this->actingAs(User::factory()->role('supervisor')->create([
-            'department_id' => Department::query()->where('name', 'Front Office')->value('id'),
-        ]))->get("/admin/api/attachments/{$attachment->id}")->assertForbidden();
+        $this->actingAs($admin)->get("/admin/api/attachments/{$attachment->id}")->assertOk();
+        $this->actingAs(User::factory()->role('employee')->create())
+            ->get("/admin/api/attachments/{$attachment->id}")->assertForbidden();
     }
 
     public function test_temporary_exit_is_approved_and_deducted_from_verified_work_time(): void
@@ -215,10 +208,8 @@ class AttendanceWorkflowTest extends TestCase
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertStreamedContent('preview image bytes');
 
-        $outsideSupervisor = User::factory()->role('supervisor')->create([
-            'department_id' => Department::query()->where('name', 'Front Office')->value('id'),
-        ]);
-        $this->actingAs($outsideSupervisor)
+        $employeeActor = User::factory()->role('employee')->create();
+        $this->actingAs($employeeActor)
             ->get("/admin/api/attachments/{$attachment->id}/preview")
             ->assertForbidden();
     }
@@ -330,8 +321,8 @@ class AttendanceWorkflowTest extends TestCase
         $this->actingAs($admin)->postJson($url, [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui berdasarkan bukti',
         ])->assertForbidden();
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
-        $this->actingAs($supervisor)->postJson($url, [
+        $employeeActor = User::factory()->role('employee')->create();
+        $this->actingAs($employeeActor)->postJson($url, [
             'decision' => 'APPROVED', 'decision_reason' => 'Disetujui berdasarkan bukti',
         ])->assertForbidden();
         $superAdmin = User::factory()->role('super_admin')->create();
@@ -402,8 +393,8 @@ class AttendanceWorkflowTest extends TestCase
             'check_out_at' => $this->session->end_at->toIso8601String(),
             'reason' => 'Disesuaikan dari catatan supervisor shift',
         ];
-        $supervisor = User::factory()->role('supervisor')->create(['department_id' => $this->employee->department_id]);
-        $this->actingAs($supervisor)->postJson("/admin/api/attendance-corrections/direct/{$this->session->id}", $payload)
+        $employeeActor = User::factory()->role('employee')->create();
+        $this->actingAs($employeeActor)->postJson("/admin/api/attendance-corrections/direct/{$this->session->id}", $payload)
             ->assertForbidden();
 
         $admin = User::factory()->role('admin')->create();
