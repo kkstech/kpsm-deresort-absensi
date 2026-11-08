@@ -51,6 +51,10 @@ jobs:
       - name: Generate Android project
         run: CI=1 npx expo prebuild --platform android --clean --no-install
 
+      - name: Configure Gradle distribution retries
+        run: |
+          printf '\nnetworkTimeout=60000\nretries=3\nretryBackOffMs=1000\n' >> android/gradle/wrapper/gradle-wrapper.properties
+
       - name: Decode Android signing keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

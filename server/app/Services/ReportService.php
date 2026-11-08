@@ -15,6 +15,7 @@ use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -373,7 +374,7 @@ class ReportService
                 'attendanceRecord.latePermission',
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
-                'overtimeOrders' => fn (Builder $query) => $query->where('status', 'APPROVED')->orderBy('id'),
+                'overtimeOrders' => fn (HasMany $query) => $query->where('status', 'APPROVED')->orderBy('id'),
             ])
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
@@ -470,7 +471,7 @@ class ReportService
                 'attendanceRecord.latePermission',
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
-                'overtimeOrders' => fn (Builder $query) => $query->where('status', 'APPROVED')->orderBy('id'),
+                'overtimeOrders' => fn (HasMany $query) => $query->where('status', 'APPROVED')->orderBy('id'),
             ])
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
