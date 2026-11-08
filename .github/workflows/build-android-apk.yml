@@ -71,7 +71,19 @@ jobs:
         run: |
           test -n "$ANDROID_KEYSTORE_PASSWORD" && test -n "$ANDROID_KEY_ALIAS" && test -n "$ANDROID_KEY_PASSWORD" || { echo "Set all Android signing secrets" >&2; exit 1; }
           cd android
-          ./gradlew :app:assembleRelease
+          for attempt in 1 2 3 4; do
+            if ./gradlew :app:assembleRelease; then
+              break
+            else
+              status=$?
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              exit "$status"
+            fi
+            delay=$((attempt * 10))
+            echo "Gradle build failed on attempt $attempt; retrying in ${delay}s."
+            sleep "$delay"
+          done
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/Deresort-Attendance.apk"
 
       - name: Verify APK signature

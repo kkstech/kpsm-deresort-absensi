@@ -13,8 +13,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('shift_assignments', function (Blueprint $table) {
-            $table->dropUnique('shift_assignments_employee_id_work_date_unique');
             $table->index(['employee_id', 'work_date']);
+            $table->dropUnique('shift_assignments_employee_id_work_date_unique');
         });
 
         Schema::table('shift_sessions', function (Blueprint $table) {
