@@ -123,29 +123,22 @@ class ManageOvertime
                 ->where('status', '!=', 'CANCELLED')
                 ->first();
             $sessions = $assignment?->sessions ?? collect();
-            $shiftFulfilled = $sessions->isNotEmpty() && $sessions->every(function (ShiftSession $session): bool {
-                $record = $session->attendanceRecord;
-
-                return $record !== null
-                    && $record->check_in_at !== null
-                    && $record->check_out_at !== null
-                    && $record->provisional_out_at === null
-                    && ! $record->needs_review;
-            });
-            if (! $shiftFulfilled) {
+            $session = $sessions->sortBy('seq')->last();
+            if (! $session?->attendanceRecord?->check_in_at) {
                 throw new BusinessRuleException(
                     'SHIFT_NOT_COMPLETED',
-                    'Pengajuan lembur dapat dikirim setelah seluruh sesi shift terjadwal memiliki check-in dan check-out final.',
+                    'Pengajuan lembur dapat dikirim setelah check-in pada sesi shift terakhir.',
                     422,
                 );
             }
 
-            $startAt = WorkTime::at($workDate, $data['start_time']);
-            $endOffset = (! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0;
-            $endAt = WorkTime::at($workDate, $data['end_time'], $endOffset);
+            $startDate = $data['start_date'] ?? WorkTime::local($session->end_at)->toDateString();
+            $endDate = $data['end_date'] ?? CarbonImmutable::parse($startDate)
+                ->addDays((! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0)
+                ->toDateString();
+            $startAt = WorkTime::at($startDate, $data['start_time']);
+            $endAt = WorkTime::at($endDate, $data['end_time']);
             $plannedMinutes = max(1, WorkTime::minutesBetween($startAt, $endAt));
-
-            $session = $assignment?->sessions->sortBy('seq')->last();
 
             $orderNumber = 'REQ-SPL-'.CarbonImmutable::parse($workDate)->format('ymd').'-'.strtoupper(Str::random(5));
 
@@ -205,6 +198,13 @@ class ManageOvertime
     public function decide(OvertimeOrder $order, string $decision, ?string $notes, User $actor): OvertimeOrder
     {
         return DB::transaction(function () use ($order, $decision, $notes, $actor) {
+            Employee::query()->lockForUpdate()->findOrFail($order->employee_id);
+            $session = $order->shift_session_id
+                ? ShiftSession::query()->lockForUpdate()->find($order->shift_session_id)
+                : null;
+            $record = $session
+                ? AttendanceRecord::query()->where('shift_session_id', $session->id)->lockForUpdate()->first()
+                : null;
             $order = OvertimeOrder::query()->lockForUpdate()->findOrFail($order->id);
 
             if (! $actor->canApproveTier($order->approval_tier)) {
@@ -226,6 +226,10 @@ class ManageOvertime
                 'decision_at' => now(),
                 'decision_notes' => $notes,
             ]);
+
+            if ($decision === 'APPROVED' && $session && $record?->check_out_at) {
+                $this->calculateRealization($session, $record, $order);
+            }
 
             Audit::log('overtime.decided', $order, $before, $order->toArray());
 
@@ -252,14 +256,14 @@ class ManageOvertime
         });
     }
 
-    /** Hitung realisasi jam lembur saat check-out dan simpan ke attendance_records & overtime_orders. */
-    public function calculateRealization(ShiftSession $session, AttendanceRecord $record): void
+    /** Hitung realisasi lembur dari rentang yang disetujui dan waktu check-out aktual. */
+    public function calculateRealization(ShiftSession $session, AttendanceRecord $record, ?OvertimeOrder $order = null): void
     {
         if (! $record->check_out_at) {
             return;
         }
 
-        $order = OvertimeOrder::query()
+        $order ??= OvertimeOrder::query()
             ->where('employee_id', $record->employee_id)
             ->where('work_date', $session->assignment->work_date)
             ->where('status', 'APPROVED')
@@ -267,9 +271,10 @@ class ManageOvertime
             ->where(function ($q) use ($session) {
                 $q->where('shift_session_id', $session->id)->orWhereNull('shift_session_id');
             })
+            ->lockForUpdate()
             ->first();
 
-        if (! $order) {
+        if (! $order || $order->status !== 'APPROVED' || $order->consent_status !== 'ACCEPTED') {
             return;
         }
 
@@ -282,9 +287,16 @@ class ManageOvertime
                 $overtimeMinutes = min($rawMinutes, $order->planned_minutes);
             }
         } else {
-            // Lembur di hari kerja: dihitung setelah jam selesai shift reguler
-            if ($record->check_out_at->gt($session->end_at)) {
-                $rawMinutes = WorkTime::minutesBetween($session->end_at, $record->check_out_at);
+            $overtimeStart = $session->end_at;
+            foreach ([$order->start_at, $record->check_in_at] as $candidate) {
+                if ($candidate && $candidate->gt($overtimeStart)) {
+                    $overtimeStart = $candidate;
+                }
+            }
+            $overtimeEnd = $record->check_out_at->lt($order->end_at) ? $record->check_out_at : $order->end_at;
+
+            if ($overtimeEnd->gt($overtimeStart)) {
+                $rawMinutes = WorkTime::minutesBetween($overtimeStart, $overtimeEnd);
                 $overtimeMinutes = min($rawMinutes, $order->planned_minutes);
             }
         }

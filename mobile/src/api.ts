@@ -265,6 +265,8 @@ export type OvertimeItem = {
 
 export type OvertimeRequestPayload = {
   work_date: string;
+  start_date: string;
+  end_date: string;
   start_time: string;
   end_time: string;
   title: string;

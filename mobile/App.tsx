@@ -156,6 +156,13 @@ const localDate = (value?: string | Date | null) => {
   if (!value) return '—';
   return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(typeof value === 'string' ? new Date(`${value.slice(0, 10)}T12:00:00+07:00`) : value);
 };
+const addDaysToDateKey = (value: string, days: number) => {
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return [date.getUTCFullYear(), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0')].join('-');
+};
 const todayKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
 const minimumLeaveDate = (minimumNoticeDays = 14) => {
   const date = new Date(`${todayKey()}T12:00:00Z`);
@@ -1923,8 +1930,14 @@ function Main() {
       if (!cleanDate || !cleanStart || !cleanEnd || cleanTitle.length < 3) {
         throw new Error('Lengkapi tanggal, jam mulai, jam selesai, dan judul lembur minimal 3 karakter.');
       }
+      const lastSession = assignments.find((item) => item.work_date === cleanDate)?.sessions
+        .slice().sort((a, b) => a.seq - b.seq).at(-1);
+      const startDate = lastSession?.local_end_date ?? cleanDate;
+      const endDate = otCrossDay || cleanEnd < cleanStart ? addDaysToDateKey(startDate, 1) : startDate;
       await submitOvertimeRequest(baseUrl, token, {
         work_date: cleanDate,
+        start_date: startDate,
+        end_date: endDate,
         start_time: cleanStart,
         end_time: cleanEnd,
         title: cleanTitle,
@@ -3112,6 +3125,13 @@ function Main() {
   }
 
   function renderOvertimeForm() {
+    const workDate = otWorkDate || todayKey();
+    const finalSession = assignments.find((item) => item.work_date === workDate)?.sessions
+      .slice().sort((a, b) => a.seq - b.seq).at(-1);
+    const overtimeStartDate = finalSession?.local_end_date ?? workDate;
+    const overtimeEndDate = otCrossDay || (otStartTime && otEndTime < otStartTime)
+      ? addDaysToDateKey(overtimeStartDate, 1)
+      : overtimeStartDate;
     let calcMinutes = 0;
     if (otStartTime && otEndTime) {
       const sParts = otStartTime.split(':').map(Number);
@@ -3123,7 +3143,7 @@ function Main() {
       if (typeof sh === 'number' && !isNaN(sh) && typeof sm === 'number' && !isNaN(sm) && typeof eh === 'number' && !isNaN(eh) && typeof em === 'number' && !isNaN(em)) {
         let startTotal = sh * 60 + sm;
         let endTotal = eh * 60 + em;
-        if (otCrossDay || endTotal <= startTotal) {
+        if (otCrossDay || endTotal < startTotal) {
           endTotal += 24 * 60;
         }
         calcMinutes = Math.max(0, endTotal - startTotal);
@@ -3134,15 +3154,18 @@ function Main() {
       <View style={styles.formCard}>
         <Text style={styles.cardTitle}>Pengajuan Lembur Mandiri</Text>
         <Text style={styles.cardCopy}>Ajukan permohonan lembur untuk pekerjaan tambahan di luar jadwal reguler.</Text>
-        <Text style={styles.requiredHint}>Pengajuan tersedia setelah semua sesi shift Anda selesai dan memiliki check-in serta check-out final.</Text>
+        <Text style={styles.requiredHint}>Pengajuan tersedia setelah Anda check-in pada sesi shift terakhir. Checkout tidak perlu menunggu selesai.</Text>
 
         <PickerTrigger
-          label="Tanggal Kerja Lembur"
-          value={otWorkDate ? localDate(otWorkDate) : localDate(todayKey())}
+          label="Tanggal Shift"
+          value={localDate(workDate)}
           placeholder="Pilih tanggal lembur"
           icon="calendar"
           onPress={() => openCalendar('overtimeDate')}
         />
+        <Text style={styles.requiredHint}>
+          Rentang lembur: {localDate(overtimeStartDate)} {otStartTime || '—'}–{localDate(overtimeEndDate)} {otEndTime || '—'}.
+        </Text>
 
         <View style={{ flexDirection: 'row', gap: 12 }}>
           <View style={{ flex: 1 }}>
