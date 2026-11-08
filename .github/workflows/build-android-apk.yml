@@ -53,7 +53,9 @@ jobs:
 
       - name: Configure Gradle distribution retries
         run: |
+          sed -i 's/services\.gradle\.org/downloads.gradle.org/' android/gradle/wrapper/gradle-wrapper.properties
           printf '\nnetworkTimeout=60000\nretries=3\nretryBackOffMs=1000\n' >> android/gradle/wrapper/gradle-wrapper.properties
+          cat android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Decode Android signing keystore
         env:
