@@ -9,11 +9,13 @@ use App\Models\Employee;
 use App\Models\LeaveType;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftExchangeRequest;
+use App\Models\User;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class ShiftExchangeController extends Controller
@@ -180,21 +182,26 @@ class ShiftExchangeController extends Controller
             throw new BusinessRuleException('FORBIDDEN', 'Anda tidak memiliki hak untuk membatalkan pengajuan ini.', 403);
         }
 
-        if ($shiftExchange->status !== 'PENDING') {
-            throw new BusinessRuleException('STATE_CONFLICT', 'Hanya pengajuan berstatus PENDING yang dapat dibatalkan.', 409);
-        }
+        $shiftExchange = DB::transaction(function () use ($shiftExchange, $user): ShiftExchangeRequest {
+            $shiftExchange = ShiftExchangeRequest::query()->lockForUpdate()->findOrFail($shiftExchange->id);
+            if ($shiftExchange->status !== 'PENDING') {
+                throw new BusinessRuleException('STATE_CONFLICT', 'Hanya pengajuan berstatus PENDING yang dapat dibatalkan.', 409);
+            }
 
-        $before = $shiftExchange->attributesToArray();
-        $shiftExchange->update([
-            'status' => 'CANCELLED',
-            'decided_by' => $user->id,
-            'decided_at' => WorkTime::now(),
-            'decision_reason' => 'Dibatalkan oleh pemohon/karyawan',
-        ]);
+            $before = $shiftExchange->attributesToArray();
+            $shiftExchange->update([
+                'status' => 'CANCELLED',
+                'decided_by' => $user->id,
+                'decided_at' => WorkTime::now(),
+                'decision_reason' => 'Dibatalkan oleh pemohon/karyawan',
+            ]);
 
-        Audit::log('shift_exchange.cancelled', $shiftExchange, $before, [
-            'cancelled_by' => $user->id,
-        ]);
+            Audit::log('shift_exchange.cancelled', $shiftExchange, $before, [
+                'cancelled_by' => $user->id,
+            ]);
+
+            return $shiftExchange;
+        });
 
         return response()->json(['data' => $this->format($shiftExchange->fresh(), $employee?->id)]);
     }
@@ -221,6 +228,19 @@ class ShiftExchangeController extends Controller
             'confirm_cross_unit' => ['sometimes', 'boolean'],
         ]);
 
+        return DB::transaction(function () use ($shiftExchange, $user, $data, $swaps): JsonResponse {
+            $shiftExchange = ShiftExchangeRequest::query()->lockForUpdate()->findOrFail($shiftExchange->id);
+            if ($shiftExchange->status !== 'PENDING') {
+                throw new BusinessRuleException('STATE_CONFLICT', 'Pengajuan ini sudah pernah diproses sebelumnya.', 409);
+            }
+
+            return $this->applyDecision($shiftExchange, $user, $data, $swaps);
+        });
+    }
+
+    /** @param array{decision: string, reason?: ?string, vacancy_action?: ?string, confirm_cross_unit?: bool} $data */
+    private function applyDecision(ShiftExchangeRequest $shiftExchange, User $user, array $data, SwapScheduleCycles $swaps): JsonResponse
+    {
         if ($data['decision'] === 'REJECTED') {
             $before = $shiftExchange->attributesToArray();
             $shiftExchange->update([

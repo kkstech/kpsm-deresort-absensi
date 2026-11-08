@@ -647,7 +647,7 @@ main:focus { outline: none; }
 .settings-view-layout {
     display: grid;
     grid-template-columns: 240px minmax(0, 1fr);
-    align-items: start;
+    align-items: stretch;
     gap: 20px;
 }
 
@@ -726,6 +726,8 @@ main:focus { outline: none; }
 
 .settings-content-panel {
     min-width: 0;
+    min-height: calc(100vh - 260px);
+    min-height: calc(100dvh - 260px);
     margin-bottom: 0;
 }
 #settings-table, #employee-table { padding: 0 20px; }
@@ -1998,6 +2000,10 @@ main:focus { outline: none; }
     .settings-view-layout {
         grid-template-columns: 1fr;
         gap: 16px;
+    }
+    .settings-content-panel {
+        min-height: calc(100vh - 300px);
+        min-height: calc(100dvh - 300px);
     }
     .settings-nav-aside {
         position: static;

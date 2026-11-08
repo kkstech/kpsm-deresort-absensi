@@ -215,6 +215,16 @@ function normalizeExchangeItem(item: ShiftExchangeItem): ShiftExchangeItem {
   };
 }
 
+function needsExchangeVacancyChoice(item: ShiftExchangeItem | null): boolean {
+  if (!item) return false;
+  if (item.swap_mode === 'delegation') return true;
+  return Boolean(
+    item.assignment
+    && item.target_assignment
+    && item.assignment.work_date !== item.target_assignment.work_date,
+  );
+}
+
 function leaveTypeName(types: LeaveTypeInfo[], code?: string | null): string {
   return types.find((type) => type.code === code)?.name ?? code ?? 'Cuti';
 }
@@ -2053,7 +2063,8 @@ function Main() {
     setDecisionItem(item);
     setDecisionType(decision);
     setDecisionReason(decision === 'APPROVED' ? 'Disetujui atas persetujuan bersama' : 'Operasional shift membutuhkan staf di pos ini.');
-    setDecisionVacancyAction(item.vacancy_action || 'roster_off');
+    const needsDirectVacancyChoice = needsExchangeVacancyChoice(item) && item.swap_mode === 'direct';
+    setDecisionVacancyAction(item.vacancy_action ?? (needsDirectVacancyChoice ? '' : 'roster_off'));
     setDecisionCrossUnitConfirm(false);
     setDecisionModalOpen(true);
   }
@@ -4059,6 +4070,10 @@ function Main() {
     );
   }
 
+  const missingDecisionVacancyAction = decisionType === 'APPROVED'
+    && needsExchangeVacancyChoice(decisionItem)
+    && !decisionVacancyAction;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -4172,15 +4187,30 @@ function Main() {
             <Text style={styles.modalTitle}>{decisionType === 'APPROVED' ? 'Setujui Tukar Shift' : 'Tolak Tukar Shift'}</Text>
             <Text style={styles.modalCopy}>
               {decisionItem?.employee?.name} ⇄ {decisionItem?.target_employee?.name}
-              {'\n'}Jadwal: {decisionItem?.assignment?.work_date} ({decisionItem?.assignment?.template_name})
+              {'\n'}Shift pemohon: {decisionItem?.assignment?.work_date} ({decisionItem?.assignment?.template_name})
+              {decisionItem?.swap_mode === 'direct' && decisionItem.target_assignment
+                ? `\nShift rekan: ${decisionItem.target_assignment.work_date} (${decisionItem.target_assignment.template_name})`
+                : ''}
             </Text>
 
-            {decisionType === 'APPROVED' && decisionItem?.swap_mode === 'delegation' && (
+            {decisionType === 'APPROVED' && needsExchangeVacancyChoice(decisionItem) && (
               <View style={{ marginTop: 12 }}>
-                <Text style={styles.fieldLabel}>Tindak Lanjut Roster Pemohon:</Text>
+                <Text style={styles.fieldLabel}>
+                  {decisionItem?.swap_mode === 'direct' ? 'Tindak Lanjut Roster Kosong (kedua tanggal):' : 'Tindak Lanjut Roster Pemohon:'}
+                </Text>
+                {decisionItem?.swap_mode === 'direct' && (
+                  <Text style={styles.modalCopy}>Pilih tindakan untuk tanggal roster yang ditinggalkan masing-masing karyawan.</Text>
+                )}
                 <View style={styles.segmentRow}>
                   {[{ code: 'roster_off', name: 'Roster Off', is_active: true }, ...leaveTypes.filter((type) => type.is_active || type.code === decisionItem?.vacancy_action)].map((option) => (
-                    <Pressable key={option.code} onPress={() => setDecisionVacancyAction(option.code)} style={[styles.segment, decisionVacancyAction === option.code && styles.segmentActive]}>
+                    <Pressable
+                      key={option.code}
+                      accessibilityRole="button"
+                      accessibilityLabel={option.name}
+                      accessibilityState={{ selected: decisionVacancyAction === option.code }}
+                      onPress={() => setDecisionVacancyAction(option.code)}
+                      style={[styles.segment, decisionVacancyAction === option.code && styles.segmentActive]}
+                    >
                       <Text style={[styles.segmentText, decisionVacancyAction === option.code && styles.segmentTextActive]}>
                         {option.name}{option.is_active === false ? ' · nonaktif' : ''}
                       </Text>
@@ -4210,11 +4240,13 @@ function Main() {
                 <Text style={styles.cancelButtonText}>Batal</Text>
               </Pressable>
               <Pressable
-                disabled={decisionBusy}
+                disabled={decisionBusy || missingDecisionVacancyAction}
                 onPress={() => decisionItem && handleDecideShiftExchange(decisionItem, decisionType, decisionReason, decisionVacancyAction, decisionCrossUnitConfirm)}
-                style={[styles.confirmButton, decisionType === 'REJECTED' && { backgroundColor: colors.danger }, decisionBusy && styles.disabled]}
+                style={[styles.confirmButton, decisionType === 'REJECTED' && { backgroundColor: colors.danger }, (decisionBusy || missingDecisionVacancyAction) && styles.disabled]}
               >
-                <Text style={styles.confirmButtonText}>{decisionBusy ? 'Memproses…' : decisionType === 'APPROVED' ? 'Terapkan Tukar' : 'Konfirmasi Tolak'}</Text>
+                <Text style={styles.confirmButtonText}>
+                  {decisionBusy ? 'Memproses…' : missingDecisionVacancyAction ? 'Pilih Tindak Lanjut Roster' : decisionType === 'APPROVED' ? 'Terapkan Tukar' : 'Konfirmasi Tolak'}
+                </Text>
               </Pressable>
             </View>
           </View>
