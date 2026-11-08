@@ -158,7 +158,8 @@
                 <th style="width: 65px;">Status</th>
                 <th style="width: 45px;">Terlambat</th>
                 <th style="width: 45px;">Jam Valid</th>
-                <th style="width: 40px;">Lembur</th>
+                <th style="width: 42px;">Lembur Aktual</th>
+                <th style="width: 42px;">Lembur Diakui</th>
                 <th style="width: 55px;">Tunjangan</th>
             </tr>
         </thead>
@@ -187,12 +188,13 @@
                         @endif
                     </td>
                     <td class="text-center">{{ $att['verified_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $row['overtime_minutes'] > 0 ? $row['overtime_minutes'].' m' : '-' }}</td>
+                    <td class="text-center">{{ $row['overtime_actual_minutes'] > 0 ? $row['overtime_actual_minutes'].' m' : '-' }}</td>
+                    <td class="text-center">{{ $row['overtime_verified_minutes'] > 0 ? $row['overtime_verified_minutes'].' m' : '-' }}</td>
                     <td class="text-right">{{ $al['total_amount'] > 0 ? 'Rp '.number_format($al['total_amount'], 0, ',', '.') : '-' }}</td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="14" class="text-center" style="padding: 15px; color: #64748b;">
+                    <td colspan="15" class="text-center" style="padding: 15px; color: #64748b;">
                         Tidak ada catatan sesi untuk filter ini.
                     </td>
                 </tr>

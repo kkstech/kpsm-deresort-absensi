@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['shift_assignment_id', 'seq', 'start_at', 'end_at', 'unpaid_break_minutes', 'policy_snapshot', 'schedule_revision', 'retired_at'])]
+#[Fillable(['shift_assignment_id', 'seq', 'start_at', 'end_at', 'unpaid_break_minutes', 'policy_snapshot', 'schedule_revision', 'rules_version', 'retired_at'])]
 class ShiftSession extends Model
 {
     public function assignment(): BelongsTo
@@ -26,6 +26,11 @@ class ShiftSession extends Model
         return $this->hasMany(AttendanceEvent::class, 'shift_session_id')->orderBy('effective_at')->orderBy('id');
     }
 
+    public function overtimeOrders(): HasMany
+    {
+        return $this->hasMany(OvertimeOrder::class, 'shift_session_id');
+    }
+
     /** Menit kerja terjadwal: panjang sesi dikurangi istirahat tak dibayar. */
     public function scheduledMinutes(): int
     {
@@ -40,6 +45,7 @@ class ShiftSession extends Model
             'unpaid_break_minutes' => 'integer',
             'policy_snapshot' => 'array',
             'schedule_revision' => 'integer',
+            'rules_version' => 'integer',
             'retired_at' => 'immutable_datetime',
         ];
     }

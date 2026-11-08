@@ -37,7 +37,7 @@ const tabItems: Array<{
 
 type Session = {
   id: number; seq: number; start_at: string; end_at: string; local_start: string; local_end: string; local_start_date?: string; local_end_date?: string;
-  attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null };
+  attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null; effective_work_end_at?: string | null; checkout_deadline_at?: string | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
   attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
   overtime?: OvertimeItem | null;
@@ -878,6 +878,7 @@ function Main() {
   // Overtime states
   const [overtimes, setOvertimes] = useState<OvertimeItem[]>([]);
   const [otWorkDate, setOtWorkDate] = useState('');
+  const [otSessionId, setOtSessionId] = useState<number | null>(null);
   const [otStartTime, setOtStartTime] = useState('17:00');
   const [otEndTime, setOtEndTime] = useState('20:00');
   const [otTitle, setOtTitle] = useState('');
@@ -974,6 +975,17 @@ function Main() {
     .filter((session) => !session.attendance?.check_out_at && !session.attendance?.provisional_out_at)
     .map((session) => ({ assignment, session }))), [assignments]);
   const openSessions = useMemo(() => assignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session }))), [assignments]);
+  const overtimeSessions = useMemo(() => assignments
+    .filter((assignment) => assignment.work_date === (otWorkDate || todayKey()))
+    .flatMap((assignment) => assignment.sessions
+      .filter((session) => Boolean(session.attendance?.check_in_at))
+      .map((session) => ({ assignment, session }))), [assignments, otWorkDate]);
+
+  useEffect(() => {
+    if (!overtimeSessions.some(({ session }) => session.id === otSessionId)) {
+      setOtSessionId(overtimeSessions[0]?.session.id ?? null);
+    }
+  }, [overtimeSessions, otSessionId]);
   const unresolvedOutbox = outbox.filter((row) => row.owner_user_id === activeUserIdRef.current
     && ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status));
 
@@ -1930,12 +1942,15 @@ function Main() {
       if (!cleanDate || !cleanStart || !cleanEnd || cleanTitle.length < 3) {
         throw new Error('Lengkapi tanggal, jam mulai, jam selesai, dan judul lembur minimal 3 karakter.');
       }
-      const lastSession = assignments.find((item) => item.work_date === cleanDate)?.sessions
-        .slice().sort((a, b) => a.seq - b.seq).at(-1);
-      const startDate = lastSession?.local_end_date ?? cleanDate;
+      const selectedSession = overtimeSessions.find(({ session }) => session.id === otSessionId)?.session;
+      if (!selectedSession) {
+        throw new Error('Pilih sesi shift yang sudah Anda check-in untuk pengajuan lembur.');
+      }
+      const startDate = selectedSession.local_end_date ?? cleanDate;
       const endDate = otCrossDay || cleanEnd < cleanStart ? addDaysToDateKey(startDate, 1) : startDate;
       await submitOvertimeRequest(baseUrl, token, {
         work_date: cleanDate,
+        shift_session_id: selectedSession.id,
         start_date: startDate,
         end_date: endDate,
         start_time: cleanStart,
@@ -2614,12 +2629,19 @@ function Main() {
       );
     }
 
-    const activeAssignment = todayAssignments[0];
     const sessions = todayAssignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session })));
-    const activeSession = sessions.find(({ session }) => session.attendance?.check_in_at && !session.attendance.check_out_at && !session.attendance.provisional_out_at)
-      ?? sessions.find(({ session }) => !session.attendance?.check_in_at
+    const now = Date.now();
+    const openCheckouts = sessions.filter(({ session }) => session.attendance?.check_in_at && !session.attendance.check_out_at && !session.attendance.provisional_out_at);
+    const activeWork = openCheckouts
+      .filter(({ session }) => new Date(session.attendance_window?.effective_work_end_at ?? session.end_at).getTime() > now)
+      .sort((a, b) => new Date(a.session.start_at).getTime() - new Date(b.session.start_at).getTime());
+    const eligibleCheckins = sessions
+      .filter(({ session }) => !session.attendance?.check_in_at
         && (session.attendance_window?.check_in_unrestricted === true
-          || (new Date(session.attendance_window?.check_in_opens_at ?? session.start_at) <= new Date() && new Date(session.end_at) > new Date())));
+          || (new Date(session.attendance_window?.check_in_opens_at ?? session.start_at).getTime() <= now && new Date(session.end_at).getTime() > now)))
+      .sort((a, b) => new Date(a.session.start_at).getTime() - new Date(b.session.start_at).getTime());
+    const activeSession = activeWork[0] ?? eligibleCheckins[0] ?? openCheckouts[0];
+    const activeAssignment = activeSession?.assignment ?? todayAssignments[0];
     const activeIntent = activeSession ? { assignment: activeSession.assignment, session: activeSession.session, eventType: activeSession.session.attendance?.check_in_at ? 'CHECK_OUT' as const : 'CHECK_IN' as const } : null;
     const credited = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_minutes ?? 0), 0);
     const creditedOvertime = sessions.reduce((sum, item) => sum + (item.session.attendance?.verified_overtime_minutes ?? 0), 0);
@@ -2685,7 +2707,7 @@ function Main() {
             </View>
           ) : activeIntent ? (
             <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
-              <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in sesi' : 'Check-out sesi'}</Text>
+              <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? `Check-in · ${activeIntent.assignment.template_name}` : `Check-out · ${activeIntent.assignment.template_name}`}</Text>
               <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {shortClock(activeIntent.session.local_start)}–{shortClock(activeIntent.session.local_end)}</Text>
             </Pressable>
           ) : null}
@@ -3126,9 +3148,8 @@ function Main() {
 
   function renderOvertimeForm() {
     const workDate = otWorkDate || todayKey();
-    const finalSession = assignments.find((item) => item.work_date === workDate)?.sessions
-      .slice().sort((a, b) => a.seq - b.seq).at(-1);
-    const overtimeStartDate = finalSession?.local_end_date ?? workDate;
+    const selectedSession = overtimeSessions.find(({ session }) => session.id === otSessionId);
+    const overtimeStartDate = selectedSession?.session.local_end_date ?? workDate;
     const overtimeEndDate = otCrossDay || (otStartTime && otEndTime < otStartTime)
       ? addDaysToDateKey(overtimeStartDate, 1)
       : overtimeStartDate;
@@ -3154,7 +3175,7 @@ function Main() {
       <View style={styles.formCard}>
         <Text style={styles.cardTitle}>Pengajuan Lembur Mandiri</Text>
         <Text style={styles.cardCopy}>Ajukan permohonan lembur untuk pekerjaan tambahan di luar jadwal reguler.</Text>
-        <Text style={styles.requiredHint}>Pengajuan tersedia setelah Anda check-in pada sesi shift terakhir. Checkout tidak perlu menunggu selesai.</Text>
+        <Text style={styles.requiredHint}>Ajukan setelah check-in pada sesi yang dipilih. Anda bisa mengirim pengajuan sebelum checkout.</Text>
 
         <PickerTrigger
           label="Tanggal Shift"
@@ -3163,6 +3184,28 @@ function Main() {
           icon="calendar"
           onPress={() => openCalendar('overtimeDate')}
         />
+        {overtimeSessions.length > 0 ? (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={styles.fieldLabel}>Pilih sesi shift</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
+              {overtimeSessions.map(({ assignment, session }) => (
+                <Pressable
+                  key={session.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: otSessionId === session.id }}
+                  onPress={() => setOtSessionId(session.id)}
+                  style={[styles.quickChip, otSessionId === session.id && styles.quickChipActive]}
+                >
+                  <Text style={[styles.quickChipText, otSessionId === session.id && styles.quickChipTextActive]}>
+                    {assignment.template_name} · {shortClock(session.local_start)}–{shortClock(session.local_end)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        ) : (
+          <Text style={styles.requiredHint}>Belum ada sesi yang sudah check-in pada tanggal ini.</Text>
+        )}
         <Text style={styles.requiredHint}>
           Rentang lembur: {localDate(overtimeStartDate)} {otStartTime || '—'}–{localDate(overtimeEndDate)} {otEndTime || '—'}.
         </Text>

@@ -11,6 +11,7 @@ use App\Models\Employee;
 use App\Models\LatePermission;
 use App\Models\ShiftSession;
 use App\Models\SiteSetting;
+use App\Support\AttendanceWindow;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
@@ -66,7 +67,7 @@ class RecordAttendance
                 ?? $locationProblem;
         }
         if ($problem === null && $input['event_type'] === 'CHECK_IN' && $record?->check_in_at === null
-            && (int) $session->assignment->rules_version >= 2) {
+            && $this->rulesVersion($session) >= 2) {
             $problem = app(AutoCheckoutAttendance::class)->closeExpiredBeforeNextCheckin($employee, $session->id, $now);
         }
         $result = match (true) {
@@ -125,10 +126,13 @@ class RecordAttendance
     private function scheduleProblem(ShiftSession $session, string $type, CarbonImmutable $at, ?AttendanceRecord $record): ?string
     {
         $assignment = $session->assignment;
+        $rulesVersion = $this->rulesVersion($session);
         $early = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
         $late = config('attendance.checkout_late_minutes');
         $checkoutDeadline = $session->end_at->addMinutes($late);
-        if ((int) $assignment->rules_version >= 2) {
+        if ($rulesVersion === 3) {
+            $checkoutDeadline = AttendanceWindow::checkoutDeadline($session);
+        } elseif ($rulesVersion >= 2) {
             if ($assignment->template_type === 'regular') {
                 $checkoutDeadline = $record?->check_in_at?->addMinutes(13 * 60);
             } else {
@@ -152,10 +156,15 @@ class RecordAttendance
             $type === 'CHECK_OUT' && $record?->check_out_at !== null => 'ALREADY_CHECKED_OUT',
             $type === 'CHECK_OUT' && $at->lt($session->end_at) && ! $this->hasApprovedEarlyDeparture($session, $at) => 'EARLY_CHECKOUT_NOT_APPROVED',
             $type === 'CHECK_OUT' && ($at->lte($record->check_in_at) || ($checkoutDeadline && $at->gt($checkoutDeadline))) => 'OUTSIDE_WINDOW',
-            $type === 'CHECK_OUT' && (int) $assignment->rules_version >= 2 && $assignment->template_type === 'regular'
+            $type === 'CHECK_OUT' && $rulesVersion >= 2 && $rulesVersion < 3 && $assignment->template_type === 'regular'
                 && $at->gte($record->check_in_at->addMinutes(13 * 60)) => 'AUTO_CHECKOUT_DUE',
             default => null,
         };
+    }
+
+    private function rulesVersion(ShiftSession $session): int
+    {
+        return (int) ($session->rules_version ?: $session->assignment->rules_version);
     }
 
     private function hasApprovedEarlyDeparture(ShiftSession $session, CarbonImmutable $at): bool

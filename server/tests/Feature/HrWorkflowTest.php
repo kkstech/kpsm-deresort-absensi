@@ -102,6 +102,61 @@ class HrWorkflowTest extends TestCase
         $this->assertSame(1, AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->count());
     }
 
+    public function test_allowance_threshold_combines_verified_minutes_from_two_daily_assignments_once(): void
+    {
+        $employee = $this->employee('ALW-DOUBLE', '2026-01-01');
+        $level = EmployeeLevel::query()->create(['code' => 'L-DOUBLE', 'name' => 'Level Double']);
+        $employee->update(['level_id' => $level->id]);
+        EmployeeLevelAssignment::query()->create(['employee_id' => $employee->id, 'level_id' => $level->id, 'effective_from' => '2026-01-01']);
+        AllowancePolicy::query()->create(['level_id' => $level->id, 'effective_from' => '2026-01-01', 'meal_amount' => 8000, 'transport_amount' => 14000]);
+
+        $morning = ShiftTemplate::query()->create(['name' => 'Reguler pagi 4 jam', 'type' => 'regular']);
+        $morning->sessions()->create(['seq' => 1, 'local_start' => '08:00', 'local_end' => '12:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        $afternoon = ShiftTemplate::query()->create(['name' => 'Reguler sore 4 jam', 'type' => 'regular']);
+        $afternoon->sessions()->create(['seq' => 1, 'local_start' => '13:00', 'local_end' => '17:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        $schedules = app(PublishSchedule::class);
+        $first = $schedules->upsert($employee, '2026-10-25', $morning, $this->admin);
+        $second = $schedules->upsert($employee, '2026-10-25', $afternoon, $this->admin);
+
+        foreach ([$first, $second] as $assignment) {
+            $session = $assignment->sessions->firstOrFail();
+            AttendanceRecord::query()->create([
+                'shift_session_id' => $session->id,
+                'employee_id' => $employee->id,
+                'check_in_at' => $session->start_at,
+                'check_out_at' => $session->end_at,
+                'status' => 'COMPLETE',
+                'verified_minutes' => 240,
+            ]);
+        }
+
+        $result = app(CalculateCycleAllowance::class)->refresh($second);
+
+        $this->assertSame('ELIGIBLE', $result?->status);
+        $this->assertSame(480, $result?->verified_minutes);
+        $this->assertSame(1, AllowanceResult::query()->where('employee_id', $employee->id)->where('work_date', '2026-10-25')->count());
+        $this->assertSame($first->id, $result?->shift_assignment_id);
+    }
+
+    public function test_allowance_preview_counts_two_assignments_on_one_date_as_one_cycle(): void
+    {
+        $employee = $this->employee('ALW-PREVIEW-DOUBLE', '2026-01-01');
+        $morning = ShiftTemplate::query()->create(['name' => 'Reguler pagi preview', 'type' => 'regular']);
+        $morning->sessions()->create(['seq' => 1, 'local_start' => '08:00', 'local_end' => '12:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        $afternoon = ShiftTemplate::query()->create(['name' => 'Reguler sore preview', 'type' => 'regular']);
+        $afternoon->sessions()->create(['seq' => 1, 'local_start' => '13:00', 'local_end' => '17:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        $schedules = app(PublishSchedule::class);
+        $schedules->upsert($employee, '2026-10-25', $morning, $this->admin);
+        $schedules->upsert($employee, '2026-10-25', $afternoon, $this->admin);
+
+        $this->postJson('/admin/api/allowance-overrides/preview', [
+            'employee_id' => $employee->id,
+            'effective_from' => '2026-10-25',
+            'meal_amount' => 9000,
+            'reason' => 'Penyesuaian tarif tunjangan',
+        ])->assertOk()->assertJsonPath('data.affected_cycles', 1);
+    }
+
     public function test_approved_attendance_permission_exempts_closed_cycle_from_eight_hour_minimum(): void
     {
         $employee = $this->employee('ALW-EXCEPTION', '2026-01-01');

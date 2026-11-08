@@ -124,6 +124,7 @@ class ReportTest extends TestCase
             ->assertOk()
             ->assertJsonPath('kpi.total_employees', 1)
             ->assertJsonPath('kpi.total_verified_minutes', 470)
+            ->assertJsonPath('kpi.total_actual_overtime_minutes', 60)
             ->assertJsonPath('kpi.total_overtime_minutes', 60)
             ->assertJsonPath('rows.0.employee.id', $activeEmployee->id);
 
@@ -150,7 +151,9 @@ class ReportTest extends TestCase
             ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.employee_id', $activeEmployee->id);
+            ->assertJsonPath('data.0.employee_id', $activeEmployee->id)
+            ->assertJsonPath('data.0.actual_minutes', 60)
+            ->assertJsonPath('data.0.verified_minutes', 60);
 
         $this->actingAs($admin)
             ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31&employee_id='.$inactiveEmployee->id)
@@ -172,6 +175,11 @@ class ReportTest extends TestCase
         $employee = $this->createEmployee($engineering, 'ENG-101', 'Doni Setiawan');
         $schedule = $this->schedule($employee, '2026-10-25');
         $session = $schedule->sessions->first();
+        $admin = User::factory()->role('admin')->create();
+        $secondTemplate = ShiftTemplate::query()->create(['name' => 'Reguler malam tambahan', 'type' => 'regular']);
+        $secondTemplate->sessions()->create(['seq' => 1, 'local_start' => '18:00', 'local_end' => '22:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        app(PublishSchedule::class)->upsert($employee, '2026-10-25', $secondTemplate, $admin);
+        app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$employee->id]);
 
         // Create attendance record
         AttendanceRecord::query()->create([
@@ -184,8 +192,6 @@ class ReportTest extends TestCase
             'status' => 'COMPLETE',
             'verified_minutes' => 470,
         ]);
-
-        $admin = User::factory()->role('admin')->create();
 
         // Create approved overtime order
         OvertimeOrder::query()->create([
@@ -221,8 +227,12 @@ class ReportTest extends TestCase
             ->assertOk()
             ->assertJsonPath('period_status', 'PROVISIONAL')
             ->assertJsonPath('kpi.total_employees', 1)
+            ->assertJsonPath('kpi.total_scheduled_days', 1)
+            ->assertJsonPath('kpi.total_scheduled_sessions', 2)
             ->assertJsonPath('kpi.total_attended_days', 1)
+            ->assertJsonPath('kpi.total_attended_sessions', 1)
             ->assertJsonPath('kpi.total_verified_minutes', 470)
+            ->assertJsonPath('kpi.total_actual_overtime_minutes', 120)
             ->assertJsonPath('kpi.total_overtime_minutes', 120)
             ->assertJsonPath('kpi.total_meal_allowance', 25000)
             ->assertJsonPath('kpi.total_transport_allowance', 15000)
@@ -230,8 +240,19 @@ class ReportTest extends TestCase
             ->assertJsonPath('kpi.total_late_count', 1)
             ->assertJsonPath('rows.0.employee.code', 'ENG-101')
             ->assertJsonPath('rows.0.verified_minutes', 470)
+            ->assertJsonPath('rows.0.overtime_actual_minutes', 120)
             ->assertJsonPath('rows.0.overtime_minutes', 120)
             ->assertJsonPath('rows.0.total_allowance', 40000);
+
+        $details = $this->actingAs($admin)
+            ->getJson('/admin/api/reports/details?from=2026-10-01&to=2026-10-31&employee_id='.$employee->id)
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('meta.total', 2);
+        $sessionDetail = collect($details->json('data'))->firstWhere('id', $session->id);
+        $this->assertNotNull($sessionDetail);
+        $this->assertSame(120, $sessionDetail['overtime_actual_minutes']);
+        $this->assertSame(120, $sessionDetail['overtime_verified_minutes']);
     }
 
     public function test_reports_period_status_becomes_finalized_when_marked_final(): void
@@ -399,12 +420,39 @@ class ReportTest extends TestCase
             'status' => 'APPROVED',
         ]);
 
+        OvertimeOrder::query()->create([
+            'order_number' => 'SPL-20261025-002',
+            'employee_id' => $employee->id,
+            'work_date' => '2026-10-25',
+            'initiator_type' => 'ADMIN',
+            'created_by' => $admin->id,
+            'title' => 'Belum dijalankan',
+            'start_at' => '2026-10-25 14:00:00',
+            'end_at' => '2026-10-25 15:00:00',
+            'planned_minutes' => 60,
+            'actual_minutes' => 0,
+            'verified_minutes' => 0,
+            'status' => 'APPROVED',
+        ]);
+
         $this->actingAs($admin)
             ->getJson('/admin/api/reports/overtime?from=2026-10-01&to=2026-10-31')
             ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.order_number', 'SPL-20261025-001')
-            ->assertJsonPath('data.0.title', 'Lembur Event Wedding');
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.order_number', 'SPL-20261025-002')
+            ->assertJsonPath('data.0.title', 'Belum dijalankan')
+            ->assertJsonPath('data.0.actual_minutes', 0)
+            ->assertJsonPath('data.0.verified_minutes', 0)
+            ->assertJsonPath('data.0.execution_status', 'NOT_REALIZED')
+            ->assertJsonPath('data.1.order_number', 'SPL-20261025-001')
+            ->assertJsonPath('data.1.actual_minutes', 180)
+            ->assertJsonPath('data.1.execution_status', 'REALIZED');
+
+        $pdf = $this->actingAs($admin)
+            ->get('/admin/api/reports/export/pdf?from=2026-10-01&to=2026-10-31&type=overtime')
+            ->assertOk();
+        $this->assertStringContainsString('application/pdf', $pdf->headers->get('content-type'));
+        $this->assertStringContainsString('rekap_lembur_2026-10-01_2026-10-31.pdf', $pdf->headers->get('content-disposition'));
     }
 
     public function test_reports_export_excel_returns_xlsx_file_download(): void
@@ -425,14 +473,16 @@ class ReportTest extends TestCase
         $summary = app(ReportService::class)->getSummary($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
         $details = app(ReportService::class)->getAllDetailsForExport($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
         $breakdown = app(ReportService::class)->getShiftBreakdown($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
+        $overtime = app(ReportService::class)->getOvertime($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
         $path = tempnam(sys_get_temp_dir(), 'shift-report-');
         try {
-            app(AttendanceReportSpout::class)->export($summary, $details, $breakdown, $path);
+            app(AttendanceReportSpout::class)->export($summary, $details, $breakdown, $overtime, $path);
             $archive = new \ZipArchive;
             $this->assertTrue($archive->open($path));
             $workbook = $archive->getFromName('xl/workbook.xml');
             $archive->close();
             $this->assertStringContainsString('Frekuensi Shift', $workbook);
+            $this->assertStringContainsString('Rekap Lembur', $workbook);
         } finally {
             @unlink($path);
         }

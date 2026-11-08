@@ -12,6 +12,7 @@ use App\Models\LeaveRequest;
 use App\Models\LeaveType;
 use App\Models\LeaveYear;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftSession;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\WorkTime;
@@ -101,6 +102,7 @@ class SwapScheduleCycles
                         'seq' => $old->seq, 'schedule_revision' => $revision,
                         'start_at' => $old->start_at, 'end_at' => $old->end_at,
                         'unpaid_break_minutes' => $old->unpaid_break_minutes,
+                        'rules_version' => 3,
                         'policy_snapshot' => $snapshot,
                     ]);
                 }
@@ -153,8 +155,9 @@ class SwapScheduleCycles
             $blockers[] = ['code' => 'SCHEDULE_NOT_FOUND', 'message' => 'Ada jadwal yang sudah tidak tersedia.'];
         }
 
-        $targetKeys = [];
         $targetSessions = [];
+        $targetAssignments = [];
+        $targetEmployees = [];
         $sources = [];
         $crossUnit = false;
         $summary = [];
@@ -185,10 +188,8 @@ class SwapScheduleCycles
             }
             $this->assertContract($employee, $assignment->work_date, $blockers, $assignment->id);
             $key = $employee->id.':'.$assignment->work_date;
-            if (isset($targetKeys[$key])) {
-                $blockers[] = ['code' => 'DUPLICATE_TARGET_SLOT', 'assignment_id' => $assignment->id, 'message' => 'Dua siklus akan diberikan kepada karyawan yang sama pada tanggal kerja yang sama.'];
-            }
-            $targetKeys[$key] = true;
+            $targetAssignments[$key][] = $assignment;
+            $targetEmployees[$key] = $employee;
             foreach ($assignment->sessions as $session) {
                 foreach ($targetSessions[$employee->id] ?? [] as $prior) {
                     if ($session->start_at->lt($prior['end']) && $prior['start']->lt($session->end_at)) {
@@ -234,6 +235,11 @@ class SwapScheduleCycles
             ];
         }
 
+        foreach ($targetAssignments as $key => $group) {
+            [, $workDate] = explode(':', $key, 2);
+            $this->assertTargetDailyLimits($targetEmployees[$key], $workDate, $group, $ids->all(), $blockers);
+        }
+
         if ($crossUnit && ! $confirmCrossUnit) {
             $blockers[] = ['code' => 'CROSS_UNIT_CONFIRMATION_REQUIRED', 'message' => 'Konfirmasi perpindahan lintas departemen sebelum menyimpan.'];
         }
@@ -246,6 +252,15 @@ class SwapScheduleCycles
                 return $assignment && $assignment->work_date === $source['work_date'] && (int) $move['to_employee_id'] === (int) $source['employee_id'];
             });
             if ($reassignedBack) {
+                continue;
+            }
+            $hasRemainingAssignment = ShiftAssignment::query()
+                ->where('employee_id', $source['employee_id'])
+                ->where('work_date', $source['work_date'])
+                ->whereNotIn('id', $ids)
+                ->where('status', '!=', 'CANCELLED')
+                ->exists();
+            if ($hasRemainingAssignment) {
                 continue;
             }
             $existingLeave = LeaveRequest::query()
@@ -310,10 +325,6 @@ class SwapScheduleCycles
             ->whereBetween('work_date', [$date->subDay()->toDateString(), $date->addDay()->toDateString()])
             ->whereNotIn('id', $movingIds)->where('status', '!=', 'CANCELLED')->get();
         foreach ($others as $other) {
-            if ($other->work_date === $assignment->work_date) {
-                $blockers[] = ['code' => 'SWAP_CHAIN_INCOMPLETE', 'assignment_id' => $assignment->id, 'conflicting_assignment_id' => $other->id,
-                    'message' => "Jadwal {$other->template_name} tanggal {$other->work_date} harus ikut dipindahkan atau ditangani HR."];
-            }
             foreach ($other->sessions as $existing) {
                 foreach ($assignment->sessions as $new) {
                     if ($new->start_at->lt($existing->end_at) && $existing->start_at->lt($new->end_at)) {
@@ -321,6 +332,57 @@ class SwapScheduleCycles
                             'message' => "Bentrok dengan {$other->template_name} tanggal {$other->work_date}."];
                         break 2;
                     }
+                }
+            }
+        }
+    }
+
+    /** @param array<ShiftAssignment> $incoming */
+    private function assertTargetDailyLimits(Employee $employee, string $workDate, array $incoming, array $movingIds, array &$blockers): void
+    {
+        $existing = ShiftAssignment::query()->with('sessions')
+            ->where('employee_id', $employee->id)
+            ->where('work_date', $workDate)
+            ->whereNotIn('id', $movingIds)
+            ->where('status', '!=', 'CANCELLED')
+            ->get();
+        $combined = $existing->concat($incoming);
+        if ($combined->count() > 2 || ($combined->count() === 2 && $combined->where('template_type', 'special')->count() > 1)) {
+            $blockers[] = ['code' => 'DAILY_SHIFT_LIMIT', 'employee_id' => $employee->id, 'work_date' => $workDate,
+                'message' => 'Tanggal tujuan dapat memiliki maksimal dua shift: dua reguler, atau satu reguler dan satu khusus.'];
+
+            return;
+        }
+
+        $sessions = $combined->flatMap(fn (ShiftAssignment $assignment) => $assignment->sessions);
+        $scheduledMinutes = $sessions->sum(fn (ShiftSession $session) => $session->scheduledMinutes());
+        if ($scheduledMinutes > 960) {
+            $blockers[] = ['code' => 'DAILY_WORK_LIMIT', 'employee_id' => $employee->id, 'work_date' => $workDate,
+                'message' => 'Total kerja terjadwal pada tanggal tujuan melebihi 16 jam.'];
+        }
+
+        if ($sessions->isNotEmpty()) {
+            $ordered = $sessions->sortBy(fn (ShiftSession $session) => $session->start_at->getTimestamp());
+            $first = $ordered->first();
+            $last = $sessions->sortBy(fn (ShiftSession $session) => $session->end_at->getTimestamp())->last();
+            if ($last->end_at->getTimestamp() - $first->start_at->getTimestamp() > 24 * 60 * 60) {
+                $blockers[] = ['code' => 'DAILY_SPAN_LIMIT', 'employee_id' => $employee->id, 'work_date' => $workDate,
+                    'message' => 'Rentang shift pada tanggal tujuan melebihi 24 jam.'];
+            }
+        }
+
+        foreach ($incoming as $assignment) {
+            foreach ($assignment->sessions as $session) {
+                $activeOvertime = DB::table('overtime_orders')
+                    ->where('employee_id', $employee->id)
+                    ->whereIn('status', ['PENDING', 'APPROVED'])
+                    ->where('consent_status', '!=', 'DECLINED')
+                    ->where('start_at', '<', $session->end_at)
+                    ->where('end_at', '>', $session->start_at)
+                    ->exists();
+                if ($activeOvertime) {
+                    $blockers[] = ['code' => 'OVERTIME_CONFLICT', 'assignment_id' => $assignment->id,
+                        'message' => 'Shift bertabrakan dengan lembur aktif karyawan tujuan.'];
                 }
             }
         }

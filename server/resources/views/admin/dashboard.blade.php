@@ -335,6 +335,7 @@
                             <div class="schedule-toolbar">
                                 <div class="range"><h2 id="range-label" aria-live="polite"></h2><span id="range-count"></span></div>
                                 <div class="toolbar-controls">
+                                    <label class="person-select"><span>Departemen</span><select id="calendar-department-filter"><option value="all">Semua departemen</option><option value="none">Tanpa Departemen</option></select></label>
                                     <label class="person-select"><span>Karyawan</span><select id="person-filter"></select></label>
                                     <div class="view-toggle" role="group" aria-label="Tampilan kalender">
                                         <button type="button" data-cal-view="week" aria-pressed="true">Mingguan</button>
@@ -712,7 +713,7 @@
                         <div class="metric-card">
                             <span>Lembur Diakui</span>
                             <strong id="kpi-total-overtime-hours">0j 0m</strong>
-                            <small>Dari SPL disetujui</small>
+                            <small id="kpi-total-overtime-actual-hours">Aktual: 0j 0m</small>
                         </div>
                         <div class="metric-card">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -761,6 +762,7 @@
                                         <th style="text-align: center;">Sesi Hadir</th>
                                         <th style="text-align: center;">Jam Reguler</th>
                                         <th style="text-align: center;">Terlambat</th>
+                                        <th style="text-align: center;">Lembur Aktual</th>
                                         <th style="text-align: center;">Lembur Diakui</th>
                                         <th style="text-align: center;">Cuti</th>
                                         <th style="text-align: center;">Review</th>
@@ -768,7 +770,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="report-summary-tbody">
-                                    <tr><td colspan="10" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat data rekapitulasi...</td></tr>
+                                    <tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat data rekapitulasi...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -789,12 +791,13 @@
                                         <th style="text-align: center;">Status</th>
                                         <th style="text-align: center;">Terlambat</th>
                                         <th style="text-align: center;">Jam Valid</th>
-                                        <th style="text-align: center;">Lembur</th>
+                                        <th style="text-align: center;">Lembur Aktual</th>
+                                        <th style="text-align: center;">Lembur Diakui</th>
                                         <th style="text-align: right;">Tunjangan</th>
                                     </tr>
                                 </thead>
                                 <tbody id="report-details-tbody">
-                                    <tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat detail...</td></tr>
+                                    <tr><td colspan="12" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat detail...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -818,14 +821,15 @@
                                         <th>Karyawan</th>
                                         <th>Departemen</th>
                                         <th>Uraian Tugas Lembur</th>
-                                        <th style="text-align: center;">Jam Pelaksanaan</th>
+                                        <th style="text-align: center;">Rentang SPL</th>
                                         <th style="text-align: center;">Durasi Rencana</th>
+                                        <th style="text-align: center;">Durasi Aktual</th>
                                         <th style="text-align: center;">Durasi Diakui</th>
                                         <th style="text-align: center;">Status</th>
                                     </tr>
                                 </thead>
                                 <tbody id="report-overtime-tbody">
-                                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekap lembur...</td></tr>
+                                    <tr><td colspan="10" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat rekap lembur...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -968,37 +972,60 @@
 
                     <!-- Tab 3: Konfigurasi Saldo Tahunan -->
                     <div id="leave-tab-panel-settings" class="leave-tab-panel" hidden>
-                        <div class="panel leave-year-panel" style="padding: 20px;">
-                            <div class="panel-heading" style="margin-bottom: 16px; padding: 0 0 16px; border-bottom: 1px solid var(--line);">
+                        <div class="panel leave-year-panel">
+                            <div class="panel-heading leave-settings-heading">
                                 <div>
-                                    <h2 style="font-size: 16px; margin: 0 0 4px;">Kuota Tahunan &amp; Aturan Pengajuan</h2>
-                                    <p id="leave-opening-state" style="margin: 0; color: var(--muted); font-size: 13px;">Memuat status saldo…</p>
+                                    <h2>Kuota Tahunan &amp; Aturan Pengajuan</h2>
+                                    <p>Atur jarak pengajuan dan kuota cuti untuk tahun saldo yang dipilih.</p>
                                 </div>
-                                <button type="button" class="primary-button" id="leave-opening-confirm" style="height: 40px; min-height: 40px; padding: 0 18px;">
+                            </div>
+                            <div class="leave-opening-status">
+                                <div>
+                                    <span class="leave-opening-label">Status saldo tahunan</span>
+                                    <p id="leave-opening-state" role="status" aria-live="polite">Memuat status saldo…</p>
+                                </div>
+                                <button type="button" class="secondary-button" id="leave-opening-confirm" hidden>
                                     Konfirmasi Saldo Awal
                                 </button>
                             </div>
-                            <form id="leave-settings-form" class="inline-settings-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: flex-end;">
-                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
-                                    <span>Tahun Saldo</span>
-                                    <input type="number" name="year" min="2000" max="2100" required style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
-                                </label>
-                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted);">
-                                    <span>Jarak Minimal Pengajuan (hari)</span>
-                                    <input type="number" name="minimum_notice_days" min="0" max="365" required aria-describedby="leave-notice-hint" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
-                                    <small id="leave-notice-hint" style="font-size: 12px; font-weight: 400; line-height: 1.5;">Berlaku untuk semua tahun. 0 berarti dapat mengajukan pada hari yang sama.</small>
-                                </label>
-                                <div id="leave-quota-fields" class="leave-quota-fields" aria-live="polite"></div>
-                                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 700; color: var(--muted); grid-column: 1 / -1;">
-                                    <span>Alasan Perubahan</span>
-                                    <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kuota atau aturan pengajuan cuti" style="min-height: 42px; height: 42px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 14px;">
-                                </label>
-                                <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end;">
-                                    <button type="submit" class="secondary-button" style="min-height: 42px; height: 42px; padding: 0 20px;">
-                                        Simpan Pengaturan
-                                    </button>
+                            <form id="leave-settings-form" class="leave-settings-form">
+                                <div class="leave-settings-grid">
+                                    <section class="leave-settings-section" aria-labelledby="leave-rules-title">
+                                        <div class="leave-settings-section-heading">
+                                            <h3 id="leave-rules-title">Aturan pengajuan</h3>
+                                            <p>Jarak minimal berlaku untuk pengajuan mandiri karyawan.</p>
+                                        </div>
+                                        <div class="leave-settings-rules">
+                                            <label class="leave-settings-field">
+                                                <span>Tahun saldo</span>
+                                                <input type="number" name="year" min="2000" max="2100" required>
+                                            </label>
+                                            <label class="leave-settings-field">
+                                                <span>Jarak minimal pengajuan</span>
+                                                <span class="leave-input-with-unit">
+                                                    <input type="number" name="minimum_notice_days" min="0" max="365" required aria-describedby="leave-notice-hint">
+                                                    <span>hari</span>
+                                                </span>
+                                                <small id="leave-notice-hint">Berlaku untuk semua tahun. Isi 0 agar cuti dapat diajukan mulai hari ini.</small>
+                                            </label>
+                                        </div>
+                                    </section>
+                                    <section class="leave-settings-section" aria-labelledby="leave-quotas-title">
+                                        <div class="leave-settings-section-heading">
+                                            <h3 id="leave-quotas-title">Kuota per jenis cuti</h3>
+                                            <p>Tentukan batas tahunan untuk setiap jenis cuti.</p>
+                                        </div>
+                                        <div id="leave-quota-fields" class="leave-quota-fields" aria-live="polite"></div>
+                                    </section>
                                 </div>
-                                <p class="form-error" id="leave-settings-error" role="alert" hidden style="grid-column: 1 / -1;"></p>
+                                <div class="leave-settings-footer">
+                                    <label class="leave-settings-field leave-settings-reason">
+                                        <span>Alasan perubahan</span>
+                                        <input name="reason" maxlength="1000" required placeholder="Contoh: Penyesuaian kebijakan cuti">
+                                    </label>
+                                    <button type="submit" class="primary-button">Simpan Pengaturan</button>
+                                </div>
+                                <p class="form-error" id="leave-settings-error" role="alert" hidden></p>
                             </form>
                         </div>
                     </div>
@@ -1270,6 +1297,7 @@
             <div class="modal-heading"><div><h2 id="schedule-modal-title">Buat jadwal</h2><p>Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.</p></div><button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
             <div class="modal-body">
                 <div class="schedule-modal-top-grid">
+                    <label id="schedule-department-filter-wrap">Departemen<select id="schedule-department-filter"><option value="all">Semua departemen</option></select></label>
                     <label>Karyawan<select id="schedule-employee" required></select></label>
                     <label>Tanggal kerja<input type="date" id="schedule-date" required></label>
                     <label>Jenis shift<select id="schedule-mode"><option value="template">Shift reguler</option><option value="custom">Split khusus</option></select></label>
@@ -1623,6 +1651,7 @@
                         </div>
                     </div>
                     <div class="bulk-emp-list" id="overtime-emp-list" role="group" aria-label="Daftar karyawan lembur"></div>
+                    <div id="overtime-session-targets" class="field-hint" hidden></div>
                 </div>
 
                 <div class="bulk-section">

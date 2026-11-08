@@ -10,6 +10,7 @@ use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftSession;
 use App\Models\SyncBatch;
 use App\Services\AttendancePhotoService;
 use App\Support\WorkTime;
@@ -262,10 +263,16 @@ class AttendanceController extends Controller
             ->where('status', 'APPROVED')
             ->where('consent_status', 'ACCEPTED')
             ->get();
+        $dailySessionCount = ShiftSession::query()->whereNull('retired_at')
+            ->whereHas('assignment', fn ($query) => $query->where('employee_id', $assignment->employee_id)->where('work_date', $assignment->work_date)->where('status', '!=', 'CANCELLED'))
+            ->count();
 
         foreach ($assignment->sessions as $index => $session) {
             $data['sessions'][$index]['attendance'] = $session->attendanceRecord?->toApi();
-            $sessionOvertime = $overtimes->first(fn ($o) => $o->shift_session_id === $session->id || $overtimes->count() === 1);
+            $sessionOvertime = $overtimes->firstWhere('shift_session_id', $session->id);
+            if (! $sessionOvertime && $dailySessionCount === 1 && $overtimes->count() === 1 && $overtimes->first()->shift_session_id === null) {
+                $sessionOvertime = $overtimes->first();
+            }
             if ($sessionOvertime) {
                 $data['sessions'][$index]['overtime'] = [
                     'id' => $sessionOvertime->id,

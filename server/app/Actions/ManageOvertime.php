@@ -26,7 +26,7 @@ class ManageOvertime
             $workDate = $data['work_date'];
             AttendancePeriod::assertOpen($workDate);
 
-            $employees = Employee::query()->whereIn('id', $data['employee_ids'])->get();
+            $employees = Employee::query()->whereIn('id', $data['employee_ids'])->orderBy('id')->lockForUpdate()->get();
             if ($employees->isEmpty()) {
                 throw new BusinessRuleException('VALIDATION_ERROR', 'Pilih minimal satu karyawan aktif.', 422);
             }
@@ -37,25 +37,53 @@ class ManageOvertime
                 ? (int) $data['end_day_offset']
                 : $startOffset + ((! empty($data['is_cross_day']) || $data['end_time'] < $data['start_time']) ? 1 : 0);
             $endAt = WorkTime::at($workDate, $data['end_time'], $endOffset);
-            $plannedMinutes = max(1, WorkTime::minutesBetween($startAt, $endAt));
+            $plannedMinutes = WorkTime::minutesBetween($startAt, $endAt);
+            if ($plannedMinutes <= 0) {
+                throw new BusinessRuleException('OVERTIME_INVALID', 'Jam selesai lembur harus setelah jam mulai.', 422);
+            }
+
+            $targets = collect($data['session_targets'] ?? [])->keyBy('employee_id');
+            if ($targets->keys()->diff($employees->pluck('id'))->isNotEmpty()) {
+                throw new BusinessRuleException('VALIDATION_ERROR', 'Pilihan sesi shift harus berasal dari karyawan yang dipilih.', 422);
+            }
 
             $created = [];
             foreach ($employees as $employee) {
-                // Cari jadwal shift aktif pada tanggal tersebut
-                $assignment = ShiftAssignment::query()
+                $assignments = ShiftAssignment::query()
                     ->with('sessions')
                     ->where('employee_id', $employee->id)
                     ->where('work_date', $workDate)
                     ->where('status', '!=', 'CANCELLED')
-                    ->first();
+                    ->get();
+                $sessions = $assignments->flatMap(fn (ShiftAssignment $item) => $item->sessions);
+                $target = $targets->get($employee->id);
+                $targetId = isset($target['shift_session_id'])
+                    ? (int) $target['shift_session_id']
+                    : null;
 
                 $isDayOff = false;
-                $session = null;
+                $session = $targetId !== null ? $sessions->firstWhere('id', $targetId) : null;
+                if ($targetId !== null && ! $session) {
+                    throw new BusinessRuleException('SHIFT_SESSION_INVALID', "Sesi lembur yang dipilih bukan milik {$employee->name} pada tanggal {$workDate}.", 422);
+                }
+                if ($session === null && $sessions->count() === 1) {
+                    $session = $sessions->first();
+                } elseif ($session === null && $sessions->count() > 1) {
+                    throw new BusinessRuleException('SHIFT_SESSION_REQUIRED', "Pilih sesi shift untuk {$employee->name} sebelum menerbitkan SPL.", 422, [
+                        'employee_id' => $employee->id,
+                        'shift_session_ids' => $sessions->pluck('id')->all(),
+                    ]);
+                }
 
-                if ($assignment && $assignment->sessions->isNotEmpty()) {
-                    // Terhubung ke sesi shift terakhir pada tanggal tersebut
-                    $session = $assignment->sessions->sortBy('seq')->last();
+                if ($session) {
+                    $assignment = $assignments->firstWhere('id', $session->shift_assignment_id);
+                    $this->assertNoOvertimeConflict($employee, $startAt, $endAt);
                 } else {
+                    if ($assignments->isNotEmpty()) {
+                        throw new BusinessRuleException('SHIFT_SESSION_REQUIRED', "Pilih sesi shift untuk {$employee->name} sebelum menerbitkan SPL.", 422, [
+                            'employee_id' => $employee->id,
+                        ]);
+                    }
                     // Lembur di hari libur: buat jadwal khusus agar bisa check-in/out
                     $isDayOff = true;
                     $assignment = ShiftAssignment::query()->create([
@@ -63,7 +91,7 @@ class ManageOvertime
                         'work_date' => $workDate,
                         'template_name' => 'Lembur Hari Libur',
                         'template_type' => 'special',
-                        'rules_version' => 2,
+                        'rules_version' => 3,
                         'status' => 'PUBLISHED',
                         'published_at' => now(),
                         'created_by' => $actor->id,
@@ -77,6 +105,7 @@ class ManageOvertime
                         'unpaid_break_minutes' => 0,
                         'policy_snapshot' => $policy,
                         'schedule_revision' => 1,
+                        'rules_version' => 3,
                     ]);
                 }
 
@@ -113,21 +142,33 @@ class ManageOvertime
     public function submitRequest(Employee $employee, array $data): OvertimeOrder
     {
         return DB::transaction(function () use ($employee, $data) {
+            Employee::query()->lockForUpdate()->findOrFail($employee->id);
             $workDate = $data['work_date'];
             AttendancePeriod::assertOpen($workDate);
 
-            $assignment = ShiftAssignment::query()
+            $assignments = ShiftAssignment::query()
                 ->with('sessions.attendanceRecord')
                 ->where('employee_id', $employee->id)
                 ->where('work_date', $workDate)
                 ->where('status', '!=', 'CANCELLED')
-                ->first();
-            $sessions = $assignment?->sessions ?? collect();
-            $session = $sessions->sortBy('seq')->last();
+                ->get();
+            $sessions = $assignments->flatMap(fn (ShiftAssignment $assignment) => $assignment->sessions);
+            $targetId = isset($data['shift_session_id']) ? (int) $data['shift_session_id'] : null;
+            $session = $targetId !== null ? $sessions->firstWhere('id', $targetId) : null;
+            if ($targetId !== null && ! $session) {
+                throw new BusinessRuleException('SHIFT_SESSION_INVALID', 'Sesi shift yang dipilih tidak termasuk jadwal Anda pada tanggal tersebut.', 422);
+            }
+            if ($session === null && $sessions->count() === 1) {
+                $session = $sessions->first();
+            } elseif ($session === null && $sessions->count() > 1) {
+                throw new BusinessRuleException('SHIFT_SESSION_REQUIRED', 'Pilih sesi shift yang menjadi dasar lembur.', 422, [
+                    'shift_session_ids' => $sessions->pluck('id')->all(),
+                ]);
+            }
             if (! $session?->attendanceRecord?->check_in_at) {
                 throw new BusinessRuleException(
-                    'SHIFT_NOT_COMPLETED',
-                    'Pengajuan lembur dapat dikirim setelah check-in pada sesi shift terakhir.',
+                    'SHIFT_NOT_STARTED',
+                    'Pengajuan lembur dapat dikirim setelah Anda check-in pada sesi yang dipilih.',
                     422,
                 );
             }
@@ -138,7 +179,11 @@ class ManageOvertime
                 ->toDateString();
             $startAt = WorkTime::at($startDate, $data['start_time']);
             $endAt = WorkTime::at($endDate, $data['end_time']);
-            $plannedMinutes = max(1, WorkTime::minutesBetween($startAt, $endAt));
+            $plannedMinutes = WorkTime::minutesBetween($startAt, $endAt);
+            if ($plannedMinutes <= 0) {
+                throw new BusinessRuleException('OVERTIME_INVALID', 'Jam selesai lembur harus setelah jam mulai.', 422);
+            }
+            $this->assertNoOvertimeConflict($employee, $startAt, $endAt);
 
             $orderNumber = 'REQ-SPL-'.CarbonImmutable::parse($workDate)->format('ymd').'-'.strtoupper(Str::random(5));
 
@@ -147,14 +192,14 @@ class ManageOvertime
                 'employee_id' => $employee->id,
                 'work_date' => $workDate,
                 'approval_tier' => $employee->approvalTierFor($workDate),
-                'shift_session_id' => $session?->id,
+                'shift_session_id' => $session->id,
                 'initiator_type' => 'employee',
                 'created_by' => $employee->user_id,
                 'title' => $data['title'],
                 'start_at' => $startAt,
                 'end_at' => $endAt,
                 'planned_minutes' => $plannedMinutes,
-                'is_day_off' => $session === null,
+                'is_day_off' => false,
                 'status' => 'PENDING',
                 'consent_status' => 'ACCEPTED',
                 'consent_at' => now(),
@@ -187,6 +232,14 @@ class ManageOvertime
                 'consent_at' => now(),
                 'consent_notes' => $notes,
             ]);
+
+            if ($accepted && $order->status === 'APPROVED' && $order->shift_session_id) {
+                $session = ShiftSession::query()->find($order->shift_session_id);
+                $record = $session ? AttendanceRecord::query()->where('shift_session_id', $session->id)->first() : null;
+                if ($session && $record?->check_out_at) {
+                    $this->calculateRealization($session, $record, $order);
+                }
+            }
 
             Audit::log('overtime.consented', $order, $before, $order->toArray());
 
@@ -263,16 +316,32 @@ class ManageOvertime
             return;
         }
 
-        $order ??= OvertimeOrder::query()
-            ->where('employee_id', $record->employee_id)
-            ->where('work_date', $session->assignment->work_date)
-            ->where('status', 'APPROVED')
-            ->where('consent_status', 'ACCEPTED')
-            ->where(function ($q) use ($session) {
-                $q->where('shift_session_id', $session->id)->orWhereNull('shift_session_id');
-            })
-            ->lockForUpdate()
-            ->first();
+        if ($order === null) {
+            $order = OvertimeOrder::query()
+                ->where('employee_id', $record->employee_id)
+                ->where('work_date', $session->assignment->work_date)
+                ->where('status', 'APPROVED')
+                ->where('consent_status', 'ACCEPTED')
+                ->where('shift_session_id', $session->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $order) {
+                $sessionCount = ShiftSession::query()->whereNull('retired_at')
+                    ->whereHas('assignment', fn ($query) => $query->where('employee_id', $record->employee_id)->where('work_date', $session->assignment->work_date)->where('status', '!=', 'CANCELLED'))
+                    ->count();
+                if ($sessionCount === 1) {
+                    $order = OvertimeOrder::query()
+                        ->where('employee_id', $record->employee_id)
+                        ->where('work_date', $session->assignment->work_date)
+                        ->whereNull('shift_session_id')
+                        ->where('status', 'APPROVED')
+                        ->where('consent_status', 'ACCEPTED')
+                        ->lockForUpdate()
+                        ->first();
+                }
+            }
+        }
 
         if (! $order || $order->status !== 'APPROVED' || $order->consent_status !== 'ACCEPTED') {
             return;
@@ -311,5 +380,27 @@ class ManageOvertime
             'overtime_order_id' => $order->id,
             'verified_overtime_minutes' => $overtimeMinutes,
         ]);
+    }
+
+    private function assertNoOvertimeConflict(Employee $employee, CarbonImmutable $startAt, CarbonImmutable $endAt): void
+    {
+        if (ShiftSession::query()->whereNull('retired_at')
+            ->whereHas('assignment', fn ($query) => $query->where('employee_id', $employee->id)->whereIn('status', ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'COMPLETED']))
+            ->where('start_at', '<', $endAt)
+            ->where('end_at', '>', $startAt)
+            ->exists()) {
+            throw new BusinessRuleException('OVERTIME_SCHEDULE_CONFLICT', 'Rentang lembur bertabrakan dengan jadwal shift karyawan.', 409);
+        }
+
+        $activeOrder = OvertimeOrder::query()
+            ->where('employee_id', $employee->id)
+            ->whereIn('status', ['PENDING', 'APPROVED'])
+            ->where('consent_status', '!=', 'DECLINED')
+            ->where('start_at', '<', $endAt)
+            ->where('end_at', '>', $startAt)
+            ->exists();
+        if ($activeOrder) {
+            throw new BusinessRuleException('OVERTIME_CONFLICT', 'Rentang lembur bertabrakan dengan pengajuan atau perintah lembur aktif.', 409);
+        }
     }
 }

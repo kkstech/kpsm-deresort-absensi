@@ -36,6 +36,7 @@ class OvertimeController extends Controller
         $employee = $this->employee($request);
         $data = $request->validate([
             'work_date' => ['required', 'date_format:Y-m-d'],
+            'shift_session_id' => ['sometimes', 'integer', 'exists:shift_sessions,id'],
             'start_date' => ['sometimes', 'required_with:end_date', 'date_format:Y-m-d'],
             'end_date' => ['sometimes', 'required_with:start_date', 'date_format:Y-m-d', 'after_or_equal:start_date'],
             'start_time' => ['required', 'date_format:H:i'],

@@ -10,7 +10,7 @@ use OpenSpout\Writer\XLSX\Writer;
 
 class AttendanceReportSpout
 {
-    public function export(array $summary, iterable $details, iterable $shiftBreakdown, string $filePath): void
+    public function export(array $summary, iterable $details, iterable $shiftBreakdown, iterable $overtime, string $filePath): void
     {
         $site = SiteSetting::current();
         $siteName = $site->site_name ?? 'Sistem Absensi Resort';
@@ -80,8 +80,10 @@ class AttendanceReportSpout
             'Terlambat Berizin',
             'Terlambat Tanpa Izin',
             'Sesi Review',
-            'Lembur (Menit)',
-            'Durasi Lembur',
+            'Lembur Aktual (Menit)',
+            'Durasi Lembur Aktual',
+            'Lembur Diakui (Menit)',
+            'Durasi Lembur Diakui',
             'Hari Cuti',
             'Uang Makan (Rp)',
             'Uang Transport (Rp)',
@@ -111,6 +113,8 @@ class AttendanceReportSpout
                 $item['late_permitted_count'],
                 $item['late_unpermitted_count'],
                 $item['review_count'],
+                $item['overtime_actual_minutes'],
+                $item['overtime_actual_hours_formatted'],
                 $item['overtime_minutes'],
                 $item['overtime_hours_formatted'],
                 $item['leave_days'],
@@ -139,6 +143,8 @@ class AttendanceReportSpout
             '-',
             '-',
             $kpi['total_review_count'],
+            $kpi['total_actual_overtime_minutes'],
+            $kpi['total_actual_overtime_hours_formatted'],
             $kpi['total_overtime_minutes'],
             $kpi['total_overtime_hours_formatted'],
             $kpi['total_leave_days'],
@@ -174,7 +180,8 @@ class AttendanceReportSpout
             'Status Izin',
             'Menit Valid',
             'Durasi Valid',
-            'Lembur (Menit)',
+            'Lembur Aktual (Menit)',
+            'Lembur Diakui (Menit)',
             'Uang Makan (Rp)',
             'Uang Transport (Rp)',
             'Total Tunjangan (Rp)',
@@ -203,7 +210,8 @@ class AttendanceReportSpout
                 $att['late_permission_status'] ?? '-',
                 $att['verified_minutes'],
                 $att['verified_hours_formatted'],
-                $row['overtime_minutes'],
+                $row['overtime_actual_minutes'],
+                $row['overtime_verified_minutes'],
                 $al['meal_amount'],
                 $al['transport_amount'],
                 $al['total_amount'],
@@ -230,6 +238,41 @@ class AttendanceReportSpout
                 $employee['department'],
                 $item['category_name'],
                 $item['shift_count'],
+            ]));
+        }
+
+        // ======================= SHEET 4: REKAP LEMBUR =======================
+        $writer->addNewSheetAndMakeItCurrent();
+        $sheet4 = $writer->getCurrentSheet();
+        $sheet4->setName('Rekap Lembur');
+        $writer->addRow(Row::fromValuesWithStyle([$siteName], $titleStyle));
+        $writer->addRow(Row::fromValuesWithStyle(['REKAP REALISASI LEMBUR'], $titleStyle));
+        $writer->addRow(Row::fromValuesWithStyle([
+            "Periode: {$filters['from']} s.d. {$filters['to']} | Hanya SPL disetujui | Status Rekap: {$periodStatus}",
+        ], $subTitleStyle));
+        $writer->addRow(Row::fromValues(['']));
+        $writer->addRow(Row::fromValuesWithStyle([
+            'No', 'No. SPL', 'Tanggal Kerja', 'NIK', 'Nama Karyawan', 'Departemen', 'Shift / Sesi',
+            'Uraian Tugas', 'Rentang SPL', 'Rencana (Menit)', 'Aktual (Menit)', 'Diakui (Menit)', 'Status Realisasi',
+        ], $headerStyle));
+
+        $overtimeNo = 1;
+        foreach ($overtime as $order) {
+            $employee = $order['employee'] ?? [];
+            $writer->addRow(Row::fromValues([
+                $overtimeNo++,
+                $order['order_number'],
+                $order['work_date'],
+                $employee['code'] ?? '',
+                $order['employee_name'] ?? ($employee['name'] ?? ''),
+                $order['department_name'] ?? ($employee['department'] ?? '-'),
+                $order['session_name'] ?? ($order['is_day_off'] ? 'Lembur Hari Libur' : '-'),
+                $order['title'],
+                ($order['local_start'] ?? '-').' - '.($order['local_end'] ?? '-'),
+                $order['planned_minutes'],
+                $order['actual_minutes'],
+                $order['verified_minutes'],
+                $order['execution_status'] === 'REALIZED' ? 'Terealisasi' : 'Belum terealisasi',
             ]));
         }
 

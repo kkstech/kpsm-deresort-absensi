@@ -68,7 +68,7 @@ class ScheduleController extends Controller
         $data = $this->range($request, 62);
         $visibleEmployeeIds = EmployeeController::visibleTo($request->user())->select('employees.id');
         $employeeIds = $request->validate([
-            'employee_ids' => ['sometimes', 'array', 'max:10'],
+            'employee_ids' => ['sometimes', 'array', 'max:100'],
             'employee_ids.*' => ['integer', 'distinct'],
         ])['employee_ids'] ?? null;
 
@@ -154,6 +154,7 @@ class ScheduleController extends Controller
             $request->user(),
             $data['expected_revision'],
             $data['reason'] ?? 'Penyesuaian jadwal draft',
+            $assignment,
         );
 
         return response()->json(['data' => $assignment->toApi()]);

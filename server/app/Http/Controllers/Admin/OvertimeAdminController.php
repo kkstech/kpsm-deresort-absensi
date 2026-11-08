@@ -77,8 +77,11 @@ class OvertimeAdminController extends Controller
         Gate::authorize('admin');
 
         $data = $request->validate([
-            'employee_ids' => ['required', 'array', 'min:1'],
+            'employee_ids' => ['required', 'array', 'min:1', 'max:100'],
             'employee_ids.*' => ['required', 'integer', 'exists:employees,id'],
+            'session_targets' => ['sometimes', 'array', 'max:100'],
+            'session_targets.*.employee_id' => ['required', 'integer', 'distinct', 'exists:employees,id'],
+            'session_targets.*.shift_session_id' => ['required', 'integer', 'exists:shift_sessions,id'],
             'work_date' => ['required', 'date_format:Y-m-d'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],

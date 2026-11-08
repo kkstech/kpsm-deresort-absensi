@@ -154,7 +154,8 @@ class AllowanceController extends Controller
         if ($kind === 'override' && $data['meal_amount'] === null && $data['transport_amount'] === null) {
             throw ValidationException::withMessages(['meal_amount' => 'Isi minimal satu nilai tunjangan.']);
         }
-        $ids = $this->affectedAssignments($kind, $data)->pluck('id')->all();
+        $assignments = $this->affectedAssignments($kind, $data);
+        $ids = $assignments->pluck('id')->all();
         $snapshots = AllowanceResult::query()->whereIn('shift_assignment_id', $ids)->get();
         $payload = $this->previewPayload($kind, $data);
         $token = (string) Str::uuid();
@@ -162,7 +163,7 @@ class AllowanceController extends Controller
 
         return response()->json(['data' => [
             'preview_token' => $token,
-            'affected_cycles' => count($ids),
+            'affected_cycles' => $assignments->unique(fn (ShiftAssignment $assignment) => $assignment->employee_id.':'.$assignment->work_date)->count(),
             'snapshots_to_recalculate' => $snapshots->count(),
             'current_meal_amount' => $snapshots->sum('meal_amount'),
             'current_transport_amount' => $snapshots->sum('transport_amount'),

@@ -18,15 +18,21 @@ class CalculateCycleAllowance
 {
     public function refresh(ShiftAssignment $assignment): ?AllowanceResult
     {
-        $assignment = ShiftAssignment::query()->with('employee', 'sessions.attendanceRecord')
+        $assignment = ShiftAssignment::query()->with('employee')
             ->findOrFail($assignment->id);
-        $result = AllowanceResult::query()->where('shift_assignment_id', $assignment->id)->first();
+        $result = AllowanceResult::query()->where('employee_id', $assignment->employee_id)->where('work_date', $assignment->work_date)->first();
         $result ??= $this->snapshot($assignment);
-        $verifiedMinutes = $assignment->sessions->sum(fn ($session) => $session->attendanceRecord?->verified_minutes ?? 0);
-        $sessionIds = $assignment->sessions->pluck('id');
+        $dailyAssignments = ShiftAssignment::query()->with('sessions.attendanceRecord')
+            ->where('employee_id', $assignment->employee_id)
+            ->where('work_date', $assignment->work_date)
+            ->where('status', '!=', 'CANCELLED')
+            ->get();
+        $allSessions = $dailyAssignments->flatMap(fn (ShiftAssignment $item) => $item->sessions);
+        $verifiedMinutes = $allSessions->sum(fn ($session) => $session->attendanceRecord?->verified_minutes ?? 0);
+        $sessionIds = $allSessions->pluck('id');
         $hasApprovedException = LatePermission::query()->whereIn('shift_session_id', $sessionIds)->where('status', 'APPROVED')->exists()
             || AttendanceCorrection::query()->whereIn('shift_session_id', $sessionIds)->where('status', 'APPROVED')->exists();
-        $closed = $assignment->sessions->isNotEmpty() && $assignment->sessions->every(fn ($session) => ($session->attendanceRecord && ($session->attendanceRecord->check_out_at || $session->attendanceRecord->provisional_out_at))
+        $closed = $allSessions->isNotEmpty() && $allSessions->every(fn ($session) => ($session->attendanceRecord && ($session->attendanceRecord->check_out_at || $session->attendanceRecord->provisional_out_at))
             || (! $session->attendanceRecord && $session->end_at->lte(WorkTime::now()))
         );
 
@@ -56,10 +62,19 @@ class CalculateCycleAllowance
     {
         return DB::transaction(function () use ($assignment) {
             $locked = ShiftAssignment::query()->with('employee')->lockForUpdate()->findOrFail($assignment->id);
-            $existing = AllowanceResult::query()->where('shift_assignment_id', $locked->id)->lockForUpdate()->first();
+            $existing = AllowanceResult::query()->where('employee_id', $locked->employee_id)->where('work_date', $locked->work_date)->lockForUpdate()->first();
             if ($existing) {
                 return $existing;
             }
+
+            $anchorAssignment = ShiftAssignment::query()->with('sessions')
+                ->where('employee_id', $locked->employee_id)
+                ->where('work_date', $locked->work_date)
+                ->where('status', '!=', 'CANCELLED')
+                ->get()
+                ->sortBy(fn (ShiftAssignment $candidate) => $candidate->sessions
+                    ->min(fn ($session) => $session->start_at->getTimestamp()) ?? PHP_INT_MAX)
+                ->first() ?? $locked;
 
             $date = $locked->work_date;
             $employee = $locked->employee;
@@ -94,7 +109,7 @@ class CalculateCycleAllowance
             ];
 
             return AllowanceResult::query()->create([
-                'shift_assignment_id' => $locked->id,
+                'shift_assignment_id' => $anchorAssignment->id,
                 'employee_id' => $employee->id,
                 'work_date' => $date,
                 'level_id' => $levelId,

@@ -386,7 +386,7 @@ function renderShiftBreakdownTable(rows) {
 async function loadSummaryTab() {
     const tbody = $('#report-summary-tbody');
     if (tbody) {
-        tbody.innerHTML = getLoadingStateHtml(10, 'Memuat rekapitulasi kehadiran...');
+        tbody.innerHTML = getLoadingStateHtml(11, 'Memuat rekapitulasi kehadiran...');
     }
 
     try {
@@ -403,7 +403,7 @@ async function loadSummaryTab() {
         renderSummaryTable(data.rows, data.kpi);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         toast('Gagal memuat rekapitulasi: ' + e.message, 'error');
     }
@@ -564,6 +564,8 @@ function renderKpi(kpi) {
 
     const otEl = $('#kpi-total-overtime-hours');
     if (otEl) otEl.textContent = kpi.total_overtime_hours_formatted || '0j 0m';
+    const actualOtEl = $('#kpi-total-overtime-actual-hours');
+    if (actualOtEl) actualOtEl.textContent = `Aktual: ${kpi.total_actual_overtime_hours_formatted || '0j 0m'}`;
 
     const lateCountEl = $('#kpi-total-late-count');
     if (lateCountEl) lateCountEl.textContent = `${Number(kpi.total_late_count || 0)}x`;
@@ -583,7 +585,7 @@ function renderSummaryTable(rows, kpi) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = getEmptyStateHtml(10, 'Tidak ada data rekapitulasi kehadiran.');
+        tbody.innerHTML = getEmptyStateHtml(11, 'Tidak ada data rekapitulasi kehadiran.');
         return;
     }
 
@@ -599,6 +601,9 @@ function renderSummaryTable(rows, kpi) {
 
         const otHtml = r.overtime_minutes > 0
             ? `<span class="status success" style="min-height:22px;padding:2px 8px;font-size:11.5px;">+${esc(r.overtime_hours_formatted)}</span>`
+            : '<span style="color: var(--muted);">—</span>';
+        const actualOtHtml = r.overtime_actual_minutes > 0
+            ? `<span style="font-weight:600;">${esc(r.overtime_actual_hours_formatted)}</span>`
             : '<span style="color: var(--muted);">—</span>';
 
         const leaveHtml = r.leave_days > 0
@@ -632,6 +637,7 @@ function renderSummaryTable(rows, kpi) {
             <td data-label="Terlambat" style="text-align: center;">
                 ${lateHtml}
             </td>
+            <td data-label="Lembur Aktual" style="text-align: center;">${actualOtHtml}</td>
             <td data-label="Lembur Diakui" style="text-align: center;">
                 ${otHtml}
             </td>
@@ -657,6 +663,7 @@ function renderSummaryTable(rows, kpi) {
             <td class="number-cell" style="text-align: center;"><b>${kpi.total_attended_sessions}</b> <small style="color: var(--muted);">/ ${kpi.total_scheduled_sessions}</small></td>
             <td class="number-cell" style="text-align: center; color: var(--primary);"><b>${esc(kpi.total_verified_hours_formatted)}</b></td>
             <td style="text-align: center;">${kpi.total_late_count}x <small style="color: var(--muted);">(${kpi.total_late_minutes}m)</small></td>
+            <td style="text-align: center;">${esc(kpi.total_actual_overtime_hours_formatted)}</td>
             <td style="text-align: center; color: var(--primary);"><b>${esc(kpi.total_overtime_hours_formatted)}</b></td>
             <td class="number-cell" style="text-align: center;"><b>${kpi.total_leave_days} h</b></td>
             <td style="text-align: center;">${kpi.total_review_count > 0 ? `<span class="status danger">${kpi.total_review_count}</span>` : '—'}</td>
@@ -671,7 +678,7 @@ async function loadDetailsTab() {
     const tbody = $('#report-details-tbody');
     const pagination = $('#report-details-pagination');
     if (tbody) {
-        tbody.innerHTML = getLoadingStateHtml(11, 'Memuat rincian sesi kehadiran...');
+        tbody.innerHTML = getLoadingStateHtml(12, 'Memuat rincian sesi kehadiran...');
     }
 
     try {
@@ -690,7 +697,7 @@ async function loadDetailsTab() {
         renderPagination(res.meta);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         if (pagination) pagination.hidden = true;
         toast('Gagal memuat detail sesi: ' + e.message, 'error');
@@ -702,7 +709,7 @@ function renderDetailsTable(rows) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = getEmptyStateHtml(11, 'Tidak ada rekaman sesi untuk periode dan filter ini.');
+        tbody.innerHTML = getEmptyStateHtml(12, 'Tidak ada rekaman sesi untuk periode dan filter ini.');
         return;
     }
 
@@ -756,8 +763,11 @@ function renderDetailsTable(rows) {
             <td data-label="Jam Valid" class="number-cell" style="text-align: center;">
                 <b>${esc(att.verified_hours_formatted)}</b>
             </td>
-            <td data-label="Lembur" class="number-cell" style="text-align: center;">
-                ${r.overtime_minutes > 0 ? `<span class="status success" style="min-height:22px;padding:2px 6px;font-size:11px;">+${r.overtime_minutes} m</span>` : '<span style="color: var(--muted);">—</span>'}
+            <td data-label="Lembur Aktual" class="number-cell" style="text-align: center;">
+                ${r.overtime_actual_minutes > 0 ? `<span>${r.overtime_actual_minutes} m</span>` : '<span style="color: var(--muted);">—</span>'}
+            </td>
+            <td data-label="Lembur Diakui" class="number-cell" style="text-align: center;">
+                ${r.overtime_verified_minutes > 0 ? `<span class="status success" style="min-height:22px;padding:2px 6px;font-size:11px;">+${r.overtime_verified_minutes} m</span>` : '<span style="color: var(--muted);">—</span>'}
             </td>
             <td data-label="Tunjangan" class="number-cell" style="text-align: right; font-weight: 600;">
                 ${al.total_amount > 0 ? formatRp(al.total_amount) : '<span style="color: var(--muted);">—</span>'}
@@ -790,7 +800,7 @@ function renderPagination(meta) {
 async function loadOvertimeTab() {
     const tbody = $('#report-overtime-tbody');
     if (tbody) {
-        tbody.innerHTML = getLoadingStateHtml(9, 'Memuat rekap lembur...');
+        tbody.innerHTML = getLoadingStateHtml(10, 'Memuat rekap lembur...');
     }
 
     try {
@@ -806,7 +816,7 @@ async function loadOvertimeTab() {
         renderOvertimeTable(res.data);
     } catch (e) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 32px; color: var(--danger, #dc2626); font-weight: 500;">${esc(e.message)}</td></tr>`;
         }
         toast('Gagal memuat rekap lembur: ' + e.message, 'error');
     }
@@ -817,7 +827,7 @@ function renderOvertimeTable(rows) {
     if (!tbody) return;
 
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = getEmptyStateHtml(9, 'Tidak ada data perintah lembur (SPL).');
+        tbody.innerHTML = getEmptyStateHtml(10, 'Tidak ada data perintah lembur (SPL) yang disetujui.');
         return;
     }
 
@@ -827,6 +837,7 @@ function renderOvertimeTable(rows) {
         const empCode = r.employee?.code ?? '';
         const deptName = r.department_name || (r.employee?.department ?? '-');
         const avatar = getAvatarHtml(empName, r.employee?.avatar_url);
+        const executionStatus = r.execution_status === 'REALIZED' ? 'Terealisasi' : 'Belum terealisasi';
 
         html += `<tr>
             <td data-label="No. SPL">
@@ -850,14 +861,15 @@ function renderOvertimeTable(rows) {
                 <b style="color: var(--ink);">${esc(r.title)}</b>
                 ${r.session_name ? `<small style="display: block; color: var(--muted);">${esc(r.session_name)}</small>` : ''}
             </td>
-            <td data-label="Jam Pelaksanaan" class="number-cell" style="text-align: center; white-space: nowrap;">
+            <td data-label="Rentang SPL" class="number-cell" style="text-align: center; white-space: nowrap;">
                 <code>${esc(r.local_start || '—')} · ${esc(r.local_end || '—')}</code>
             </td>
             <td data-label="Durasi Rencana" class="number-cell" style="text-align: center;">${r.planned_minutes || 0} m</td>
+            <td data-label="Durasi Aktual" class="number-cell" style="text-align: center;">${r.actual_minutes || 0} m</td>
             <td data-label="Durasi Diakui" class="number-cell" style="text-align: center; font-weight: 700; color: var(--primary);">
                 +${r.verified_minutes || 0} m
             </td>
-            <td data-label="Status" style="text-align: center;">${getOvertimeBadge(r.status)}</td>
+            <td data-label="Status" style="text-align: center;">${getOvertimeBadge(r.status)}<small style="display:block;color:var(--muted);margin-top:3px;">${executionStatus}</small></td>
         </tr>`;
     });
 
@@ -873,7 +885,7 @@ function triggerExport(format) {
     if (state.q) params.set('q', state.q);
 
     if (format === 'pdf') {
-        const type = activeTab === 'details' ? 'detail' : activeTab === 'shift-breakdown' ? 'shift-breakdown' : 'summary';
+        const type = activeTab === 'details' ? 'detail' : activeTab === 'overtime' ? 'overtime' : activeTab === 'shift-breakdown' ? 'shift-breakdown' : 'summary';
         params.set('type', type);
         window.location.assign(`/admin/api/reports/export/pdf?${params.toString()}`);
     } else {

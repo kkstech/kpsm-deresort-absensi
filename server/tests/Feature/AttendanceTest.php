@@ -148,14 +148,14 @@ class AttendanceTest extends TestCase
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a1111111-1111-4111-8111-111111111111'), $this->device->id);
-        $this->travelTo('2026-10-25 14:11:00');
+        $this->travelTo('2026-10-25 11:00:01');
 
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertNull($record->check_out_at);
-        $this->assertSame('2026-10-25 14:10:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-25 10:00:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
         $this->assertSame(0, $record->verified_minutes);
         $this->assertTrue($record->needs_review);
         $this->assertSame('AUTO_CHECKOUT', $record->review_reason);
@@ -168,6 +168,32 @@ class AttendanceTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.attendance.state', 'NEEDS_REVIEW')
             ->assertJsonPath('data.0.attendance.review_reason', 'AUTO_CHECKOUT')
             ->assertJsonPath('data.0.attendance.verified_minutes', 0);
+    }
+
+    public function test_shift_three_checkin_closes_the_previous_session_without_blocking_the_next_shift(): void
+    {
+        $firstSession = ShiftSession::query()->findOrFail($this->sessionId);
+        $firstSession->update(['start_at' => '2026-10-25 00:00:00', 'end_at' => '2026-10-25 08:00:00']);
+        $third = ShiftTemplate::query()->create(['name' => 'Shift 3 23-07', 'type' => 'regular']);
+        $third->sessions()->create(['seq' => 1, 'local_start' => '23:00', 'local_end' => '07:00', 'day_offset' => 1, 'unpaid_break_minutes' => 0]);
+        $thirdAssignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-25', $third, User::factory()->role('admin')->create());
+        app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$this->employee->id]);
+        $thirdSession = $thirdAssignment->sessions->firstOrFail();
+
+        $this->travelTo('2026-10-25 00:00:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('a4444444-4444-4444-8444-444444444444'), $this->device->id);
+        $this->travelTo('2026-10-25 16:00:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('a5555555-5555-4555-8555-555555555555', [
+            'shift_session_id' => $thirdSession->id,
+        ]), $this->device->id);
+
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', [
+            'shift_session_id' => $this->sessionId,
+            'provisional_out_at' => '2026-10-25 08:00:00',
+        ]);
+        $this->assertSame(0, AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->value('verified_minutes'));
+        $this->assertNotNull(AttendanceRecord::query()->where('shift_session_id', $thirdSession->id)->value('check_in_at'));
     }
 
     public function test_offline_checkout_cannot_change_an_existing_attendance_record(): void
@@ -188,7 +214,7 @@ class AttendanceTest extends TestCase
         $this->assertSame('OFFLINE_ATTENDANCE_DISABLED', $result['data']['reason_code']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
-            'provisional_out_at' => '2026-10-25 14:10:00',
+            'provisional_out_at' => '2026-10-25 10:00:00',
             'check_out_at' => null,
             'verified_minutes' => 0,
             'needs_review' => 1,

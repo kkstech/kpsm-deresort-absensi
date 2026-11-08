@@ -9,6 +9,7 @@ use App\Models\Employee;
 use App\Models\EmploymentTerm;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftCategory;
+use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use App\Support\Audit;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\DB;
 
 class PublishSchedule
 {
-    /** Buat atau ganti jadwal satu karyawan di satu tanggal kerja. */
+    /** Buat satu penugasan shift baru untuk karyawan dan tanggal kerja. */
     public function upsert(Employee $employee, string $workDate, ShiftTemplate $template, User $actor): ShiftAssignment
     {
         return DB::transaction(function () use ($employee, $workDate, $template, $actor) {
@@ -31,44 +32,36 @@ class PublishSchedule
                 throw new BusinessRuleException('SESSION_STARTED', 'Jadwal yang sudah mulai tidak bisa dibuat atau diubah. Pakai koreksi.');
             }
 
-            $assignment = ShiftAssignment::query()->where('employee_id', $employee->id)->where('work_date', $workDate)->first();
-            if ($assignment && $assignment->status !== 'CANCELLED') {
-                $this->assertEditable($assignment);
-            }
-            $this->assertNoOverlap($employee, $workDate, $sessions, $assignment?->id);
-
-            $before = $assignment?->load('sessions')->toArray();
-            $assignment ??= new ShiftAssignment(['employee_id' => $employee->id, 'work_date' => $workDate, 'created_by' => $actor->id, 'revision' => 0]);
-            $wasPublished = $assignment->exists && $assignment->status === 'PUBLISHED';
-            $categoryId = $assignment->status === 'CANCELLED'
-                ? $template->shift_category_id
-                : ($assignment->shift_category_id ?? $template->shift_category_id);
-            $this->archiveCurrentSessions($assignment);
+            $assignment = new ShiftAssignment(['employee_id' => $employee->id, 'work_date' => $workDate, 'created_by' => $actor->id, 'revision' => 0]);
+            $this->assertDailyLimits($employee, $workDate, $sessions, $template->type, null);
+            $this->assertNoOverlap($employee, $workDate, $sessions, null);
             $assignment->fill([
                 'shift_template_id' => $template->id,
-                'shift_category_id' => $categoryId,
+                'shift_category_id' => $template->shift_category_id,
                 'template_name' => $template->name,
                 'template_type' => $template->type,
-                'rules_version' => 2,
-                'status' => $wasPublished ? 'PUBLISHED' : 'DRAFT',
-                'revision' => $assignment->revision + 1,
+                'rules_version' => 3,
+                'status' => 'DRAFT',
+                'revision' => 1,
             ])->save();
 
-            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'schedule_revision' => $assignment->revision], $sessions));
-            Audit::log($before ? 'schedule.updated' : 'schedule.created', $assignment, $before, $assignment->load('sessions')->toArray());
+            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 3, 'schedule_revision' => $assignment->revision], $sessions));
+            Audit::log('schedule.created', $assignment, null, $assignment->load('sessions')->toArray());
 
             return $assignment;
         });
     }
 
-    public function upsertCustom(Employee $employee, string $workDate, array $data, User $actor, ?int $expectedRevision = null, ?string $reason = null): ShiftAssignment
+    public function upsertCustom(Employee $employee, string $workDate, array $data, User $actor, ?int $expectedRevision = null, ?string $reason = null, ?ShiftAssignment $target = null): ShiftAssignment
     {
-        return DB::transaction(function () use ($employee, $workDate, $data, $actor, $expectedRevision, $reason) {
+        return DB::transaction(function () use ($employee, $workDate, $data, $actor, $expectedRevision, $reason, $target) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             AttendancePeriod::assertOpen($workDate);
             $this->assertEmployed($employee, $workDate);
 
-            $assignment = ShiftAssignment::query()->with('sessions.attendanceRecord')->where('employee_id', $employee->id)->where('work_date', $workDate)->first();
+            $assignment = $target
+                ? ShiftAssignment::query()->with('sessions.attendanceRecord')->where('employee_id', $employee->id)->where('work_date', $workDate)->findOrFail($target->id)
+                : null;
             if ($assignment && $expectedRevision !== null && $assignment->revision !== $expectedRevision) {
                 throw new BusinessRuleException('SCHEDULE_REVISION_CONFLICT', 'Jadwal berubah sejak dibuka. Muat ulang sebelum menyimpan.', 409);
             }
@@ -99,6 +92,7 @@ class PublishSchedule
 
             $next = collect([...$kept, ...$create])->sortBy('seq')->values()->all();
             $this->assertCycleLimits($next);
+            $this->assertDailyLimits($employee, $workDate, $next, count($next) > 1 ? 'special' : 'regular', $assignment?->id);
             $this->assertNoOverlap($employee, $workDate, $next, $assignment?->id);
 
             $revision = ($assignment?->revision ?? 0) + 1;
@@ -121,12 +115,12 @@ class PublishSchedule
                 'shift_category_id' => $data['shift_category_id'] ?? $assignment->shift_category_id,
                 'template_name' => $data['name'] ?? 'Shift khusus',
                 'template_type' => count($next) > 1 ? 'special' : 'regular',
-                'rules_version' => 2,
+                'rules_version' => 3,
                 'status' => $assignment->status === 'CANCELLED' ? 'DRAFT' : ($assignment->status ?: 'DRAFT'),
                 'revision' => $revision,
             ])->save();
             if ($create) {
-                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'schedule_revision' => $revision], $create));
+                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 3, 'schedule_revision' => $revision], $create));
             }
             Audit::log('schedule.custom_updated', $assignment, $before, [
                 'reason' => $reason,
@@ -177,30 +171,37 @@ class PublishSchedule
     /** Salin jadwal satu minggu ke minggu tujuan. Tanggal yang sudah terisi atau bentrok dilewati. */
     public function copyWeek(string $fromMonday, string $toMonday, array $employeeIds, User $actor): array
     {
-        $shift = CarbonImmutable::parse($fromMonday)->diffInDays(CarbonImmutable::parse($toMonday));
+        $shift = CarbonImmutable::parse($fromMonday)->diffInDays(CarbonImmutable::parse($toMonday), false);
         $source = ShiftAssignment::query()
-            ->with('template.sessions', 'employee')
+            ->with(['template.sessions', 'sessions', 'employee'])
             ->whereBetween('work_date', [$fromMonday, CarbonImmutable::parse($fromMonday)->addDays(6)->toDateString()])
             ->whereIn('employee_id', $employeeIds)
             ->where('status', '!=', 'CANCELLED')
-            ->whereNotNull('shift_template_id')
+            ->orderBy('work_date')
             ->get();
 
         $created = 0;
         $skipped = [];
-        foreach ($source as $assignment) {
-            $target = CarbonImmutable::parse($assignment->work_date)->addDays($shift)->toDateString();
-            $taken = ShiftAssignment::query()->where('employee_id', $assignment->employee_id)->where('work_date', $target)->where('status', '!=', 'CANCELLED')->exists();
+        foreach ($source->groupBy(fn (ShiftAssignment $assignment) => $assignment->employee_id.':'.$assignment->work_date) as $roster) {
+            $first = $roster->first();
+            $target = CarbonImmutable::parse($first->work_date)->addDays($shift)->toDateString();
+            $taken = ShiftAssignment::query()->where('employee_id', $first->employee_id)->where('work_date', $target)->where('status', '!=', 'CANCELLED')->exists();
             if ($taken) {
-                $skipped[] = ['employee' => $assignment->employee->name, 'work_date' => $target, 'reason' => 'Sudah ada jadwal.'];
+                $skipped[] = ['employee' => $first->employee->name, 'work_date' => $target, 'reason' => 'Tanggal tujuan sudah memiliki jadwal.'];
 
                 continue;
             }
             try {
-                $this->upsert($assignment->employee, $target, $assignment->template, $actor);
-                $created++;
+                $groupCreated = 0;
+                DB::transaction(function () use ($roster, $target, $actor, &$groupCreated) {
+                    foreach ($roster as $assignment) {
+                        $this->copyAssignmentToDate($assignment, $target, $actor);
+                        $groupCreated++;
+                    }
+                });
+                $created += $groupCreated;
             } catch (BusinessRuleException $e) {
-                $skipped[] = ['employee' => $assignment->employee->name, 'work_date' => $target, 'reason' => $e->getMessage()];
+                $skipped[] = ['employee' => $first->employee->name, 'work_date' => $target, 'reason' => $e->getMessage()];
             }
         }
 
@@ -245,14 +246,19 @@ class PublishSchedule
                     ->where('employee_id', $empId)
                     ->where('work_date', $dateStr)
                     ->where('status', '!=', 'CANCELLED')
-                    ->first();
+                    ->lockForUpdate()
+                    ->get();
 
-                if ($existing) {
-                    if (! $overwriteDrafts || $existing->status !== 'DRAFT') {
+                if ($existing->isNotEmpty()) {
+                    $hasDraft = $existing->contains(fn (ShiftAssignment $assignment) => $assignment->status === 'DRAFT');
+                    $hasPublished = $existing->contains(fn (ShiftAssignment $assignment) => $assignment->status !== 'DRAFT');
+                    if (! $overwriteDrafts || $hasPublished) {
                         $skipped[] = [
                             'employee' => $employee->name,
                             'work_date' => $dateStr,
-                            'reason' => $existing->status === 'DRAFT' ? 'Sudah ada jadwal draft.' : 'Jadwal sudah terbit / berjalan.',
+                            'reason' => $hasPublished && $hasDraft
+                                ? 'Roster berisi jadwal yang sudah terbit / berjalan; tidak dapat ditimpa.'
+                                : ($hasDraft ? 'Sudah ada jadwal draft.' : 'Jadwal sudah terbit / berjalan.'),
                         ];
 
                         continue;
@@ -260,7 +266,17 @@ class PublishSchedule
                 }
 
                 try {
-                    $this->upsert($employee, $dateStr, $template, $actor);
+                    DB::transaction(function () use ($existing, $employee, $dateStr, $template, $actor) {
+                        if ($existing->isNotEmpty()) {
+                            foreach ($existing as $assignment) {
+                                $before = $assignment->attributesToArray();
+                                $assignment->update(['status' => 'CANCELLED', 'revision' => $assignment->revision + 1]);
+                                Audit::log('schedule.bulk_replaced', $assignment, $before);
+                            }
+                        }
+
+                        $this->upsert($employee, $dateStr, $template, $actor);
+                    });
                     $created++;
                 } catch (BusinessRuleException $e) {
                     $skipped[] = [
@@ -293,14 +309,15 @@ class PublishSchedule
 
         $created = 0;
         $skipped = [];
-        foreach ($source as $assignment) {
-            $sourceDate = CarbonImmutable::parse($assignment->work_date);
+        foreach ($source->groupBy(fn (ShiftAssignment $assignment) => $assignment->employee_id.':'.CarbonImmutable::parse($assignment->work_date)->day) as $roster) {
+            $first = $roster->first();
+            $sourceDate = CarbonImmutable::parse($first->work_date);
             $day = $sourceDate->day;
 
             if ($day > $toEnd->day) {
                 $skipped[] = [
-                    'employee' => $assignment->employee->name,
-                    'work_date' => $assignment->work_date,
+                    'employee' => $first->employee->name,
+                    'work_date' => $first->work_date,
                     'reason' => "Tanggal {$day} tidak ada di bulan tujuan ({$toStart->format('Y-m')}).",
                 ];
 
@@ -309,55 +326,33 @@ class PublishSchedule
 
             $target = $toStart->setDay($day)->toDateString();
             $taken = ShiftAssignment::query()
-                ->where('employee_id', $assignment->employee_id)
+                ->where('employee_id', $first->employee_id)
                 ->where('work_date', $target)
                 ->where('status', '!=', 'CANCELLED')
                 ->exists();
 
             if ($taken) {
                 $skipped[] = [
-                    'employee' => $assignment->employee->name,
+                    'employee' => $first->employee->name,
                     'work_date' => $target,
-                    'reason' => 'Sudah ada jadwal.',
+                    'reason' => 'Tanggal tujuan sudah memiliki jadwal.',
                 ];
 
                 continue;
             }
 
             try {
-                if ($assignment->shift_template_id && $assignment->template) {
-                    $this->upsert($assignment->employee, $target, $assignment->template, $actor);
-                    $created++;
-                } elseif ($assignment->sessions->isNotEmpty()) {
-                    if (! $assignment->shift_category_id || ! ShiftCategory::query()->whereKey($assignment->shift_category_id)->where('is_active', true)->exists()) {
-                        throw new BusinessRuleException('SHIFT_CATEGORY_REQUIRED', 'Jadwal khusus tanpa kategori aktif perlu diperbarui sebelum disalin.', 422);
+                $groupCreated = 0;
+                DB::transaction(function () use ($roster, $target, $actor, &$groupCreated) {
+                    foreach ($roster as $assignment) {
+                        $this->copyAssignmentToDate($assignment, $target, $actor);
+                        $groupCreated++;
                     }
-
-                    $sourceWorkDate = CarbonImmutable::parse($assignment->work_date, WorkTime::tz());
-                    $sessionsData = $assignment->sessions->map(function ($s) use ($sourceWorkDate, $target) {
-                        $startOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->start_at)->startOfDay(), false);
-                        $endOffset = $sourceWorkDate->diffInDays(WorkTime::local($s->end_at)->startOfDay(), false);
-
-                        return [
-                            'seq' => $s->seq,
-                            'start_date' => CarbonImmutable::parse($target)->addDays($startOffset)->toDateString(),
-                            'start_time' => WorkTime::local($s->start_at)->format('H:i'),
-                            'end_date' => CarbonImmutable::parse($target)->addDays($endOffset)->toDateString(),
-                            'end_time' => WorkTime::local($s->end_at)->format('H:i'),
-                            'unpaid_break_minutes' => $s->unpaid_break_minutes,
-                        ];
-                    })->all();
-
-                    $this->upsertCustom($assignment->employee, $target, [
-                        'name' => $assignment->template_name,
-                        'shift_category_id' => $assignment->shift_category_id,
-                        'sessions' => $sessionsData,
-                    ], $actor);
-                    $created++;
-                }
+                });
+                $created += $groupCreated;
             } catch (BusinessRuleException $e) {
                 $skipped[] = [
-                    'employee' => $assignment->employee->name,
+                    'employee' => $first->employee->name,
                     'work_date' => $target,
                     'reason' => $e->getMessage(),
                 ];
@@ -365,6 +360,37 @@ class PublishSchedule
         }
 
         return ['created' => $created, 'skipped' => $skipped];
+    }
+
+    private function copyAssignmentToDate(ShiftAssignment $source, string $target, User $actor): ShiftAssignment
+    {
+        if ($source->shift_template_id && $source->template) {
+            return $this->upsert($source->employee, $target, $source->template, $actor);
+        }
+        if (! $source->shift_category_id || ! ShiftCategory::query()->whereKey($source->shift_category_id)->where('is_active', true)->exists()) {
+            throw new BusinessRuleException('SHIFT_CATEGORY_REQUIRED', 'Jadwal khusus tanpa kategori aktif perlu diperbarui sebelum disalin.', 422);
+        }
+
+        $sourceWorkDate = CarbonImmutable::parse($source->work_date, WorkTime::tz());
+        $sessionsData = $source->sessions->map(function (ShiftSession $session) use ($sourceWorkDate, $target) {
+            $startOffset = $sourceWorkDate->diffInDays(WorkTime::local($session->start_at)->startOfDay(), false);
+            $endOffset = $sourceWorkDate->diffInDays(WorkTime::local($session->end_at)->startOfDay(), false);
+
+            return [
+                'seq' => $session->seq,
+                'start_date' => CarbonImmutable::parse($target)->addDays($startOffset)->toDateString(),
+                'start_time' => WorkTime::local($session->start_at)->format('H:i'),
+                'end_date' => CarbonImmutable::parse($target)->addDays($endOffset)->toDateString(),
+                'end_time' => WorkTime::local($session->end_at)->format('H:i'),
+                'unpaid_break_minutes' => $session->unpaid_break_minutes,
+            ];
+        })->all();
+
+        return $this->upsertCustom($source->employee, $target, [
+            'name' => $source->template_name,
+            'shift_category_id' => $source->shift_category_id,
+            'sessions' => $sessionsData,
+        ], $actor);
     }
 
     private function buildSessions(Employee $employee, string $workDate, ShiftTemplate $template): array
@@ -534,6 +560,41 @@ class PublishSchedule
         }
     }
 
+    private function assertDailyLimits(Employee $employee, string $workDate, array $candidateSessions, string $candidateType, ?int $ignoreId): void
+    {
+        $existing = ShiftAssignment::query()->with('sessions')
+            ->where('employee_id', $employee->id)
+            ->where('work_date', $workDate)
+            ->where('status', '!=', 'CANCELLED')
+            ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+            ->get();
+        $assignmentCount = $existing->count() + 1;
+
+        if ($assignmentCount > 2 || ($assignmentCount === 2 && ($candidateType === 'special' && $existing->contains(fn (ShiftAssignment $item) => $item->template_type === 'special')))) {
+            throw new BusinessRuleException('DAILY_SHIFT_LIMIT', 'Dalam satu tanggal kerja maksimal dua shift: dua reguler, atau satu reguler dan satu khusus.', 422);
+        }
+
+        $allSessions = $existing->flatMap(fn (ShiftAssignment $item) => $item->sessions);
+        $candidateMinutes = array_sum(array_map(fn (array $session) => max(
+            0,
+            intdiv($session['end_at']->getTimestamp() - $session['start_at']->getTimestamp(), 60) - $session['unpaid_break_minutes'],
+        ), $candidateSessions));
+        $scheduledMinutes = $candidateMinutes + $existing->sum(fn (ShiftAssignment $item) => $item->sessions->sum(fn (ShiftSession $session) => $session->scheduledMinutes()));
+
+        if ($scheduledMinutes > 960) {
+            throw new BusinessRuleException('DAILY_WORK_LIMIT', 'Total kerja terjadwal dalam satu tanggal kerja maksimal 16 jam.', 422);
+        }
+
+        $starts = [...$allSessions->map(fn (ShiftSession $session) => $session->start_at)->all(), ...array_column($candidateSessions, 'start_at')];
+        $ends = [...$allSessions->map(fn (ShiftSession $session) => $session->end_at)->all(), ...array_column($candidateSessions, 'end_at')];
+        $first = collect($starts)->sortBy(fn ($at) => $at->getTimestamp())->first();
+        $last = collect($ends)->sortBy(fn ($at) => $at->getTimestamp())->last();
+
+        if ($last->getTimestamp() - $first->getTimestamp() > 24 * 60 * 60) {
+            throw new BusinessRuleException('DAILY_SPAN_LIMIT', 'Rentang seluruh shift pada satu tanggal kerja maksimal 24 jam.', 422);
+        }
+    }
+
     private function assertNoOverlap(Employee $employee, string $workDate, array $sessions, ?int $ignoreId): void
     {
         $date = CarbonImmutable::parse($workDate);
@@ -554,6 +615,19 @@ class PublishSchedule
                         ]);
                     }
                 }
+            }
+        }
+
+        foreach ($sessions as $candidate) {
+            $overtimeConflict = DB::table('overtime_orders')
+                ->where('employee_id', $employee->id)
+                ->whereIn('status', ['PENDING', 'APPROVED'])
+                ->where('consent_status', '!=', 'DECLINED')
+                ->where('start_at', '<', $candidate['end_at'])
+                ->where('end_at', '>', $candidate['start_at'])
+                ->exists();
+            if ($overtimeConflict) {
+                throw new BusinessRuleException('OVERTIME_CONFLICT', 'Jadwal bertabrakan dengan perintah atau pengajuan lembur aktif.', 409);
             }
         }
     }

@@ -123,9 +123,10 @@ class ReportController extends Controller
         $summary = $reportService->getSummary($request->user(), $filters);
         $details = $reportService->getAllDetailsForExport($request->user(), $filters);
         $shiftBreakdown = $reportService->getShiftBreakdown($request->user(), $filters);
+        $overtime = $reportService->getOvertime($request->user(), $filters);
 
         $tempPath = tempnam(sys_get_temp_dir(), 'laporan_absensi_').'.xlsx';
-        $spout->export($summary, $details, $shiftBreakdown, $tempPath);
+        $spout->export($summary, $details, $shiftBreakdown, $overtime, $tempPath);
 
         $filename = "laporan_kehadiran_{$filters['from']}_{$filters['to']}.xlsx";
 
@@ -144,7 +145,17 @@ class ReportController extends Controller
             $filters['department_name'] = $dept?->name;
         }
 
-        if ($type === 'shift-breakdown') {
+        if ($type === 'overtime') {
+            $pdf = Pdf::loadView('reports.attendance-overtime-pdf', [
+                'site' => SiteSetting::current(),
+                'orders' => $reportService->getOvertime($request->user(), $filters),
+                'filters' => $filters,
+                'periodStatus' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
+                'generatedAtLocal' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
+            ])->setPaper('a4', 'landscape');
+
+            $filename = "rekap_lembur_{$filters['from']}_{$filters['to']}.pdf";
+        } elseif ($type === 'shift-breakdown') {
             $rows = $reportService->getShiftBreakdown($request->user(), $filters);
             $pdf = Pdf::loadView('reports.shift-breakdown-pdf', [
                 'site' => SiteSetting::current(),

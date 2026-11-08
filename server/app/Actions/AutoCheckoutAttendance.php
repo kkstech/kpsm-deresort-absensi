@@ -8,6 +8,7 @@ use App\Models\AttendanceRecord;
 use App\Models\Employee;
 use App\Models\ShiftAssignment;
 use App\Models\ShiftSession;
+use App\Support\AttendanceWindow;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
@@ -46,8 +47,8 @@ class AutoCheckoutAttendance
                     return 0;
                 }
 
-                $closeAt = $this->closeAt($session, $record);
-                if ($closeAt === null || $closeAt->gt($now)) {
+                [$closeAt, $deadline] = $this->closeAt($session, $record);
+                if ($deadline === null || $deadline->gte($now)) {
                     return 0;
                 }
 
@@ -109,7 +110,9 @@ class AutoCheckoutAttendance
             if (! $session || $session->id === $targetSessionId) {
                 continue;
             }
-            if ($session->end_at->gt($receivedAt)) {
+            $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+            $effectiveEnd = $rulesVersion === 3 ? AttendanceWindow::effectiveWorkEnd($session) : $session->end_at;
+            if ($effectiveEnd->gt($receivedAt)) {
                 return 'OPEN_SESSION_EXISTS';
             }
             try {
@@ -124,7 +127,7 @@ class AutoCheckoutAttendance
                 continue;
             }
             $record->update([
-                'provisional_out_at' => $session->end_at,
+                'provisional_out_at' => $effectiveEnd,
                 'status' => 'PROVISIONAL',
                 'needs_review' => true,
                 'review_reason' => 'AUTO_CHECKOUT',
@@ -139,21 +142,34 @@ class AutoCheckoutAttendance
         return null;
     }
 
-    private function closeAt(ShiftSession $session, AttendanceRecord $record): ?CarbonImmutable
+    /** @return array{0: CarbonImmutable, 1: CarbonImmutable} */
+    private function closeAt(ShiftSession $session, AttendanceRecord $record): array
     {
-        if ((int) $session->assignment->rules_version === 0) {
-            return $session->end_at->addMinutes(config('attendance.auto_checkout_after_minutes'));
+        $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+        if ($rulesVersion === 3) {
+            $workEnd = AttendanceWindow::effectiveWorkEnd($session);
+
+            return [$workEnd, $workEnd->addMinutes(60)];
+        }
+
+        if ($rulesVersion === 0) {
+            $deadline = $session->end_at->addMinutes(config('attendance.auto_checkout_after_minutes'));
+
+            return [$deadline, $deadline];
         }
 
         if ($session->assignment->template_type === 'regular') {
-            return $record->check_in_at->addMinutes(13 * 60);
+            $deadline = $record->check_in_at->addMinutes(13 * 60);
+
+            return [$deadline, $deadline];
         }
 
         $sessions = $session->assignment->sessions()->with('attendanceRecord')->get();
         $cycleStart = $sessions->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
             ->filter()->sortBy(fn ($checkIn) => $checkIn->getTimestamp())->first() ?? $record->check_in_at;
         $cycleDeadline = $cycleStart->addHours(24);
+        $deadline = $session->end_at->lt($cycleDeadline) ? $session->end_at : $cycleDeadline;
 
-        return $session->end_at->lt($cycleDeadline) ? $session->end_at : $cycleDeadline;
+        return [$deadline, $deadline];
     }
 }

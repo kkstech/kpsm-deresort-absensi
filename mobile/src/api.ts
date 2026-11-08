@@ -265,6 +265,7 @@ export type OvertimeItem = {
 
 export type OvertimeRequestPayload = {
   work_date: string;
+  shift_session_id: number;
   start_date: string;
   end_date: string;
   start_time: string;

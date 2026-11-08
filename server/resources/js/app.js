@@ -169,6 +169,7 @@ if (logoutForm) {
             localStorage.removeItem('deresort_active_view');
             localStorage.removeItem('deresort_settings_tab');
         } catch (_) {}
+        history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     });
 }
 

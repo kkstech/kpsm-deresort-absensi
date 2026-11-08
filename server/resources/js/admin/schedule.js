@@ -37,12 +37,20 @@ const templateText = (t) => (t.sessions.length > 1 ? `${t.sessions.length} sesi`
 const savedCalView = (() => {
     try { return localStorage.getItem('deresort_cal_view'); } catch (_) { return null; }
 })();
-const state = { view: ['week', 'month'].includes(savedCalView) ? savedCalView : 'week', anchor: parseKey(todayKey()), filter: 'all', employeePage: 1, selected: { date: todayKey(), emp: null } };
+const state = { view: ['week', 'month'].includes(savedCalView) ? savedCalView : 'week', anchor: parseKey(todayKey()), filter: 'all', department: 'all', employeePage: 1, selected: { date: todayKey(), emp: null } };
 const personFilter = () => (state.filter === 'all' ? null : Number(state.filter));
 const pageSize = 10;
-const visiblePeople = () => personFilter()
-    ? employees.filter((e) => e.id === personFilter())
-    : employees.slice((state.employeePage - 1) * pageSize, state.employeePage * pageSize);
+const departmentEmployees = () => employees.filter((employee) => {
+    if (state.department === 'all') return true;
+    if (state.department === 'none') return employee.departmentId === null;
+    return String(employee.departmentId) === state.department;
+});
+const visiblePeople = () => {
+    const people = departmentEmployees();
+    return personFilter()
+        ? people.filter((employee) => employee.id === personFilter())
+        : people.slice((state.employeePage - 1) * pageSize, state.employeePage * pageSize);
+};
 const entriesOn = (key, emp) => entries
     .filter((e) => e.work_date === key && (!emp || e.employee_id === emp))
     .sort((a, b) => a.sessions[0].start_at.localeCompare(b.sessions[0].start_at) || nameOf(a.employee_id).localeCompare(nameOf(b.employee_id)));
@@ -70,7 +78,7 @@ async function load(forceRefresh = false) {
     const [from, to] = fetchRange().map(keyOf);
     const emp = personFilter();
     const pageEmployeeIds = visiblePeople().map((employee) => employee.id);
-    const cacheKey = `${from}_${to}_${emp || state.employeePage}`;
+    const cacheKey = `${from}_${to}_${state.department}_${emp ? `employee-${emp}` : `page-${state.employeePage}`}`;
     const errorBox = $('#schedule-load-error');
 
     if (!forceRefresh && scheduleCache.has(cacheKey)) {
@@ -123,7 +131,11 @@ function renderToolbar() {
     const inRange = entries.filter((e) => e.work_date >= from && e.work_date <= to && (!personFilter() || e.employee_id === personFilter()));
     const drafts = inRange.filter((e) => e.status === 'DRAFT').length;
     $('#range-label').textContent = rangeLabel(range);
-    $('#range-count').textContent = `${inRange.length} jadwal${drafts ? `, ${drafts} draft` : ''}${personFilter() ? ` untuk ${nameOf(personFilter())}` : ''}`;
+    const filterLabels = [
+        personFilter() ? `untuk ${nameOf(personFilter())}` : '',
+        state.department !== 'all' ? $('#calendar-department-filter').selectedOptions[0]?.textContent ?? '' : '',
+    ].filter(Boolean);
+    $('#range-count').textContent = `${inRange.length} jadwal${drafts ? `, ${drafts} draft` : ''}${filterLabels.length ? ` · ${filterLabels.join(' · ')}` : ''}`;
     $$('[data-cal-view]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.calView === state.view)));
     const unit = state.view === 'week' ? 'Minggu' : 'Bulan';
     $('#calendar-prev').setAttribute('aria-label', `${unit} sebelumnya`);
@@ -155,7 +167,7 @@ function renderWeek() {
     const rows = people.map((p) => `<tr><th scope="row"><strong>${esc(p.name)}</strong><small>${esc(p.dept)}</small></th>${days.map((d) => weekCell(p, d)).join('')}</tr>`).join('');
     $('#calendar-body').innerHTML = people.length
         ? `<div class="week-scroll"><table class="week-table"><thead><tr><th scope="col">Karyawan</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
-        : '<p class="list-empty calendar-empty">Belum ada karyawan aktif. Tambahkan di menu Karyawan.</p>';
+        : `<p class="list-empty calendar-empty">${employees.length ? 'Tidak ada karyawan untuk departemen yang dipilih.' : 'Belum ada karyawan aktif. Tambahkan di menu Karyawan.'}</p>`;
 }
 
 function monthCell(day, month) {
@@ -195,7 +207,10 @@ function renderPanel() {
     const { date, emp } = state.selected;
     const who = emp ?? personFilter();
     const items = entriesOn(date, who);
-    $('#selected-person-label').textContent = who ? nameOf(who) : 'Semua karyawan';
+    const departmentLabel = $('#calendar-department-filter').selectedOptions[0]?.textContent;
+    $('#selected-person-label').textContent = who
+        ? nameOf(who)
+        : state.department === 'all' ? 'Semua karyawan' : `Departemen: ${departmentLabel}`;
     $('#selected-date-label').textContent = longDate(date);
     $('#selected-day-list').innerHTML = items.length
         ? items.map(panelItem).join('')
@@ -207,16 +222,21 @@ function render() {
     if (state.view === 'week') renderWeek();
     else renderMonth();
     renderPanel();
-    const total = personFilter() ? 1 : employees.length;
+    const people = departmentEmployees();
+    const total = personFilter() ? (people.some((employee) => employee.id === personFilter()) ? 1 : 0) : people.length;
     renderPagination($('#schedule-pagination'), {
         current_page: personFilter() ? 1 : state.employeePage,
         last_page: personFilter() ? 1 : Math.max(1, Math.ceil(total / pageSize)),
         per_page: pageSize,
         total,
         from: total ? (personFilter() ? 1 : (state.employeePage - 1) * pageSize + 1) : 0,
-        to: personFilter() ? 1 : Math.min(state.employeePage * pageSize, total),
+        to: total ? (personFilter() ? 1 : Math.min(state.employeePage * pageSize, total)) : 0,
     }, (page) => {
         state.employeePage = page;
+        if (state.selected.emp && !visiblePeople().some((employee) => employee.id === state.selected.emp)) {
+            state.selected = { date: state.selected.date, emp: null };
+        }
+        entries = [];
         load();
     });
 }
@@ -300,12 +320,64 @@ function renderScheduleCategories(selectedId = null, existing = false) {
     select.value = selectedId ?? '';
 }
 
+function renderCalendarDepartments() {
+    const select = $('#calendar-department-filter');
+    const departments = [...new Map(employees
+        .filter((employee) => employee.departmentId !== null)
+        .map((employee) => [String(employee.departmentId), { id: employee.departmentId, name: employee.dept }]))
+        .values()]
+        .sort((a, b) => a.name.localeCompare(b.name));
+    select.innerHTML = `<option value="all">Semua departemen</option>${departments.map((department) => `<option value="${department.id}">${esc(department.name)}</option>`).join('')}<option value="none">Tanpa Departemen</option>`;
+    select.value = state.department;
+}
+
+function renderCalendarEmployees(selectedId = state.filter) {
+    const select = $('#person-filter');
+    const people = departmentEmployees();
+    const selectedValue = String(selectedId ?? 'all');
+    state.filter = selectedValue === 'all' || people.some((employee) => String(employee.id) === selectedValue)
+        ? selectedValue
+        : 'all';
+    select.innerHTML = `<option value="all">Semua karyawan</option>${people.map((employee) => `<option value="${employee.id}">${esc(employee.name)}</option>`).join('')}`;
+    select.value = state.filter;
+}
+
+function renderScheduleDepartments() {
+    const select = $('#schedule-department-filter');
+    if (!select) return;
+    const departments = [...new Map(employees
+        .filter((employee) => employee.departmentId !== null)
+        .map((employee) => [String(employee.departmentId), { id: employee.departmentId, name: employee.dept }]))
+        .values()]
+        .sort((a, b) => a.name.localeCompare(b.name));
+    select.innerHTML = `<option value="all">Semua departemen</option>${departments.map((department) => `<option value="${department.id}">${esc(department.name)}</option>`).join('')}<option value="none">Tanpa Departemen</option>`;
+}
+
+function renderScheduleEmployees(selectedId = $('#schedule-employee').value) {
+    const select = $('#schedule-employee');
+    const department = $('#schedule-department-filter').value;
+    const visibleEmployees = employees.filter((employee) => {
+        if (department === 'all') return true;
+        if (department === 'none') return employee.departmentId === null;
+        return String(employee.departmentId) === department;
+    });
+    select.innerHTML = `<option value="">Pilih karyawan</option>${visibleEmployees.map((employee) => `<option value="${employee.id}">${esc(employee.name)}</option>`).join('')}`;
+    const selectedValue = String(selectedId ?? '');
+    select.value = visibleEmployees.some((employee) => String(employee.id) === selectedValue) ? selectedValue : '';
+}
+
 function openScheduleModal() {
     editingSchedule = null;
     $('#schedule-modal-title').textContent = 'Buat jadwal';
     $('#schedule-form').querySelector('.modal-heading p').textContent = 'Jadwal baru tersimpan sebagai draft. Karyawan melihatnya setelah diterbitkan.';
     $('#schedule-form [type="submit"]').textContent = 'Simpan draft';
-    $('#schedule-employee').value = state.selected.emp ?? personFilter() ?? '';
+    const contextualEmployeeId = state.selected.emp ?? personFilter();
+    const contextualEmployee = employees.find((employee) => employee.id === Number(contextualEmployeeId));
+    $('#schedule-department-filter-wrap').hidden = false;
+    $('#schedule-department-filter').value = contextualEmployee
+        ? (contextualEmployee.departmentId === null ? 'none' : String(contextualEmployee.departmentId))
+        : 'all';
+    renderScheduleEmployees(contextualEmployee?.id ?? contextualEmployeeId ?? '');
     $('#schedule-employee').disabled = false;
     $('#schedule-date').value = state.selected.date;
     $('#schedule-date').disabled = false;
@@ -332,7 +404,9 @@ function openScheduleEdit(assignment) {
         ? 'Sesuaikan jam kerja, sesi shift, atau durasi istirahat sebelum jadwal diterbitkan ke karyawan.'
         : 'Sesi berjalan dan yang sudah selesai tetap tercatat; sesi mendatang bisa disesuaikan.';
     $('#schedule-form [type="submit"]').textContent = 'Simpan perubahan';
-    $('#schedule-employee').value = assignment.employee_id;
+    $('#schedule-department-filter').value = 'all';
+    $('#schedule-department-filter-wrap').hidden = true;
+    renderScheduleEmployees(assignment.employee_id);
     $('#schedule-employee').disabled = true;
     $('#schedule-date').value = assignment.work_date;
     $('#schedule-date').disabled = true;
@@ -440,6 +514,11 @@ async function saveSchedule() {
     if (personFilter() && personFilter() !== body.employee_id) {
         state.filter = 'all';
         $('#person-filter').value = 'all';
+    }
+    if (!departmentEmployees().some((employee) => employee.id === body.employee_id)) {
+        state.department = 'all';
+        $('#calendar-department-filter').value = 'all';
+        renderCalendarEmployees(state.filter);
     }
     toast(editingSchedule ? 'Sesi jadwal diperbarui.' : `Jadwal ${nameOf(body.employee_id)} disimpan sebagai draft.`);
     state.anchor = parseKey(body.work_date);
@@ -873,7 +952,18 @@ $('#person-filter').addEventListener('change', (event) => {
     state.filter = event.target.value;
     state.employeePage = 1;
     state.selected = { date: state.selected.date, emp: null };
-    render();
+    entries = [];
+    load();
+});
+$('#calendar-department-filter').addEventListener('change', (event) => {
+    state.department = event.target.value;
+    state.employeePage = 1;
+    renderCalendarEmployees();
+    if (state.selected.emp && !visiblePeople().some((employee) => employee.id === state.selected.emp)) {
+        state.selected = { date: state.selected.date, emp: null };
+    }
+    entries = [];
+    load();
 });
 $$('[data-cal-view]').forEach((button) => button.addEventListener('click', () => {
     state.view = button.dataset.calView;
@@ -1019,6 +1109,8 @@ $('#schedule-form').addEventListener('submit', (event) => {
     saveSchedule();
 });
 
+$('#schedule-department-filter')?.addEventListener('change', () => renderScheduleEmployees());
+
 $('#schedule-mode').addEventListener('change', (event) => setScheduleMode(event.target.value));
 $('#schedule-date').addEventListener('change', () => {
     if (!editingSchedule) $$('.schedule-session-row [data-s="start_date"], .schedule-session-row [data-s="end_date"]', $('#schedule-session-rows')).forEach((input) => { if (!input.value) input.value = $('#schedule-date').value; });
@@ -1096,10 +1188,13 @@ export function focusEmployee(query) {
     const q = query.trim().toLowerCase();
     const match = employees.find((e) => e.name.toLowerCase() === q) ?? employees.find((e) => e.name.toLowerCase().includes(q));
     if (!match) return false;
-    state.filter = String(match.id);
+    state.department = 'all';
+    state.employeePage = 1;
+    $('#calendar-department-filter').value = 'all';
+    renderCalendarEmployees(String(match.id));
     state.selected = { date: state.selected.date, emp: null };
-    $('#person-filter').value = match.id;
-    render();
+    entries = [];
+    load();
     return true;
 }
 
@@ -1109,14 +1204,16 @@ export function initSchedule() {
         employees = emp.data.map((e) => ({
             id: e.id,
             name: e.name,
+            departmentId: e.department_id ?? e.department?.id ?? null,
             dept: e.department?.name ?? '',
             position: e.position?.name ?? 'Tanpa Jabatan',
         }));
         templates = tpl;
         categories = categoryResponse.data;
-        const options = employees.map((e) => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-        $('#person-filter').innerHTML = `<option value="all">Semua karyawan</option>${options}`;
-        $('#schedule-employee').innerHTML = `<option value="">Pilih karyawan</option>${options}`;
+        renderCalendarDepartments();
+        renderCalendarEmployees('all');
+        renderScheduleDepartments();
+        renderScheduleEmployees('');
         $('#schedule-template').innerHTML = templates.map((t) => `<option value="${t.id}">${esc(t.name)} · ${esc(templateText(t))} · ${esc(t.category?.name ?? 'Belum dikategorikan')}</option>`).join('');
         $('#employee-list').innerHTML = employees.map((e) => `<option value="${esc(e.name)}"></option>`).join('');
     }).catch((error) => { ready = null; throw error; });

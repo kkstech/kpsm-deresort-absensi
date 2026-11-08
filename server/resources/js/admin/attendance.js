@@ -1077,6 +1077,8 @@ async function loadDirectSessions() {
 }
 
 let overtimeEmployees = [];
+let overtimeScheduleTargets = new Map();
+let overtimeTargetRequest = 0;
 
 function updateOvertimeCounter() {
     const list = $('#overtime-emp-list');
@@ -1116,6 +1118,67 @@ function renderOvertimeEmployeeList(selectedDept = 'all', searchQuery = '') {
         `;
     }).join('');
     updateOvertimeCounter();
+}
+
+async function loadOvertimeScheduleTargets() {
+    const target = $('#overtime-session-targets');
+    const employeeIds = $$('#overtime-emp-list input[name="ot_emp_id"]:checked').map((checkbox) => Number(checkbox.value));
+    const workDate = $('#overtime-work-date')?.value;
+    const requestId = ++overtimeTargetRequest;
+    overtimeScheduleTargets = new Map();
+    if (!target) return;
+    if (!employeeIds.length || !workDate) {
+        target.hidden = true;
+        target.innerHTML = '';
+        return;
+    }
+
+    target.hidden = false;
+    target.textContent = 'Memuat pilihan sesi shift…';
+    try {
+        const result = await api('schedule', { query: { from: workDate, to: workDate, employee_ids: employeeIds } });
+        if (requestId !== overtimeTargetRequest) return;
+        const sessionsByEmployee = new Map();
+        for (const assignment of result.data ?? []) {
+            const sessions = sessionsByEmployee.get(Number(assignment.employee_id)) ?? [];
+            for (const session of assignment.sessions ?? []) {
+                sessions.push({ ...session, template_name: assignment.template_name });
+            }
+            sessionsByEmployee.set(Number(assignment.employee_id), sessions);
+        }
+        overtimeScheduleTargets = sessionsByEmployee;
+        const selectors = employeeIds.flatMap((id) => {
+            const sessions = sessionsByEmployee.get(id) ?? [];
+            if (sessions.length <= 1) return [];
+            const employee = overtimeEmployees.find((item) => Number(item.id) === id);
+            return [`<label style="display:block; margin-top:8px;">${esc(employee?.name ?? `Karyawan ${id}`)} — pilih sesi shift
+                <select data-overtime-session-employee="${id}" required>
+                    <option value="">Pilih sesi shift</option>
+                    ${sessions.map((session) => `<option value="${session.id}">${esc(session.template_name)} · sesi ${session.seq} · ${esc(session.local_start)}–${esc(session.local_end)}</option>`).join('')}
+                </select>
+            </label>`];
+        });
+        target.innerHTML = selectors.length
+            ? `<strong>Pilih sesi yang menjadi dasar lembur</strong>${selectors.join('')}`
+            : '';
+        target.hidden = selectors.length === 0;
+    } catch (failure) {
+        if (requestId !== overtimeTargetRequest) return;
+        target.textContent = `Pilihan shift tidak dapat dimuat: ${failure.message}`;
+        target.hidden = false;
+    }
+}
+
+function selectedOvertimeSessionTargets(employeeIds) {
+    return employeeIds.flatMap((employeeId) => {
+        const sessions = overtimeScheduleTargets.get(employeeId) ?? [];
+        if (sessions.length === 0) return [];
+        const selectedId = sessions.length === 1
+            ? sessions[0].id
+            : $('#overtime-session-targets select[data-overtime-session-employee="' + employeeId + '"]')?.value;
+        if (!selectedId) throw new Error(`Pilih sesi shift lembur untuk ${overtimeEmployees.find((item) => Number(item.id) === employeeId)?.name ?? 'karyawan ini'}.`);
+        return [{ employee_id: employeeId, shift_session_id: Number(selectedId) }];
+    });
 }
 
 function updateOvertimeCalcInfo() {
@@ -1192,6 +1255,7 @@ async function openOvertimeOrderModal(employeeId = null, workDate = today, recom
         updateOvertimeCounter();
     }
     modal.showModal();
+    await loadOvertimeScheduleTargets();
 }
 
 function initOvertimeModal() {
@@ -1243,7 +1307,10 @@ function initOvertimeModal() {
     });
 
     $('#overtime-emp-list')?.addEventListener('change', (event) => {
-        if (event.target.matches('input[name="ot_emp_id"]')) updateOvertimeCounter();
+        if (event.target.matches('input[name="ot_emp_id"]')) {
+            updateOvertimeCounter();
+            loadOvertimeScheduleTargets();
+        }
     });
 
     $('#overtime-start-time')?.addEventListener('input', updateOvertimeCalcInfo);
@@ -1255,6 +1322,7 @@ function initOvertimeModal() {
     $('#overtime-work-date')?.addEventListener('change', () => {
         $('#overtime-start-day-offset').value = '0';
         syncOvertimeDayOffsets();
+        loadOvertimeScheduleTargets();
     });
 
     modal.querySelectorAll('[data-close-modal]').forEach((btn) => btn.addEventListener('click', () => modal.close()));
@@ -1302,10 +1370,12 @@ function initOvertimeModal() {
         submitBtn.disabled = true;
 
         try {
+            const sessionTargets = selectedOvertimeSessionTargets(employeeIds);
             const res = await api('overtimes/order', {
                 method: 'POST',
                 body: {
                     employee_ids: employeeIds,
+                    session_targets: sessionTargets,
                     work_date: workDate,
                     start_time: startTime,
                     end_time: endTime,

@@ -214,6 +214,10 @@
                 <div class="kpi-val">{{ $kpi['total_verified_hours_formatted'] }}</div>
             </td>
             <td>
+                <div class="kpi-label">Jam Lembur Aktual</div>
+                <div class="kpi-val">{{ $kpi['total_actual_overtime_hours_formatted'] }}</div>
+            </td>
+            <td>
                 <div class="kpi-label">Jam Lembur Diakui</div>
                 <div class="kpi-val">{{ $kpi['total_overtime_hours_formatted'] }}</div>
             </td>
@@ -243,7 +247,8 @@
                 <th style="width: 35px;">Hadir</th>
                 <th style="width: 55px;">Jam Reguler</th>
                 <th style="width: 45px;">Terlambat</th>
-                <th style="width: 50px;">Jam Lembur</th>
+                <th style="width: 50px;">Lembur Aktual</th>
+                <th style="width: 50px;">Lembur Diakui</th>
                 <th style="width: 30px;">Cuti</th>
                 <th style="width: 35px;">Review</th>
                 <th style="width: 60px;">Uang Makan</th>
@@ -270,6 +275,7 @@
                             <span style="color: #15803d;">-</span>
                         @endif
                     </td>
+                    <td class="text-center">{{ $row['overtime_actual_hours_formatted'] }}</td>
                     <td class="text-center">{{ $row['overtime_hours_formatted'] }}</td>
                     <td class="text-center">{{ $row['leave_days'] > 0 ? $row['leave_days'].' h' : '-' }}</td>
                     <td class="text-center">{{ $row['review_count'] > 0 ? $row['review_count'] : '-' }}</td>
@@ -279,7 +285,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="14" class="text-center" style="padding: 15px; color: #64748b;">
+                    <td colspan="15" class="text-center" style="padding: 15px; color: #64748b;">
                         Tidak ada data kehadiran untuk periode dan filter ini.
                     </td>
                 </tr>
@@ -291,6 +297,7 @@
                     <td class="text-center">{{ $kpi['total_attended_days'] }} h</td>
                     <td class="text-center">{{ $kpi['total_verified_hours_formatted'] }}</td>
                     <td class="text-center">{{ $kpi['total_late_count'] }}x ({{ $kpi['total_late_minutes'] }}m)</td>
+                    <td class="text-center">{{ $kpi['total_actual_overtime_hours_formatted'] }}</td>
                     <td class="text-center">{{ $kpi['total_overtime_hours_formatted'] }}</td>
                     <td class="text-center">{{ $kpi['total_leave_days'] }} h</td>
                     <td class="text-center">{{ $kpi['total_review_count'] }}</td>

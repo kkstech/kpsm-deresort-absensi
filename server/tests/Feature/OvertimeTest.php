@@ -132,6 +132,7 @@ class OvertimeTest extends TestCase
             'start_time' => $recommendation['suggested_start_time'],
             'end_time' => $recommendation['suggested_end_time'],
             'title' => 'Perpanjangan shift malam',
+            'session_targets' => [['employee_id' => $this->employee->id, 'shift_session_id' => $lastSession->id]],
             'is_cross_day' => $recommendation['is_cross_day'],
             'start_day_offset' => $recommendation['start_day_offset'],
             'end_day_offset' => $recommendation['end_day_offset'],
@@ -283,6 +284,7 @@ class OvertimeTest extends TestCase
 
         $req = $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             'work_date' => '2026-10-26',
+            'shift_session_id' => $assignment->sessions->last()->id,
             'start_time' => '21:00',
             'end_time' => '23:00',
             'title' => 'Pembersihan Banquet Tambahan',
@@ -342,7 +344,7 @@ class OvertimeTest extends TestCase
 
         $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             'work_date' => '2026-10-26',
-            'start_time' => '16:00',
+            'start_time' => '17:00',
             'end_time' => '18:00',
             'title' => 'Pembersihan area event',
         ])->assertCreated()->assertJsonPath('data.is_day_off', false);
@@ -380,12 +382,13 @@ class OvertimeTest extends TestCase
         auth()->forgetGuards();
         $this->flushSession();
         $this->travelTo('2026-10-26 11:30:00');
-        $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
+        $checkout = $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
             'event_uuid' => (string) Str::uuid(),
             'shift_session_id' => $session->id,
             'event_type' => 'CHECK_OUT',
             'device_id' => $this->device->device_uuid,
         ])->assertCreated();
+        $this->assertSame('ACCEPTED', $checkout->json('data.status'), json_encode($checkout->json('data')));
 
         $this->assertDatabaseHas('overtime_orders', [
             'id' => $orderId,
@@ -394,7 +397,52 @@ class OvertimeTest extends TestCase
         ]);
     }
 
-    public function test_employee_can_request_overtime_after_checking_in_to_the_last_split_session(): void
+    public function test_approved_overtime_extends_checkout_past_thirteen_hours_through_the_inclusive_deadline(): void
+    {
+        $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+        $assignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-26', $template, $this->admin);
+        app(PublishSchedule::class)->publish('2026-10-26', '2026-10-26', [$this->employee->id]);
+        $session = $assignment->sessions->firstOrFail();
+        $overtimeEnd = $session->end_at->addHours(6);
+        OvertimeOrder::query()->create([
+            'order_number' => 'SPL-20261026-EXT01',
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-26',
+            'shift_session_id' => $session->id,
+            'initiator_type' => 'admin',
+            'created_by' => $this->admin->id,
+            'title' => 'Perpanjangan operasional',
+            'start_at' => $session->end_at,
+            'end_at' => $overtimeEnd,
+            'planned_minutes' => 360,
+            'status' => 'APPROVED',
+            'consent_status' => 'ACCEPTED',
+        ]);
+
+        $this->travelTo($session->start_at);
+        $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
+            'event_uuid' => (string) Str::uuid(),
+            'shift_session_id' => $session->id,
+            'event_type' => 'CHECK_IN',
+            'device_id' => $this->device->device_uuid,
+        ])->assertCreated();
+
+        $this->travelTo($overtimeEnd->addHour());
+        $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
+            'event_uuid' => (string) Str::uuid(),
+            'shift_session_id' => $session->id,
+            'event_type' => 'CHECK_OUT',
+            'device_id' => $this->device->device_uuid,
+        ])->assertCreated()->assertJsonPath('data.status', 'ACCEPTED');
+
+        $this->assertDatabaseHas('attendance_records', [
+            'shift_session_id' => $session->id,
+            'check_out_at' => $overtimeEnd->addHour()->format('Y-m-d H:i:s'),
+            'verified_overtime_minutes' => 360,
+        ]);
+    }
+
+    public function test_employee_can_request_overtime_for_a_selected_split_session_before_checkout(): void
     {
         $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
             'name' => 'Split 8 Jam',
@@ -415,13 +463,14 @@ class OvertimeTest extends TestCase
         ]);
         $requestData = [
             'work_date' => '2026-10-26',
+            'shift_session_id' => $sessions[1]->id,
             'start_time' => '17:00',
             'end_time' => '19:00',
             'title' => 'Pembersihan area event',
         ];
 
         $this->withToken($this->token)->postJson('/api/v1/overtimes', $requestData)
-            ->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+            ->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_STARTED');
         $this->assertDatabaseCount('overtime_orders', 0);
 
         AttendanceRecord::query()->create([
@@ -486,7 +535,7 @@ class OvertimeTest extends TestCase
             'work_date' => '2026-10-26',
             'start_date' => '2026-10-26',
             'end_date' => '2026-10-26',
-            'start_time' => '16:00',
+            'start_time' => '17:00',
             'end_time' => '20:00',
             'title' => 'Pembersihan area event',
         ])->assertCreated();
@@ -545,7 +594,7 @@ class OvertimeTest extends TestCase
         $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             ...$requestData,
             'work_date' => '2026-10-26',
-        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_STARTED');
 
         $cancelled = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-27', [
             'name' => 'Shift dibatalkan',
@@ -557,7 +606,7 @@ class OvertimeTest extends TestCase
         $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             ...$requestData,
             'work_date' => '2026-10-27',
-        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_STARTED');
 
         $empty = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-28', [
             'name' => 'Shift tanpa sesi aktif',
@@ -569,7 +618,7 @@ class OvertimeTest extends TestCase
         $this->withToken($this->token)->postJson('/api/v1/overtimes', [
             ...$requestData,
             'work_date' => '2026-10-28',
-        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_COMPLETED');
+        ])->assertUnprocessable()->assertJsonPath('code', 'SHIFT_NOT_STARTED');
     }
 
     public function test_checkout_after_session_end_calculates_verified_overtime_minutes_capped_by_spl(): void
@@ -621,7 +670,7 @@ class OvertimeTest extends TestCase
             'event_type' => 'CHECK_OUT',
             'device_id' => $this->device->device_uuid,
             'client_recorded_at' => '2026-10-26T18:30:00+07:00',
-        ])->assertCreated();
+        ])->assertCreated()->assertJsonPath('data.status', 'ACCEPTED');
 
         // 5. Verifikasi bahwa 90 menit lembur tercatat
         $this->assertDatabaseHas('overtime_orders', [

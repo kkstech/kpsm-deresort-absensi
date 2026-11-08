@@ -1377,14 +1377,52 @@ main:focus { outline: none; }
 .day-checkbox-label:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .day-checkbox-label input[type="checkbox"] { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; margin: 0; accent-color: var(--primary); }
 .bulk-check-field { margin-top: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
-.leave-year-panel { margin-bottom: 16px; }
-.inline-settings-form { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) auto; align-items: end; gap: 12px; padding: 0 20px 20px; }
-.inline-settings-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
-.inline-settings-form input, #leave-status-filter { min-height: 44px; padding: 0 10px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
-.inline-settings-form .form-error { grid-column: 1 / -1; }
-.leave-quota-fields { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 14px; }
-.leave-quota-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
-.leave-quota-fields label small { color: var(--muted); font-size: 11px; font-weight: 500; }
+.leave-year-panel { margin-bottom: 16px; overflow: hidden; }
+.leave-settings-heading { padding: 20px 24px; }
+.leave-settings-heading h2 { font-size: 18px; }
+.leave-settings-heading p { margin-top: 5px; font-size: 13px; }
+.leave-opening-status { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 18px 24px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.leave-opening-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.leave-opening-status p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.45; }
+.leave-opening-status .secondary-button { flex: 0 0 auto; min-height: 40px; padding: 0 14px; }
+.leave-settings-form { display: grid; gap: 16px; padding: 18px 24px 24px; }
+.leave-settings-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 16px; }
+.leave-settings-section { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-soft); }
+.leave-settings-section-heading { margin-bottom: 16px; }
+.leave-settings-section-heading h3 { margin: 0; color: var(--ink); font-size: 14px; line-height: 1.35; }
+.leave-settings-section-heading p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.leave-settings-rules { display: grid; grid-template-columns: minmax(100px, .65fr) minmax(0, 1.35fr); align-items: start; gap: 12px; }
+.leave-settings-field { display: grid; min-width: 0; gap: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.leave-settings-field input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
+#leave-status-filter { min-height: 44px; padding: 0 10px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
+.leave-settings-field input:hover { border-color: #899a8e; }
+.leave-settings-field small { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.45; }
+.leave-input-with-unit { position: relative; display: block; }
+.leave-input-with-unit input { padding-right: 46px; }
+.leave-input-with-unit > span { position: absolute; top: 50%; right: 12px; color: var(--muted); font-size: 12px; font-weight: 600; transform: translateY(-50%); }
+.leave-quota-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; }
+.leave-quota-fields label { display: grid; min-width: 0; gap: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
+.leave-quota-fields input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; color: var(--ink); background: #fff; }
+.leave-quota-fields input:hover { border-color: #899a8e; }
+.leave-quota-fields label small { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.45; }
+.leave-settings-footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; }
+.leave-settings-reason { max-width: 680px; }
+.leave-settings-footer .primary-button { min-width: 176px; }
+.leave-settings-form > .form-error { grid-column: 1 / -1; }
+#leave-settings-error:not([hidden]) { margin-top: -4px; }
+@media (max-width: 900px) {
+    .leave-settings-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+    .leave-settings-heading { align-items: flex-start; padding: 16px; }
+    .leave-opening-status { align-items: flex-start; flex-direction: column; margin: 14px 16px 0; padding: 12px; }
+    .leave-opening-status .secondary-button { width: 100%; }
+    .leave-settings-form { gap: 12px; padding: 14px 16px 16px; }
+    .leave-settings-section { padding: 14px; }
+    .leave-settings-rules { grid-template-columns: 1fr; }
+    .leave-settings-footer { grid-template-columns: 1fr; }
+    .leave-settings-footer .primary-button { width: 100%; }
+}
 
 /* Employee CSV Import Modal Styling */
 .employee-import-dialog { width: min(960px, calc(100vw - 32px)); }
@@ -1531,7 +1569,6 @@ main:focus { outline: none; }
         padding-bottom: 8px;
         margin-bottom: 4px;
     }
-    .inline-settings-form { grid-template-columns: 1fr; padding: 0 16px 16px; }
     .attendance-data-table,
     .monitoring-data-table {
         min-width: 0 !important;

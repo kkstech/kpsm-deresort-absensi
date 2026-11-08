@@ -61,7 +61,7 @@ class ScheduleTest extends TestCase
                 ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '04:00', 'end_date' => '2026-10-26', 'end_time' => '08:00'],
             ],
         ])->assertCreated()
-            ->assertJsonPath('data.rules_version', 2)
+            ->assertJsonPath('data.rules_version', 3)
             ->assertJsonPath('data.template_type', 'special')
             ->assertJsonPath('data.sessions.0.local_end', '02.00 (+1)')
             ->assertJsonPath('data.scheduled_minutes', 480);
@@ -111,7 +111,7 @@ class ScheduleTest extends TestCase
         ])->assertStatus(409)->assertJsonPath('code', 'CYCLE_WORK_LIMIT');
     }
 
-    public function test_schedule_calendar_can_request_one_employee_page_and_caps_ids_at_ten(): void
+    public function test_schedule_calendar_can_request_one_employee_page_and_caps_ids_at_one_hundred(): void
     {
         $other = $this->makeEmployee('FO-2', 'Front Office');
         $this->assign('2026-10-25', 'Reguler');
@@ -125,7 +125,7 @@ class ScheduleTest extends TestCase
         $this->getJson("/admin/api/schedule?{$query}")
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.employee_id', $other->id);
 
-        $ids = range(1, 11);
+        $ids = range(1, 101);
         $oversized = http_build_query(['from' => '2026-10-25', 'to' => '2026-10-25', 'employee_ids' => $ids]);
         $this->getJson("/admin/api/schedule?{$oversized}")->assertUnprocessable();
     }
@@ -203,6 +203,11 @@ class ScheduleTest extends TestCase
         foreach ($oldSessionIds as $sessionId) {
             $this->assertNotNull(ShiftSession::query()->findOrFail($sessionId)->retired_at);
         }
+        $this->assertDatabaseHas('shift_sessions', [
+            'shift_assignment_id' => $first['id'],
+            'rules_version' => 3,
+            'retired_at' => null,
+        ]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.swap_chain_completed']);
     }
 
@@ -334,13 +339,42 @@ class ScheduleTest extends TestCase
         $this->assign('2026-10-26', 'Khusus 2 sesi')->assertCreated();
     }
 
-    public function test_same_date_replaces_and_bumps_revision(): void
+    public function test_two_regular_shifts_can_be_assigned_on_one_work_date(): void
     {
-        $this->assign('2026-10-25', 'Reguler');
-        $this->assign('2026-10-25', 'Khusus 3 sesi')->assertCreated()->assertJsonPath('data.revision', 2);
-        $this->assertSame(1, ShiftAssignment::query()->count());
-        $this->assertDatabaseCount('shift_sessions', 4);
-        $this->assertSame(3, ShiftAssignment::query()->first()->sessions()->count());
+        $first = $this->assign('2026-10-25', 'Reguler')->assertCreated()->json('data.id');
+        $second = $this->assign('2026-10-25', 'Malam')->assertCreated()->json('data.id');
+
+        $this->assertSame(2, ShiftAssignment::query()->where('employee_id', $this->employee->id)->where('work_date', '2026-10-25')->count());
+        $this->assertSame(1, ShiftAssignment::query()->findOrFail($first)->revision);
+        $this->assertSame(1, ShiftAssignment::query()->findOrFail($second)->revision);
+        $this->assertSame(2, ShiftSession::query()->count());
+    }
+
+    public function test_two_shift_three_and_regular_assignments_fit_within_the_daily_limits(): void
+    {
+        $first = ShiftTemplate::query()->create(['name' => 'Shift 1 07-15', 'type' => 'regular']);
+        $first->sessions()->create(['seq' => 1, 'local_start' => '07:00', 'local_end' => '15:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0]);
+        $third = ShiftTemplate::query()->create(['name' => 'Shift 3 23-07', 'type' => 'regular']);
+        $third->sessions()->create(['seq' => 1, 'local_start' => '23:00', 'local_end' => '07:00', 'day_offset' => 1, 'unpaid_break_minutes' => 0]);
+
+        $this->postJson('/admin/api/schedule', ['employee_id' => $this->employee->id, 'work_date' => '2026-10-25', 'shift_template_id' => $first->id])->assertCreated();
+        $this->postJson('/admin/api/schedule', ['employee_id' => $this->employee->id, 'work_date' => '2026-10-25', 'shift_template_id' => $third->id])
+            ->assertCreated()->assertJsonPath('data.template_name', 'Shift 3 23-07');
+
+        $this->assertSame(2, ShiftAssignment::query()->where('employee_id', $this->employee->id)->where('work_date', '2026-10-25')->count());
+        $this->postJson('/admin/api/schedule', ['employee_id' => $this->employee->id, 'work_date' => '2026-10-25', 'shift_template_id' => $first->id])
+            ->assertStatus(422)->assertJsonPath('code', 'DAILY_SHIFT_LIMIT');
+    }
+
+    public function test_daily_scheduled_minutes_cannot_exceed_sixteen_hours(): void
+    {
+        $first = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+        $second = ShiftTemplate::query()->create(['name' => 'Shift tambahan 09 jam', 'type' => 'regular']);
+        $second->sessions()->create(['seq' => 1, 'local_start' => '18:00', 'local_end' => '03:00', 'day_offset' => 1, 'unpaid_break_minutes' => 0]);
+
+        $this->postJson('/admin/api/schedule', ['employee_id' => $this->employee->id, 'work_date' => '2026-10-25', 'shift_template_id' => $first->id])->assertCreated();
+        $this->postJson('/admin/api/schedule', ['employee_id' => $this->employee->id, 'work_date' => '2026-10-25', 'shift_template_id' => $second->id])
+            ->assertUnprocessable()->assertJsonPath('code', 'DAILY_WORK_LIMIT');
     }
 
     public function test_started_schedule_is_locked(): void
@@ -350,7 +384,7 @@ class ScheduleTest extends TestCase
         $id = $this->assign('2026-10-25', 'Reguler')->json('data.id');
         $this->travelTo('2026-10-25 01:30:00'); // 08.30 WIB
         $this->deleteJson("/admin/api/schedule/{$id}")->assertStatus(409)->assertJsonPath('code', 'SCHEDULE_LOCKED');
-        $this->assign('2026-10-25', 'Malam')->assertStatus(409);
+        $this->assign('2026-10-25', 'Malam')->assertCreated();
     }
 
     public function test_finalized_period_rejects_changes(): void

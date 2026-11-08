@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AttendanceWindow;
 use App\Support\WorkTime;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -61,7 +62,7 @@ class ShiftAssignment extends Model
     public function toApi(): array
     {
         $now = WorkTime::now();
-        $this->loadMissing(['employee.workLocation', 'category']);
+        $this->loadMissing(['employee.workLocation', 'category', 'sessions.attendanceRecord', 'sessions.overtimeOrders']);
         $unrecordedPolicySnapshot = null;
 
         return [
@@ -103,6 +104,7 @@ class ShiftAssignment extends Model
                     'local_end' => WorkTime::clock($s->end_at, $this->work_date),
                     'unpaid_break_minutes' => $s->unpaid_break_minutes,
                     'scheduled_minutes' => $s->scheduledMinutes(),
+                    'rules_version' => $s->rules_version,
                     'attendance_policy' => [
                         'location_required' => (bool) ($snapshot['use_location_check'] ?? false),
                         'max_accuracy_meters' => $snapshot['location']['max_accuracy_meters'] ?? null,
@@ -113,10 +115,18 @@ class ShiftAssignment extends Model
                         'check_in_opens_at' => $checkInEarlyMinutes === 0 ? null : WorkTime::iso($s->start_at->subMinutes($checkInEarlyMinutes)),
                         'check_in_closes_at' => $checkInEarlyMinutes === 0 ? null : WorkTime::iso($s->end_at),
                         'check_in_unrestricted' => $checkInEarlyMinutes === 0,
-                        'max_elapsed_minutes' => (int) $this->rules_version >= 2
-                            ? ($this->template_type === 'special' ? 24 * 60 : 13 * 60)
-                            : null,
-                        'checkout_grace_minutes' => (int) $this->rules_version >= 2 && $this->template_type === 'special' ? 0 : config('attendance.checkout_late_minutes'),
+                        'max_elapsed_minutes' => match (true) {
+                            (int) $s->rules_version === 3 => null,
+                            (int) $s->rules_version >= 2 => $this->template_type === 'special' ? 24 * 60 : 13 * 60,
+                            default => null,
+                        },
+                        'checkout_grace_minutes' => match (true) {
+                            (int) $s->rules_version === 3 => 60,
+                            (int) $s->rules_version >= 2 && $this->template_type === 'special' => 0,
+                            default => config('attendance.checkout_late_minutes'),
+                        },
+                        'effective_work_end_at' => (int) $s->rules_version === 3 ? WorkTime::iso(AttendanceWindow::effectiveWorkEnd($s)) : null,
+                        'checkout_deadline_at' => (int) $s->rules_version === 3 ? WorkTime::iso(AttendanceWindow::checkoutDeadline($s)) : null,
                     ],
                 ];
             })->all(),

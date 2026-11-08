@@ -193,10 +193,12 @@ class ReportService
             ->groupBy('employee_id');
 
         $rows = [];
+        $totalScheduledDays = 0;
         $totalScheduledSessions = 0;
         $totalAttendedDays = 0;
         $totalAttendedSessions = 0;
         $totalVerifiedMinutes = 0;
+        $totalActualOvertimeMinutes = 0;
         $totalOvertimeMinutes = 0;
         $totalMealAllowance = 0;
         $totalTransportAllowance = 0;
@@ -254,6 +256,7 @@ class ReportService
 
             $attendedDays = count($attendedDates);
             $lateUnpermittedCount = max(0, $lateCount - $latePermittedCount);
+            $empActualOvertimeMinutes = (int) $empOvertimes->sum('actual_minutes');
             $empOvertimeMinutes = (int) $empOvertimes->sum('verified_minutes');
 
             $empLeaveDays = 0;
@@ -267,9 +270,11 @@ class ReportService
             $totalAllowance = $mealAmount + $transportAmount;
 
             $totalScheduledSessions += $scheduledSessions;
+            $totalScheduledDays += $scheduledDays;
             $totalAttendedDays += $attendedDays;
             $totalAttendedSessions += $attendedSessionsCount;
             $totalVerifiedMinutes += $verifiedMinutes;
+            $totalActualOvertimeMinutes += $empActualOvertimeMinutes;
             $totalOvertimeMinutes += $empOvertimeMinutes;
             $totalMealAllowance += $mealAmount;
             $totalTransportAllowance += $transportAmount;
@@ -300,6 +305,8 @@ class ReportService
                 'late_permitted_count' => $latePermittedCount,
                 'late_unpermitted_count' => $lateUnpermittedCount,
                 'review_count' => $reviewCount,
+                'overtime_actual_minutes' => $empActualOvertimeMinutes,
+                'overtime_actual_hours_formatted' => $this->formatHoursMinutes($empActualOvertimeMinutes),
                 'overtime_minutes' => $empOvertimeMinutes,
                 'overtime_hours_formatted' => $this->formatHoursMinutes($empOvertimeMinutes),
                 'leave_days' => $empLeaveDays,
@@ -313,11 +320,14 @@ class ReportService
 
         $kpi = [
             'total_employees' => count($rows),
+            'total_scheduled_days' => $totalScheduledDays,
             'total_scheduled_sessions' => $totalScheduledSessions,
             'total_attended_days' => $totalAttendedDays,
             'total_attended_sessions' => $totalAttendedSessions,
             'total_verified_minutes' => $totalVerifiedMinutes,
             'total_verified_hours_formatted' => $this->formatHoursMinutes($totalVerifiedMinutes),
+            'total_actual_overtime_minutes' => $totalActualOvertimeMinutes,
+            'total_actual_overtime_hours_formatted' => $this->formatHoursMinutes($totalActualOvertimeMinutes),
             'total_overtime_minutes' => $totalOvertimeMinutes,
             'total_overtime_hours_formatted' => $this->formatHoursMinutes($totalOvertimeMinutes),
             'total_meal_allowance' => $totalMealAllowance,
@@ -327,8 +337,8 @@ class ReportService
             'total_late_minutes' => $totalLateMinutes,
             'total_review_count' => $totalReviewCount,
             'total_leave_days' => $totalLeaveDays,
-            'attendance_rate' => $totalScheduledSessions > 0
-                ? (int) round(($totalAttendedSessions / $totalScheduledSessions) * 100)
+            'attendance_rate' => $totalScheduledDays > 0
+                ? (int) round(($totalAttendedDays / $totalScheduledDays) * 100)
                 : 0,
         ];
 
@@ -363,6 +373,7 @@ class ReportService
                 'attendanceRecord.latePermission',
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
+                'overtimeOrders' => fn (Builder $query) => $query->where('status', 'APPROVED')->orderBy('id'),
             ])
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
@@ -371,15 +382,18 @@ class ReportService
 
         $paginator = $sessionQuery->paginate($perPage);
 
-        // Fetch allowances for the assignments in this page to enrich detail rows
-        $assignmentIds = $paginator->getCollection()->pluck('shift_assignment_id')->unique()->all();
+        // Fetch each daily allowance once; the row formatter places it on its anchor shift only.
+        $employeeIds = $paginator->getCollection()->map(fn (ShiftSession $session) => $session->assignment->employee_id)->unique()->all();
         $allowances = AllowanceResult::query()
-            ->whereIn('shift_assignment_id', $assignmentIds)
+            ->whereIn('employee_id', $employeeIds)
+            ->whereBetween('work_date', [$filters['from'], $filters['to']])
             ->get()
-            ->keyBy('shift_assignment_id');
+            ->keyBy(fn (AllowanceResult $allowance) => $allowance->employee_id.':'.$allowance->work_date);
 
         $paginator->getCollection()->transform(function (ShiftSession $session) use ($allowances) {
-            return $this->formatSessionDetailRow($session, $allowances->get($session->shift_assignment_id));
+            $key = $session->assignment->employee_id.':'.$session->assignment->work_date;
+
+            return $this->formatSessionDetailRow($session, $allowances->get($key));
         });
 
         return $paginator;
@@ -456,6 +470,7 @@ class ReportService
                 'attendanceRecord.latePermission',
                 'attendanceRecord.overtimeOrder',
                 'attendanceEvents',
+                'overtimeOrders' => fn (Builder $query) => $query->where('status', 'APPROVED')->orderBy('id'),
             ])
             ->withMax('attendanceEvents', 'effective_at')
             ->orderByDesc('attendance_events_max_effective_at')
@@ -463,13 +478,18 @@ class ReportService
             ->orderByDesc('id');
 
         $sessions = $sessionQuery->get();
-        $assignmentIds = $sessions->pluck('shift_assignment_id')->unique()->all();
+        $employeeIds = $sessions->map(fn (ShiftSession $session) => $session->assignment->employee_id)->unique()->all();
         $allowances = AllowanceResult::query()
-            ->whereIn('shift_assignment_id', $assignmentIds)
+            ->whereIn('employee_id', $employeeIds)
+            ->whereBetween('work_date', [$filters['from'], $filters['to']])
             ->get()
-            ->keyBy('shift_assignment_id');
+            ->keyBy(fn (AllowanceResult $allowance) => $allowance->employee_id.':'.$allowance->work_date);
 
-        return $sessions->map(fn (ShiftSession $session) => $this->formatSessionDetailRow($session, $allowances->get($session->shift_assignment_id)));
+        return $sessions->map(function (ShiftSession $session) use ($allowances) {
+            $key = $session->assignment->employee_id.':'.$session->assignment->work_date;
+
+            return $this->formatSessionDetailRow($session, $allowances->get($key));
+        });
     }
 
     public function getOvertime(User $user, array $filters): Collection
@@ -479,25 +499,43 @@ class ReportService
         return OvertimeOrder::query()
             ->whereIn('employee_id', $employeeIds)
             ->whereBetween('work_date', [$filters['from'], $filters['to']])
+            ->where('status', 'APPROVED')
+            ->with(['employee.department', 'session.assignment', 'decisionMaker'])
             ->when(! empty($filters['department_id']), fn (Builder $q) => $q->whereHas('employee', fn (Builder $e) => $e->where('department_id', $filters['department_id'])))
             ->when(! empty($filters['employee_id']), fn (Builder $q) => $q->where('employee_id', $filters['employee_id']))
-            ->when(! empty($filters['status']), fn (Builder $q) => $q->where('status', $filters['status']))
             ->when(! empty($filters['q']), function (Builder $q) use ($filters) {
                 $term = trim($filters['q']);
                 $q->whereHas('employee', fn (Builder $e) => $e->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%"));
             })
-            ->with(['employee.department', 'session', 'decisionMaker'])
             ->orderByDesc('work_date')
             ->orderByDesc('id')
             ->get()
-            ->map->toApi();
+            ->map(fn (OvertimeOrder $order) => [
+                ...$order->toApi(),
+                'execution_status' => $order->actual_minutes > 0 ? 'REALIZED' : 'NOT_REALIZED',
+            ]);
     }
 
     public function formatSessionDetailRow(ShiftSession $session, ?AllowanceResult $allowance): array
     {
         $assignment = $session->assignment;
+        if ($allowance && ((int) $allowance->shift_assignment_id !== (int) $assignment->id || $session->seq !== 1)) {
+            $allowance = null;
+        }
         $employee = $assignment->employee;
         $record = $session->attendanceRecord;
+        $overtimeOrders = $session->overtimeOrders->where('status', 'APPROVED')->values();
+        $recordOvertimeOrder = $record?->overtimeOrder;
+        if (
+            $recordOvertimeOrder?->status === 'APPROVED'
+            && $recordOvertimeOrder->shift_session_id === null
+            && $recordOvertimeOrder->attendanceRecord()->count() === 1
+            && ! $overtimeOrders->contains('id', $recordOvertimeOrder->id)
+        ) {
+            $overtimeOrders->push($recordOvertimeOrder);
+        }
+        $overtimeActualMinutes = (int) $overtimeOrders->sum('actual_minutes');
+        $overtimeVerifiedMinutes = (int) $overtimeOrders->sum('verified_minutes');
         $events = $session->attendanceEvents;
         $review = $record ? (bool) $record->needs_review : $events->contains('result', 'REVIEW_REQUIRED');
         $now = WorkTime::now();
@@ -573,7 +611,9 @@ class ReportService
                 'verified_minutes' => (int) ($record?->verified_minutes ?? 0),
                 'verified_hours_formatted' => $this->formatHoursMinutes((int) ($record?->verified_minutes ?? 0)),
             ],
-            'overtime_minutes' => (int) ($record?->overtimeOrder?->verified_minutes ?? 0),
+            'overtime_actual_minutes' => $overtimeActualMinutes,
+            'overtime_verified_minutes' => $overtimeVerifiedMinutes,
+            'overtime_minutes' => $overtimeVerifiedMinutes,
             'allowance' => [
                 'status' => $allowance?->status,
                 'meal_amount' => (int) ($allowance && $allowance->status === 'ELIGIBLE' ? $allowance->meal_amount : 0),
@@ -598,11 +638,14 @@ class ReportService
     {
         return [
             'total_employees' => 0,
+            'total_scheduled_days' => 0,
             'total_scheduled_sessions' => 0,
             'total_attended_days' => 0,
             'total_attended_sessions' => 0,
             'total_verified_minutes' => 0,
             'total_verified_hours_formatted' => '0j 0m',
+            'total_actual_overtime_minutes' => 0,
+            'total_actual_overtime_hours_formatted' => '0j 0m',
             'total_overtime_minutes' => 0,
             'total_overtime_hours_formatted' => '0j 0m',
             'total_meal_allowance' => 0,

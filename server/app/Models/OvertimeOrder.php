@@ -62,6 +62,7 @@ class OvertimeOrder extends Model
     {
         $employee = $this->relationLoaded('employee') ? $this->employee : null;
         $session = $this->relationLoaded('session') ? $this->session : null;
+        $session?->loadMissing('assignment');
 
         return [
             'id' => $this->id,
@@ -78,7 +79,7 @@ class OvertimeOrder extends Model
             ] : null,
             'work_date' => $this->work_date,
             'shift_session_id' => $this->shift_session_id,
-            'session_name' => $session ? "Sesi {$session->seq}" : null,
+            'session_name' => $session ? ($session->assignment->template_name.' · Sesi '.$session->seq) : null,
             'initiator_type' => $this->initiator_type,
             'title' => $this->title,
             'start_at' => WorkTime::iso($this->start_at),
