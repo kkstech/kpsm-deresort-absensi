@@ -45,8 +45,8 @@ return new class extends Migration
         });
 
         Schema::table('shift_assignments', function (Blueprint $table) {
-            $table->dropIndex(['employee_id', 'work_date']);
             $table->unique(['employee_id', 'work_date']);
+            $table->dropIndex(['employee_id', 'work_date']);
         });
     }
 };

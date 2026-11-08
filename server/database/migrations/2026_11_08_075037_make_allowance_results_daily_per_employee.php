@@ -12,8 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('allowance_results', function (Blueprint $table) {
-            $table->dropUnique('allowance_results_shift_assignment_id_unique');
             $table->index('shift_assignment_id');
+            $table->dropUnique('allowance_results_shift_assignment_id_unique');
             $table->unique(['employee_id', 'work_date']);
         });
     }
@@ -25,8 +25,8 @@ return new class extends Migration
     {
         Schema::table('allowance_results', function (Blueprint $table) {
             $table->dropUnique(['employee_id', 'work_date']);
-            $table->dropIndex(['shift_assignment_id']);
             $table->unique('shift_assignment_id');
+            $table->dropIndex(['shift_assignment_id']);
         });
     }
 };
