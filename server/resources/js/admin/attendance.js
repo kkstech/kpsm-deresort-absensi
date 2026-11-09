@@ -1043,7 +1043,8 @@ export async function showApprovals() {
             }));
         }
     } catch (failure) {
-        error.textContent = failure.message;
+        const message = failure instanceof Error ? failure.message : 'Terjadi kesalahan.';
+        error.textContent = `Gagal memuat daftar persetujuan. ${message} Gunakan tombol Muat ulang untuk mencoba lagi.`;
         error.hidden = false;
     }
 }

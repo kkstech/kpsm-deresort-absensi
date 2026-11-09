@@ -904,6 +904,7 @@ function Main() {
   const [swapVacancyAction, setSwapVacancyAction] = useState('roster_off');
   const [targetEmpSchedules, setTargetEmpSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [loadingTargetSchedules, setLoadingTargetSchedules] = useState(false);
+  const [targetScheduleError, setTargetScheduleError] = useState('');
 
   // Admin Direct Swap Modal state
   const [directSwapOpen, setDirectSwapOpen] = useState(false);
@@ -915,6 +916,10 @@ function Main() {
   const [directTargetQuery, setDirectTargetQuery] = useState('');
   const [directTargetSchedules, setDirectTargetSchedules] = useState<ShiftExchangeSchedule[]>([]);
   const [directTargetAssId, setDirectTargetAssId] = useState<number | null>(null);
+  const [directSourceSchedulesBusy, setDirectSourceSchedulesBusy] = useState(false);
+  const [directTargetSchedulesBusy, setDirectTargetSchedulesBusy] = useState(false);
+  const [directSourceScheduleError, setDirectSourceScheduleError] = useState('');
+  const [directTargetScheduleError, setDirectTargetScheduleError] = useState('');
   const [directSwapMode, setDirectSwapMode] = useState<'direct' | 'delegation'>('direct');
   const [directVacancyAction, setDirectVacancyAction] = useState('roster_off');
   const [directCrossUnitConfirm, setDirectCrossUnitConfirm] = useState(false);
@@ -922,7 +927,6 @@ function Main() {
   const [directPreview, setDirectPreview] = useState<SwapPreviewResult | null>(null);
   const [directPreviewBusy, setDirectPreviewBusy] = useState(false);
   const [directCommitBusy, setDirectCommitBusy] = useState(false);
-  const [directSchedulesBusy, setDirectSchedulesBusy] = useState(false);
   const [directError, setDirectError] = useState('');
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1803,14 +1807,19 @@ function Main() {
     setSwapTargetEmpId(empId);
     setSelectedColleagueDetail(colleagues.find((colleague) => colleague.id === empId) ?? null);
     setSwapTargetAssId(null);
+    setTargetEmpSchedules([]);
+    setTargetScheduleError('');
     setLoadingTargetSchedules(true);
     try {
       if (token) {
         const res = await request<{ data: ShiftExchangeSchedule[] }>(baseUrl, `shift-exchanges/employee-schedules?employee_id=${empId}`, token);
         setTargetEmpSchedules(res.data ?? []);
       }
-    } catch {
+    } catch (failure) {
       setTargetEmpSchedules([]);
+      const message = failure instanceof Error ? failure.message : 'Terjadi kendala saat memuat jadwal rekan.';
+      setTargetScheduleError(message);
+      showFeedback('error', `Jadwal rekan belum bisa dimuat. ${message}`);
     } finally {
       setLoadingTargetSchedules(false);
     }
@@ -1842,6 +1851,7 @@ function Main() {
       setSelectedColleagueDetail(null);
       setSwapTargetAssId(null);
       setTargetEmpSchedules([]);
+      setTargetScheduleError('');
       setReason('');
       setSwapStep(1);
       showFeedback('success', 'Pengajuan tukar shift berhasil dikirim.');
@@ -2073,6 +2083,8 @@ function Main() {
   async function openDirectSwap(preselectedAssignment?: Assignment, preselectedEmpId?: number) {
     setDirectPreview(null);
     setDirectError('');
+    setDirectSourceScheduleError('');
+    setDirectTargetScheduleError('');
     setDirectReason('');
     setDirectCrossUnitConfirm(false);
     setDirectSwapMode('direct');
@@ -2110,16 +2122,21 @@ function Main() {
     setDirectSourceEmpId(empId);
     setDirectSourceAssId(null);
     setDirectPreview(null);
-    setDirectSchedulesBusy(true);
+    setDirectSourceScheduleError('');
+    setDirectError('');
+    setDirectSourceSchedulesBusy(true);
     try {
       if (token) {
         const res = await request<{ data: ShiftExchangeSchedule[] }>(baseUrl, `shift-exchanges/employee-schedules?employee_id=${empId}`, token);
         setDirectSourceSchedules(res.data ?? []);
       }
-    } catch {
+    } catch (failure) {
       setDirectSourceSchedules([]);
+      const message = failure instanceof Error ? failure.message : 'Terjadi kendala saat memuat jadwal karyawan.';
+      setDirectSourceScheduleError(message);
+      showFeedback('error', `Jadwal karyawan belum bisa dimuat. ${message}`);
     } finally {
-      setDirectSchedulesBusy(false);
+      setDirectSourceSchedulesBusy(false);
     }
   }
 
@@ -2127,16 +2144,21 @@ function Main() {
     setDirectTargetEmpId(empId);
     setDirectTargetAssId(null);
     setDirectPreview(null);
-    setDirectSchedulesBusy(true);
+    setDirectTargetScheduleError('');
+    setDirectError('');
+    setDirectTargetSchedulesBusy(true);
     try {
       if (token) {
         const res = await request<{ data: ShiftExchangeSchedule[] }>(baseUrl, `shift-exchanges/employee-schedules?employee_id=${empId}`, token);
         setDirectTargetSchedules(res.data ?? []);
       }
-    } catch {
+    } catch (failure) {
       setDirectTargetSchedules([]);
+      const message = failure instanceof Error ? failure.message : 'Terjadi kendala saat memuat jadwal karyawan pengganti.';
+      setDirectTargetScheduleError(message);
+      showFeedback('error', `Jadwal karyawan pengganti belum bisa dimuat. ${message}`);
     } finally {
-      setDirectSchedulesBusy(false);
+      setDirectTargetSchedulesBusy(false);
     }
   }
 
@@ -3003,7 +3025,7 @@ function Main() {
               {colleagueLoading && <View style={styles.inlineLoadingRow}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.fieldHint}>Memuat daftar rekan…</Text></View>}
               {!!colleagueError && (
                 <View>
-                  <Text style={styles.errorText}>{colleagueError}</Text>
+                  <Text accessibilityRole="alert" style={styles.errorText}>{colleagueError}</Text>
                   <Pressable onPress={() => loadColleaguePage(0, 5, colleagueQuery, false)} style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }]} accessibilityRole="button">
                     <Text style={styles.wizardNextText}>Coba lagi</Text>
                   </Pressable>
@@ -3033,6 +3055,17 @@ function Main() {
                   </View>
                 ) : !swapTargetEmpId ? (
                   <Text style={styles.fieldHint}>Pilih rekan kerja di atas terlebih dahulu.</Text>
+                ) : targetScheduleError ? (
+                  <View>
+                    <Text accessibilityRole="alert" style={styles.errorText}>Jadwal rekan gagal dimuat: {targetScheduleError}</Text>
+                    <Pressable
+                      onPress={() => selectColleague(swapTargetEmpId)}
+                      style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }]}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.wizardNextText}>Muat ulang jadwal</Text>
+                    </Pressable>
+                  </View>
                 ) : targetEmpSchedules.length === 0 ? (
                   <View style={styles.emptyNoticeBox}>
                     <Text style={styles.emptyNoticeText}>Rekan ini belum memiliki jadwal aktif lain di periode mendatang. Anda dapat memilih mode Pelimpahan Shift di Langkah 1.</Text>
@@ -4102,7 +4135,7 @@ function Main() {
         {feedback && (
           <View
             accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
+            accessibilityLiveRegion={feedback.tone === 'error' ? 'assertive' : 'polite'}
             pointerEvents="none"
             style={[styles.feedbackToast, feedback.tone === 'error' && styles.feedbackToastError]}
           >
@@ -4267,13 +4300,6 @@ function Main() {
               </Pressable>
             </View>
 
-            {directSchedulesBusy && (
-              <View style={styles.scheduleLoading}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.fieldHint}>Memuat jadwal karyawan…</Text>
-              </View>
-            )}
-
             <ScrollView showsVerticalScrollIndicator={false} style={styles.modalScroll}>
               {/* Step 1: Source Employee & Schedule */}
               <Text style={styles.fieldLabel}>1. Karyawan & Jadwal Asal</Text>
@@ -4294,7 +4320,16 @@ function Main() {
               </View>
 
               {directSourceEmpId && (
-                directSourceSchedules.length === 0 ? (
+                directSourceSchedulesBusy ? (
+                  <View style={styles.inlineLoadingRow}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.fieldHint}>Memuat jadwal karyawan…</Text></View>
+                ) : directSourceScheduleError ? (
+                  <View>
+                    <Text accessibilityRole="alert" style={styles.errorText}>Jadwal karyawan gagal dimuat: {directSourceScheduleError}</Text>
+                    <Pressable onPress={() => selectDirectSourceEmp(directSourceEmpId)} style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }]} accessibilityRole="button">
+                      <Text style={styles.wizardNextText}>Muat ulang jadwal</Text>
+                    </Pressable>
+                  </View>
+                ) : directSourceSchedules.length === 0 ? (
                   <Text style={styles.fieldHint}>Karyawan ini tidak memiliki jadwal aktif mendatang.</Text>
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalSelector}>
@@ -4345,6 +4380,15 @@ function Main() {
                   <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Pilih Jadwal Karyawan Pengganti untuk Ditukar Balik</Text>
                   {!directTargetEmpId ? (
                     <Text style={styles.fieldHint}>Pilih karyawan pengganti di atas.</Text>
+                  ) : directTargetSchedulesBusy ? (
+                    <View style={styles.inlineLoadingRow}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.fieldHint}>Memuat jadwal pengganti…</Text></View>
+                  ) : directTargetScheduleError ? (
+                    <View>
+                      <Text accessibilityRole="alert" style={styles.errorText}>Jadwal karyawan pengganti gagal dimuat: {directTargetScheduleError}</Text>
+                      <Pressable onPress={() => directTargetEmpId && selectDirectTargetEmp(directTargetEmpId)} style={[styles.wizardNextBtn, { minHeight: 44, marginTop: 8 }]} accessibilityRole="button">
+                        <Text style={styles.wizardNextText}>Muat ulang jadwal</Text>
+                      </Pressable>
+                    </View>
                   ) : directTargetSchedules.length === 0 ? (
                     <Text style={styles.fieldHint}>Karyawan pengganti tidak memiliki jadwal aktif lain untuk ditukar balik. Gunakan mode Pelimpahan Shift.</Text>
                   ) : (
