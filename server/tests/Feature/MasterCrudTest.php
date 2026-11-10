@@ -219,6 +219,14 @@ class MasterCrudTest extends TestCase
 
         $admin->postJson('/admin/api/templates', ['name' => 'Lima', 'type' => 'special', 'sessions' => array_fill(0, 5, ['local_start' => '06:00', 'local_end' => '07:00'])])
             ->assertStatus(422);
+
+        $admin->postJson('/admin/api/templates', ['name' => 'Kurang 8 Jam', 'type' => 'special', 'sessions' => [
+            ['local_start' => '06:00', 'local_end' => '09:00'], ['local_start' => '15:00', 'local_end' => '18:00'],
+        ]])->assertStatus(422)->assertJsonPath('details.sessions.0', 'Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini 6 jam). Silakan atur ulang jam kerja.');
+
+        $admin->postJson('/admin/api/templates', ['name' => 'Split Sukses 8 Jam', 'type' => 'special', 'sessions' => [
+            ['local_start' => '06:00', 'local_end' => '10:00'], ['local_start' => '15:00', 'local_end' => '19:00'],
+        ]])->assertCreated();
     }
 
     public function test_policy_priority_individual_then_department_then_global(): void

@@ -101,8 +101,8 @@ class OvertimeTest extends TestCase
         $assignment = app(PublishSchedule::class)->upsertCustom($this->employee, '2026-10-26', [
             'name' => 'Split Malam',
             'sessions' => [
-                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '20:00', 'end_date' => '2026-10-26', 'end_time' => '22:00'],
-                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '22:00', 'end_date' => '2026-10-27', 'end_time' => '00:30'],
+                ['seq' => 1, 'start_date' => '2026-10-26', 'start_time' => '16:00', 'end_date' => '2026-10-26', 'end_time' => '20:00'],
+                ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '20:30', 'end_date' => '2026-10-27', 'end_time' => '00:30'],
             ],
         ], $this->admin);
         $lastSession = $assignment->sessions->sortBy(fn ($session) => $session->end_at->getTimestamp())->last();

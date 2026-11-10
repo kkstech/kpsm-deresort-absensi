@@ -260,6 +260,7 @@ function fieldHtml(f, value) {
                 <span class="sessions-title">${esc(f.label)}</span>
                 <span class="field-hint" style="margin: 0;">${esc(f.hint ?? '')}</span>
             </div>
+            <div class="session-duration-notice schedule-duration-notice" style="margin-bottom: 8px;" hidden></div>
             <div class="session-rows"></div>
             <button type="button" class="secondary-button add-session-card-btn" data-add-session style="display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-weight: 600; padding: 8px 14px; border-radius: 8px;">
                 <span style="font-size: 16px; line-height: 1; font-weight: 700;">+</span> Tambah Sesi Kerja
@@ -390,6 +391,53 @@ function syncVisibility() {
             const removeBtn = card.querySelector('[data-remove-session]');
             if (removeBtn) removeBtn.hidden = !isSpecial || rows.children.length <= 1;
         });
+
+        const durationNotice = $('.session-duration-notice', fieldsBox);
+        if (durationNotice) {
+            if (!isSpecial) {
+                durationNotice.hidden = true;
+            } else {
+                let totalWorkMinutes = 0;
+                let completeCount = 0;
+                $$('.session-row', rows).forEach((card) => {
+                    const startVal = $('[data-s="local_start"]', card)?.value;
+                    const endVal = $('[data-s="local_end"]', card)?.value;
+                    const startOffset = Number($('[data-s="start_day_offset"]', card)?.value || 0);
+                    const endOffset = Number($('[data-s="day_offset"]', card)?.value || (startOffset + (endVal <= startVal ? 1 : 0)));
+                    const breakVal = Number($('[data-s="unpaid_break_minutes"]', card)?.value || 0);
+                    if (startVal && endVal) {
+                        const [sh, sm] = startVal.split(':').map(Number);
+                        const [eh, em] = endVal.split(':').map(Number);
+                        const startMins = sh * 60 + sm + startOffset * 1440;
+                        const endMins = eh * 60 + em + endOffset * 1440;
+                        const diff = endMins - startMins;
+                        if (diff > 0) {
+                            totalWorkMinutes += Math.max(0, diff - breakVal);
+                            completeCount++;
+                        }
+                    }
+                });
+                durationNotice.hidden = false;
+                if (completeCount === 0) {
+                    durationNotice.className = 'session-duration-notice schedule-duration-notice warning';
+                    durationNotice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Shift split khusus <strong>wajib minimal 8 jam total</strong> kerja. Lengkapi jam mulai dan jam selesai setiap sesi.</span>`;
+                } else {
+                    const hours = Math.floor(totalWorkMinutes / 60);
+                    const mins = totalWorkMinutes % 60;
+                    const durStr = `${hours} jam${mins > 0 ? ` ${mins} menit` : ''}`;
+                    if (totalWorkMinutes < 480) {
+                        durationNotice.className = 'session-duration-notice schedule-duration-notice warning';
+                        durationNotice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Total durasi kerja saat ini: <strong>${durStr}</strong>. Shift split khusus <strong>wajib minimal 8 jam total</strong>. Durasi belum memenuhi syarat, silakan atur ulang jam kerja.</span>`;
+                    } else if (totalWorkMinutes > 960) {
+                        durationNotice.className = 'session-duration-notice schedule-duration-notice danger';
+                        durationNotice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Total durasi kerja saat ini: <strong>${durStr}</strong>. Melebihi batas maksimal 16 jam kerja per siklus. Silakan atur ulang jam kerja.</span>`;
+                    } else {
+                        durationNotice.className = 'session-duration-notice schedule-duration-notice success';
+                        durationNotice.innerHTML = `<span style="font-size:15px;line-height:1;">✓</span> <span>Total durasi kerja: <strong>${durStr}</strong> (memenuhi syarat minimal 8 jam).</span>`;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -448,6 +496,9 @@ export function openForm({ title, hint = '', fields, values = {}, submitLabel = 
 }
 
 fieldsBox.addEventListener('input', (event) => {
+    if (event.target.closest('.session-rows')) {
+        syncVisibility();
+    }
     if (['latitude', 'longitude', 'radius_meters'].includes(event.target.name)) {
         refreshLocationMap(fieldsBox, { fit: event.target.name === 'radius_meters' });
     }
@@ -464,6 +515,9 @@ fieldsBox.addEventListener('input', (event) => {
 });
 
 fieldsBox.addEventListener('change', (event) => {
+    if (event.target.name === 'type' || event.target.closest('.session-rows')) {
+        syncVisibility();
+    }
     if (event.target.type === 'file' && event.target.files && event.target.files[0]) {
         const file = event.target.files[0];
         const container = event.target.closest('.avatar-field-card') ?? event.target.closest('label');

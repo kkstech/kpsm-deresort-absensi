@@ -111,6 +111,22 @@ class ScheduleTest extends TestCase
         ])->assertStatus(409)->assertJsonPath('code', 'CYCLE_WORK_LIMIT');
     }
 
+    public function test_custom_cycle_rejects_less_than_8_scheduled_work_hours(): void
+    {
+        $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split kurang dari 8 jam',
+            'shift_category_id' => $this->shiftCategoryId,
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '11:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '16:00'],
+            ],
+        ])->assertStatus(422)
+            ->assertJsonPath('code', 'CYCLE_WORK_MINIMUM')
+            ->assertJsonPath('message', 'Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini 6 jam). Silakan atur ulang jam kerja.');
+    }
+
     public function test_schedule_calendar_can_request_one_employee_page_and_caps_ids_at_one_hundred(): void
     {
         $other = $this->makeEmployee('FO-2', 'Front Office');
@@ -138,8 +154,8 @@ class ScheduleTest extends TestCase
             'name' => 'Split',
             'shift_category_id' => $this->shiftCategoryId,
             'sessions' => [
-                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '10:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
-                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '16:00'],
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '17:00'],
             ],
         ])->assertCreated();
         $assignmentId = $created->json('data.id');
@@ -159,7 +175,7 @@ class ScheduleTest extends TestCase
             'expected_revision' => 1,
             'reason' => 'Operasional berubah',
             'sessions' => [
-                ['id' => $firstId, 'seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '10:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
+                ['id' => $firstId, 'seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '12:00'],
                 ['id' => $staleId, 'seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '14:00', 'end_date' => '2026-10-25', 'end_time' => '18:00'],
             ],
         ])->assertOk()->assertJsonPath('data.revision', 2);
@@ -324,7 +340,7 @@ class ScheduleTest extends TestCase
         $this->assign('2026-10-25', 'Reguler')->assertJsonPath('data.sessions.0.scheduled_minutes', 480);
         $two = $this->assign('2026-10-26', 'Khusus 2 sesi')->json('data.sessions');
         $this->assertCount(2, $two);
-        $this->assertSame(360, array_sum(array_column($two, 'scheduled_minutes')));
+        $this->assertSame(480, array_sum(array_column($two, 'scheduled_minutes')));
     }
 
     public function test_overlap_across_work_dates_is_rejected(): void

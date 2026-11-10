@@ -1312,8 +1312,9 @@
                     <div class="schedule-sessions-section">
                         <div class="schedule-sessions-heading">
                             <strong>Daftar Sesi Shift Khusus</strong>
-                            <span class="field-hint">Maksimal 4 sesi per siklus. Total waktu kerja di luar istirahat maksimal 16 jam; rentang dari awal sesi pertama sampai akhir sesi terakhir maksimal 24 jam.</span>
+                            <span class="field-hint">Maksimal 4 sesi per siklus. Total waktu kerja di luar istirahat wajib minimal 8 jam dan maksimal 16 jam; rentang dari awal sesi pertama sampai akhir sesi terakhir maksimal 24 jam.</span>
                         </div>
+                        <div id="schedule-duration-notice" class="schedule-duration-notice warning" hidden></div>
                         <div id="schedule-session-rows" class="schedule-session-cards"></div>
                         <button type="button" class="secondary-button add-session-button" id="schedule-add-session"><span style="font-size: 16px; font-weight: bold; line-height: 1;">+</span> Tambah sesi</button>
                     </div>

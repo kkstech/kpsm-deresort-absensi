@@ -507,6 +507,27 @@ async function openItem(item) {
         values: item ?? {},
         grid: Boolean(tab.grid),
         onSubmit: async (body) => {
+            if (active === 'templates' && body.type === 'special' && Array.isArray(body.sessions)) {
+                let totalWorkMinutes = 0;
+                for (const s of body.sessions) {
+                    if (s.local_start && s.local_end) {
+                        const [sh, sm] = s.local_start.split(':').map(Number);
+                        const [eh, em] = s.local_end.split(':').map(Number);
+                        const startOffset = Number(s.start_day_offset || 0);
+                        const endOffset = Number(s.day_offset ?? (startOffset + (s.local_end <= s.local_start ? 1 : 0)));
+                        const breakVal = Number(s.unpaid_break_minutes || 0);
+                        const diff = (eh * 60 + em + endOffset * 1440) - (sh * 60 + sm + startOffset * 1440);
+                        if (diff > 0) totalWorkMinutes += Math.max(0, diff - breakVal);
+                    }
+                }
+                if (totalWorkMinutes < 480) {
+                    const h = Math.floor(totalWorkMinutes / 60);
+                    const m = totalWorkMinutes % 60;
+                    const durText = `${h} jam${m > 0 ? ` ${m} menit` : ''}`;
+                    const msg = `Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini ${durText}). Silakan atur ulang jam kerja.`;
+                    throw new Error(msg);
+                }
+            }
             if (tab.preview && body.effective_from < todayKey()) {
                 const { data: preview } = await api(`${path}/preview`, { method: 'POST', body });
                 const message = `Tarif ini berdampak pada ${preview.affected_cycles} siklus; ${preview.snapshots_to_recalculate} snapshot lama akan dihitung ulang. Total sekarang: makan Rp ${Number(preview.current_meal_amount).toLocaleString('id-ID')} dan transport Rp ${Number(preview.current_transport_amount).toLocaleString('id-ID')}.`;

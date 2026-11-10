@@ -464,12 +464,18 @@ class PublishSchedule
         if ($last->lte($first)) {
             throw new BusinessRuleException('SESSION_INVALID', 'Sesi terakhir harus berakhir setelah sesi pertama dimulai.');
         }
+        if ($last->getTimestamp() - $first->getTimestamp() > 24 * 60 * 60) {
+            throw new BusinessRuleException('CYCLE_SPAN_LIMIT', 'Rentang kalender satu siklus maksimal 24 jam.');
+        }
         $scheduled = array_sum(array_map(fn (array $session) => max(0, intdiv($session['end_at']->getTimestamp() - $session['start_at']->getTimestamp(), 60) - $session['unpaid_break_minutes']), $sessions));
         if ($scheduled > 960) {
             throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 16 jam.');
         }
-        if ($last->getTimestamp() - $first->getTimestamp() > 24 * 60 * 60) {
-            throw new BusinessRuleException('CYCLE_SPAN_LIMIT', 'Rentang kalender satu siklus maksimal 24 jam.');
+        if (count($sessions) > 1 && $scheduled < 480) {
+            $hours = floor($scheduled / 60);
+            $mins = $scheduled % 60;
+            $durText = $hours.' jam'.($mins > 0 ? ' '.$mins.' menit' : '');
+            throw new BusinessRuleException('CYCLE_WORK_MINIMUM', "Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini {$durText}). Silakan atur ulang jam kerja.", 422);
         }
     }
 

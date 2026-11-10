@@ -45,8 +45,8 @@ class MasterDataSeeder extends Seeder
             ['seq' => 1, 'local_start' => '22:00', 'local_end' => '06:00', 'day_offset' => 1, 'unpaid_break_minutes' => 0],
         ]);
         $this->template('special', 'Khusus 2 sesi', [
-            ['seq' => 1, 'local_start' => '06:00', 'local_end' => '09:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
-            ['seq' => 2, 'local_start' => '15:00', 'local_end' => '18:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
+            ['seq' => 1, 'local_start' => '06:00', 'local_end' => '10:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
+            ['seq' => 2, 'local_start' => '15:00', 'local_end' => '19:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],
         ]);
         $this->template('special', 'Khusus 3 sesi', [
             ['seq' => 1, 'local_start' => '06:00', 'local_end' => '09:00', 'day_offset' => 0, 'unpaid_break_minutes' => 0],

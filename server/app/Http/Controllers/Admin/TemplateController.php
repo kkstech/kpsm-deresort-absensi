@@ -136,6 +136,14 @@ class TemplateController extends Controller
         if ($totalWorkMinutes > $maxWorkMinutes) {
             throw ValidationException::withMessages(['sessions' => 'Total kerja satu shift maksimal '.($maxWorkMinutes / 60).' jam.']);
         }
+        if ($data['type'] === 'special' && $totalWorkMinutes < 8 * 60) {
+            $hours = floor($totalWorkMinutes / 60);
+            $mins = $totalWorkMinutes % 60;
+            $durText = $hours.' jam'.($mins > 0 ? ' '.$mins.' menit' : '');
+            throw ValidationException::withMessages([
+                'sessions' => "Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini {$durText}). Silakan atur ulang jam kerja.",
+            ]);
+        }
         if ($data['type'] === 'special' && count($sessions) > 4) {
             throw ValidationException::withMessages(['sessions' => 'Shift split maksimal memiliki 4 sesi.']);
         }

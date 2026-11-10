@@ -328,7 +328,7 @@ class AttendanceTest extends TestCase
     public function test_all_four_sessions_can_be_recorded_independently(): void
     {
         $template = ShiftTemplate::query()->create(['name' => 'Empat sesi', 'type' => 'special']);
-        foreach ([['08:00', '09:00'], ['10:00', '11:00'], ['12:00', '13:00'], ['14:00', '15:00']] as $index => [$start, $end]) {
+        foreach ([['07:00', '09:00'], ['10:00', '12:00'], ['13:00', '15:00'], ['16:00', '18:00']] as $index => [$start, $end]) {
             $template->sessions()->create([
                 'seq' => $index + 1,
                 'local_start' => $start,
