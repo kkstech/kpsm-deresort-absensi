@@ -1612,6 +1612,26 @@ main:focus { outline: none; }
     width: 10rem;
     max-width: 10rem;
 }
+.monitoring-data-table .monitoring-status-col {
+    width: 132px;
+    min-width: 132px;
+    max-width: 132px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.monitoring-data-table .monitoring-status-col .status {
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+}
+.monitoring-data-table .monitoring-status-col small {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+.monitoring-data-table .monitoring-actions-col {
+    width: 132px;
+    min-width: 132px;
+}
 .monitoring-session-name {
     display: block;
     overflow: hidden;

@@ -113,8 +113,7 @@ function populateFilters({ departments, employees }) {
 function stateLabel(row) {
     const state = row.attendance.state;
     if (state === 'NEEDS_REVIEW') {
-        const reason = row.attendance.review_reason;
-        return { label: `Perlu verifikasi · ${reviewReasonLabel(reason)}`, className: 'danger' };
+        return { label: 'Perlu verifikasi', className: 'danger' };
     }
     return ({
         PRESENT_LATE: { label: 'Terlambat', className: 'warning' },
@@ -382,11 +381,11 @@ function renderMonitoring({ data, meta, summary }) {
             </div>
         `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" style="min-width:150px;">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" style="min-width:90px;">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" class="monitoring-status-col">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" class="monitoring-actions-col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
-            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button><button type="button" class="action-btn" data-session-action="events" data-session-id="${row.id}" aria-label="Lihat event absensi ${esc(row.employee.name)}">Event</button></td>` : '';
+            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button><button type="button" class="action-btn" data-session-action="events" data-session-id="${row.id}" title="Riwayat event sinkronisasi" aria-label="Lihat riwayat event absensi ${esc(row.employee.name)}">${icon('file-text')}</button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
 
@@ -432,7 +431,7 @@ function renderMonitoring({ data, meta, summary }) {
                         ${checkOutPhotoBtn}
                     </div>
                 </td>
-                <td data-label="Status"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
+                <td data-label="Status" class="monitoring-status-col"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
                 ${otCell}
                 ${actions}
