@@ -3399,7 +3399,7 @@ function Main() {
                 onPress={() => setSwapStep(3)}
                 style={[styles.wizardNextBtn, (!swapTargetEmpId || (swapMode === 'direct' && !swapTargetAssId)) && styles.disabled]}
               >
-                <Text style={styles.wizardNextText}>Lanjut: Konfirmasi →</Text>
+                <Text style={styles.wizardNextText}>Tinjau Pengajuan →</Text>
               </Pressable>
             </View>
           </View>
@@ -3468,7 +3468,7 @@ function Main() {
               >
                 <View style={styles.btnContentRow}>
                   {busy && <ActivityIndicator size="small" color="#fff" />}
-                  <Text style={styles.wizardNextText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+                  <Text style={styles.wizardNextText}>{busy ? 'Mengirim…' : 'Kirim Permohonan Tukar Shift'}</Text>
                 </View>
               </Pressable>
             </View>
@@ -3644,6 +3644,12 @@ function Main() {
       : unfinishedSessions.length > 0 ? unfinishedSessions : openSessions;
     const chosen = sessions.find((item) => item.session.id === sessionId)?.session;
     const evidenceRequired = requestKind === 'late' ? chosen?.attendance_policy?.late_permission_proof_required : chosen?.attendance_policy?.correction_proof_required;
+    const proofButtonLabel = proof
+      ? `Ganti bukti: ${proof.name}`
+      : evidenceRequired ? 'Lampirkan bukti (wajib)' : 'Lampirkan bukti (opsional)';
+    const submitButtonLabel = requestKind === 'leave'
+      ? 'Kirim Pengajuan Cuti'
+      : requestKind === 'late' ? 'Kirim Pengajuan Izin' : 'Kirim Pengajuan Koreksi Absensi';
 
     return (
       <View style={styles.formCard}>
@@ -3829,7 +3835,7 @@ function Main() {
             )}
 
             <Pressable onPress={chooseProof} style={styles.attachButton}>
-              <Text style={styles.attachText}>{proof ? `Bukti: ${proof.name}` : 'Lampirkan JPG, PNG, atau PDF'}</Text>
+              <Text style={styles.attachText}>{proofButtonLabel}</Text>
             </Pressable>
             {evidenceRequired && <Text style={styles.requiredHint}>Bukti wajib sesuai aturan absensi sesi ini.</Text>}
           </>
@@ -3839,7 +3845,7 @@ function Main() {
         <Pressable disabled={busy} onPress={submitRequest} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed, busy && styles.disabled]}>
           <View style={styles.btnContentRow}>
             {busy && <ActivityIndicator size="small" color={colors.primary} />}
-            <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : 'Kirim Pengajuan'}</Text>
+            <Text style={styles.actionButtonText}>{busy ? 'Mengirim…' : submitButtonLabel}</Text>
           </View>
         </Pressable>
       </View>
@@ -3873,6 +3879,32 @@ function Main() {
             <Ionicons name="checkmark-done-outline" size={20} color={colors.primary} />
           </Pressable>
         )}
+      </View>
+    );
+  }
+
+  function renderNotificationsPanel() {
+    if (notificationFeed.data.length === 0) return null;
+
+    return (
+      <View style={[styles.formCard, { paddingVertical: 8 }]}>
+        <Pressable
+          onPress={() => setNotificationsModalOpen(true)}
+          style={[styles.notificationExpandButton, { justifyContent: 'space-between', paddingHorizontal: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 10 }]}
+          accessibilityRole="button"
+          accessibilityLabel={`Buka daftar ${notificationFeed.data.length} notifikasi`}
+        >
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Notifikasi ({notificationFeed.data.length})</Text>
+            <Text style={styles.fieldHint}>
+              {notificationFeed.unread_count > 0
+                ? `${notificationFeed.unread_count} belum dibaca`
+                : 'Pembaruan status pengajuan dan persetujuan.'}
+            </Text>
+          </View>
+          {notificationFeed.unread_count > 0 && <Pill tone="warning">{notificationFeed.unread_count} baru</Pill>}
+          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+        </Pressable>
       </View>
     );
   }
@@ -3993,6 +4025,7 @@ function Main() {
           <View>
             <Text style={styles.overline}>LAYANAN & PERSETUJUAN</Text>
             <Text style={styles.heading}>Pengajuan</Text>
+            <Text style={styles.cardCopy}>Pilih jenis pengajuan, lengkapi data, lalu kirim.</Text>
           </View>
           {isAdmin && (
             <Pressable onPress={() => openDirectSwap()} style={styles.iconButton} accessibilityLabel="Pengaturan Tukar Shift">
@@ -4001,33 +4034,7 @@ function Main() {
           )}
         </View>
 
-        <View style={styles.formCard}>
-          <View style={styles.notificationHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Notifikasi</Text>
-              <Text style={styles.fieldHint}>Pembaruan status izin dan cuti.</Text>
-            </View>
-            {notificationFeed.unread_count > 0 && <Pill tone="warning">{notificationFeed.unread_count} baru</Pill>}
-          </View>
-          {notificationFeed.data.length === 0 ? (
-            <Text style={styles.cardCopy}>Belum ada notifikasi.</Text>
-          ) : (
-            <>
-              <View style={styles.notificationList}>{notificationFeed.data.slice(0, 1).map(renderNotificationCard)}</View>
-              {notificationFeed.data.length > 1 && (
-                <Pressable
-                  onPress={() => setNotificationsModalOpen(true)}
-                  style={styles.notificationExpandButton}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Buka ${notificationFeed.data.length - 1} notifikasi lainnya`}
-                >
-                  <Text style={styles.linkText}>Notifikasi lain ({notificationFeed.data.length - 1})</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-                </Pressable>
-              )}
-            </>
-          )}
-        </View>
+        {isAdmin && pengajuanView === 'admin' && renderNotificationsPanel()}
 
         {/* View Switcher for Admin / HRD */}
         {isAdmin && (
@@ -4084,13 +4091,6 @@ function Main() {
               </View>
             )}
 
-            {balance && (
-              <View style={styles.balanceStrip}>
-                <Text style={styles.cardTitle}>Tersedia tahun {balance.year}</Text>
-                <Text style={styles.cardCopy}>{leaveBalanceTypes(balance).map((type) => `${type.name} ${type.available} hari`).join(' · ')}{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
-              </View>
-            )}
-
             {(() => {
               const availableRequestKinds: Array<{ key: RequestKind; label: string }> = [
                 { key: 'leave', label: 'Cuti' },
@@ -4100,19 +4100,37 @@ function Main() {
                 { key: 'overtime', label: 'Lembur' },
               ];
               return (
-                <View style={styles.segmentRow}>
-                  {availableRequestKinds.map((item) => (
-                    <Pressable key={item.key} onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); setAttendancePermissionType('late_arrival'); setPermissionLeaveAt(''); setPermissionReturnAt(''); setPermissionDurationMinutes(null); }} style={[styles.segment, requestKind === item.key && styles.segmentActive]}>
-                      <Text style={[styles.segmentText, requestKind === item.key && styles.segmentTextActive]}>
-                        {item.label}
-                      </Text>
-                    </Pressable>
-                  ))}
+                <View>
+                  <Text style={[styles.fieldLabel, { marginTop: 8 }]}>Jenis pengajuan</Text>
+                  <View style={styles.segmentRow}>
+                    {availableRequestKinds.map((item) => (
+                      <Pressable
+                        key={item.key}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: requestKind === item.key }}
+                        onPress={() => { setRequestKind(item.key); setSessionId(null); setProof(null); setAttendancePermissionType('late_arrival'); setPermissionLeaveAt(''); setPermissionReturnAt(''); setPermissionDurationMinutes(null); }}
+                        style={[styles.segment, requestKind === item.key && styles.segmentActive]}
+                      >
+                        <Text style={[styles.segmentText, requestKind === item.key && styles.segmentTextActive]}>
+                          {item.label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 </View>
               );
             })()}
 
+            {requestKind === 'leave' && balance && (
+              <View style={styles.balanceStrip}>
+                <Text style={styles.cardTitle}>Sisa cuti {balance.year}</Text>
+                <Text style={styles.cardCopy}>{leaveBalanceTypes(balance).map((type) => `${type.name} ${type.available} hari`).join(' · ')}{balance.opening_confirmed ? '' : ' · saldo belum dibuka HR'}</Text>
+              </View>
+            )}
+
             {renderRequestForm()}
+
+            {renderNotificationsPanel()}
 
             <Text style={styles.sectionTitle}>Riwayat pengajuan</Text>
             {[
@@ -4987,8 +5005,6 @@ const styles = StyleSheet.create({
   swapQuickText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
   listCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, marginTop: 9, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.surface },
   formCard: { padding: 18, marginTop: 14, borderWidth: 1, borderColor: colors.line, borderRadius: 15, backgroundColor: colors.surface },
-  notificationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  notificationList: { gap: 8, marginTop: 12 },
   notificationCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: '#fff' },
   notificationCardUnread: { borderColor: '#9AB8A8', backgroundColor: '#F1F7F3' },
   notificationCardApproved: { borderColor: '#4F8E64', backgroundColor: colors.successSoft },
