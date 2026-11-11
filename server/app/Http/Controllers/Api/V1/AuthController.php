@@ -97,7 +97,11 @@ class AuthController extends Controller
             return $user->createToken("device:{$device->id}")->plainTextToken;
         });
 
-        return response()->json(['token' => $token, 'user' => $this->profile($user)]);
+        return response()->json([
+            'token' => $token,
+            'user' => $this->profile($user),
+            'server_version' => (string) config('app.version', 'v0.1.8'),
+        ]);
     }
 
     public function logout(Request $request): JsonResponse
@@ -125,7 +129,10 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        return response()->json(['user' => $this->profile($request->user())]);
+        return response()->json([
+            'user' => $this->profile($request->user()),
+            'server_version' => (string) config('app.version', 'v0.1.8'),
+        ]);
     }
 
     public function updateProfile(Request $request): JsonResponse

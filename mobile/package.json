@@ -1,6 +1,6 @@
 {
   "name": "deresort-attendance-mobile",
-  "version": "0.1.0",
+  "version": "0.1.8",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {

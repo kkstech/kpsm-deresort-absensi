@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
+import { APP_VERSION } from './version';
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string | undefined, message: string) {
@@ -30,6 +31,7 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
       method: options.method ?? 'GET',
       headers: {
         Accept: 'application/json',
+        'X-App-Version': APP_VERSION,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.body && !isForm ? { 'Content-Type': 'application/json' } : {}),
       },

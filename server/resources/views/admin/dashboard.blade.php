@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="app-version" content="{{ config('app.version', 'v0.1.8') }}">
     <title>{{ $siteSettings->site_name }}</title>
     @if ($siteSettings->favicon_url)
         <link rel="icon" href="{{ $siteSettings->favicon_url }}">
@@ -79,6 +80,9 @@
                         <span>Keluar</span>
                     </button>
                 </form>
+                <div class="sidebar-version">
+                    <small>Versi Web {{ config('app.version', 'v0.1.8') }}</small>
+                </div>
             </div>
         </aside>
 
@@ -1255,6 +1259,20 @@
                                                 <small class="field-hint">Kosongkan sampai kebijakan ditetapkan. Karyawan akan ditandai mulai 12 bulan sebelum usia pensiun.</small>
                                                 <small class="field-error" id="site-retirement-age-years-error" hidden></small>
                                             </label>
+                                        </section>
+                                        <section class="site-settings-section">
+                                            <h3>Informasi Versi Sistem</h3>
+                                            <div class="version-info-grid">
+                                                <div class="version-info-card">
+                                                    <span class="version-info-label">Website (Admin Panel)</span>
+                                                    <strong class="version-info-val">{{ config('app.version', 'v0.1.8') }}</strong>
+                                                </div>
+                                                <div class="version-info-card">
+                                                    <span class="version-info-label">Mobile APK Rekomendasi</span>
+                                                    <strong class="version-info-val">v0.1.8 (Build 12)</strong>
+                                                </div>
+                                            </div>
+                                            <p class="field-hint">Gunakan informasi versi ini saat mencocokkan keluhan atau pelaporan kendala (bug) dari pengguna aplikasi.</p>
                                         </section>
                                     </div>
                                     <aside class="site-preview" aria-live="polite" aria-label="Pratinjau halaman login">

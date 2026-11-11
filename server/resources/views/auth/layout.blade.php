@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
+    <meta name="app-version" content="{{ config('app.version', 'v0.1.8') }}">
     <title>@yield('title') · {{ $siteSettings->site_name }}</title>
     @if ($siteSettings->favicon_url)
         <link rel="icon" href="{{ $siteSettings->favicon_url }}">
@@ -42,6 +43,9 @@
                     </div>
                 </address>
             @endif
+            <div class="auth-version">
+                <small>Versi Web {{ config('app.version', 'v0.1.8') }}</small>
+            </div>
         </div>
     </main>
 </body>

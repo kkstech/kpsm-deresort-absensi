@@ -21,6 +21,7 @@ import {
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
 } from './src/api';
+import { APP_VERSION_LABEL } from './src/version';
 
 type Tab = 'Hari ini' | 'Jadwal' | 'Pengajuan' | 'Profil';
 const tabItems: Array<{
@@ -865,6 +866,7 @@ function Main() {
   const colleagueSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const minimumNoticeDays = balance?.minimum_notice_days ?? 14;
@@ -1359,12 +1361,15 @@ function Main() {
     let knownProfile = cachedProfileMatchesUser
       ? cachedProfile
       : (profile?.id === cacheUserId ? profile : null);
-    let initialProfileResponse: { user: Profile } | null = null;
+    let initialProfileResponse: { user: Profile; server_version?: string } | null = null;
     if (!knownProfile || !cacheUserId) {
       try {
-        initialProfileResponse = await request<{ user: Profile }>(url, 'me', authToken);
+        initialProfileResponse = await request<{ user: Profile; server_version?: string }>(url, 'me', authToken);
         if (!isCurrentSession()) return;
 
+        if (initialProfileResponse.server_version) {
+          setServerVersion(initialProfileResponse.server_version);
+        }
         knownProfile = normalizeProfile(initialProfileResponse.user);
         if (knownProfile) {
           if (cacheUserId && cacheUserId !== knownProfile.id) {
@@ -1402,7 +1407,7 @@ function Main() {
     const isEmployeeAccount = Boolean(knownProfile?.employee);
     const isAdminAccount = ['super_admin', 'admin'].includes(knownProfile?.role ?? '');
     const tasks: Array<{ key: string; promise: Promise<any> }> = [
-      { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile }>(url, 'me', authToken) },
+      { key: 'profile', promise: initialProfileResponse ? Promise.resolve(initialProfileResponse) : request<{ user: Profile; server_version?: string }>(url, 'me', authToken) },
       { key: 'notifications', promise: request<NotificationFeed>(url, 'notifications', authToken) },
       { key: 'leaveTypes', promise: request<{ data: LeaveTypeInfo[] }>(url, 'leave-types', authToken) },
       { key: 'leaveReasons', promise: request<{ data: LeaveReasonInfo[] }>(url, 'leave-reasons', authToken) },
@@ -1444,6 +1449,9 @@ function Main() {
             ? (value as { user: Profile }).user
             : task.key === 'notifications' || task.key === 'colleagues' ? value : (value as { data: unknown }).data;
           if (task.key === 'profile') {
+            if ((value as any)?.server_version) {
+              setServerVersion((value as any).server_version);
+            }
             normalized = normalizeProfile(normalized as Profile);
           } else if (task.key === 'shiftExchanges' || task.key === 'adminShiftExchanges') {
             normalized = Array.isArray(normalized) ? normalized.map(normalizeExchangeItem) : [];
@@ -1640,7 +1648,7 @@ function Main() {
     try {
       const id = deviceId || await authStore.device();
       setDeviceId(id);
-      const result = await request<{ token?: string; user?: Profile }>(url, 'auth/login', null, {
+      const result = await request<{ token?: string; user?: Profile; server_version?: string }>(url, 'auth/login', null, {
         method: 'POST',
         body: {
           username: cleanUsername,
@@ -1649,6 +1657,9 @@ function Main() {
           device_name: Platform.OS === 'ios' ? 'iPhone' : Platform.OS === 'android' ? 'Android' : 'Perangkat mobile',
         },
       });
+      if (result?.server_version) {
+        setServerVersion(result.server_version);
+      }
       const receivedToken = typeof result?.token === 'string' && result.token.trim().length > 0
         ? result.token.trim()
         : (typeof (result as any)?.data?.token === 'string' ? (result as any).data.token.trim() : null);
@@ -4117,6 +4128,11 @@ function Main() {
         )}
 
         <View style={styles.settingsCard}>
+          <Text style={styles.cardEyebrow}>VERSI APLIKASI (APK)</Text>
+          <Text style={styles.cardTitle}>{APP_VERSION_LABEL}</Text>
+          {Boolean(serverVersion) && (
+            <Text style={styles.cardCopy}>Versi Server: {serverVersion}</Text>
+          )}
           <Text style={styles.cardEyebrow}>SERVER</Text>
           <Text style={styles.cardTitle}>{baseUrl}</Text>
           <Text style={styles.cardCopy}>Perangkat terdaftar dengan ID tersimpan aman.</Text>
@@ -4131,6 +4147,13 @@ function Main() {
           <Pressable disabled={logoutBusy} onPress={logout} style={[styles.logoutButton, logoutBusy && styles.disabled]} accessibilityRole="button" accessibilityState={{ disabled: logoutBusy }}>
             <Text style={styles.logoutText}>{logoutBusy ? 'Mengeluarkan…' : 'Keluar dari akun'}</Text>
           </Pressable>
+        </View>
+
+        <View style={styles.profileVersionBox}>
+          <Text style={styles.profileVersionText}>Deresort Attendance Mobile {APP_VERSION_LABEL}</Text>
+          {Boolean(serverVersion) && (
+            <Text style={styles.profileServerVersionText}>Versi Server: {serverVersion}</Text>
+          )}
         </View>
       </ScrollView>
     );
@@ -4172,6 +4195,9 @@ function Main() {
                 </View>
               </Pressable>
               <Text style={styles.cardCopy}>Masuk dengan kode karyawan / username beserta password akun.</Text>
+            </View>
+            <View style={styles.loginVersionBox}>
+              <Text style={styles.loginVersionText}>Deresort Attendance Mobile {APP_VERSION_LABEL}</Text>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -5025,4 +5051,9 @@ const styles = StyleSheet.create({
   quickChipTextActive: { color: colors.primary, fontWeight: '800' },
   emptyNoticeBox: { padding: 16, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: colors.canvas, marginVertical: 8, gap: 6 },
   emptyNoticeText: { color: colors.muted, fontSize: 13, textAlign: 'center' },
+  loginVersionBox: { alignItems: 'center', justifyContent: 'center', marginTop: 24, paddingBottom: 16 },
+  loginVersionText: { fontSize: 12.5, color: colors.muted, fontWeight: '700', letterSpacing: 0.3 },
+  profileVersionBox: { alignItems: 'center', justifyContent: 'center', marginTop: 20, marginBottom: 16, gap: 4 },
+  profileVersionText: { fontSize: 13, color: colors.muted, fontWeight: '700' },
+  profileServerVersionText: { fontSize: 12, color: colors.muted, fontWeight: '600' },
 });
