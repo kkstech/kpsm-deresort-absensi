@@ -39,6 +39,16 @@ class ShiftAssignment extends Model
         return $this->hasMany(ShiftSession::class)->orderBy('schedule_revision')->orderBy('seq');
     }
 
+    public function exchangeRequests(): HasMany
+    {
+        return $this->hasMany(ShiftExchangeRequest::class, 'shift_assignment_id');
+    }
+
+    public function targetExchangeRequests(): HasMany
+    {
+        return $this->hasMany(ShiftExchangeRequest::class, 'target_assignment_id');
+    }
+
     public function syncAttendanceStatus(): void
     {
         $sessionIds = $this->sessions()->pluck('id');
@@ -62,7 +72,7 @@ class ShiftAssignment extends Model
     public function toApi(): array
     {
         $now = WorkTime::now();
-        $this->loadMissing(['employee.workLocation', 'category', 'sessions.attendanceRecord', 'sessions.overtimeOrders']);
+        $this->loadMissing(['employee.workLocation', 'category', 'sessions.attendanceRecord', 'sessions.overtimeOrders', 'sessions.latePermissions']);
         $unrecordedPolicySnapshot = null;
 
         return [
@@ -90,6 +100,7 @@ class ShiftAssignment extends Model
                     $snapshot = $unrecordedPolicySnapshot;
                 }
                 $checkInEarlyMinutes = (int) ($snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
+                $permPayload = $s->approvedPermissionsPayload();
 
                 return [
                     'id' => $s->id,
@@ -102,6 +113,9 @@ class ShiftAssignment extends Model
                     'local_end_time' => WorkTime::local($s->end_at)->format('H:i'),
                     'local_start' => WorkTime::clock($s->start_at, $this->work_date),
                     'local_end' => WorkTime::clock($s->end_at, $this->work_date),
+                    'effective_start' => $permPayload['effective_start'],
+                    'effective_end' => $permPayload['effective_end'],
+                    'approved_permissions' => $permPayload['approved_permissions'],
                     'unpaid_break_minutes' => $s->unpaid_break_minutes,
                     'scheduled_minutes' => $s->scheduledMinutes(),
                     'rules_version' => $s->rules_version,

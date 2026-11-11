@@ -7,6 +7,8 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
 use App\Models\AttendanceCorrection;
 use App\Models\LatePermission;
+use App\Models\OvertimeOrder;
+use App\Models\ShiftExchangeRequest;
 use App\Support\WorkflowNotifier;
 use App\Support\WorkTime;
 use Illuminate\Http\JsonResponse;
@@ -101,6 +103,278 @@ class AttendanceWorkflowController extends Controller
         $record = $workflow->verifyCheckout($request->user(), $session, $data['check_out_at'], $data['reason']);
 
         return response()->json(['data' => $record->toApi()]);
+    }
+
+    public function history(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->isAdmin(), 403, 'Hanya Admin atau Super Admin yang dapat melihat riwayat persetujuan.');
+
+        $data = $request->validate([
+            'type' => ['nullable', 'string', 'in:all,late,correction,overtime,shift_exchange'],
+            'status' => ['nullable', 'string', 'in:all,APPROVED,REJECTED,CANCELLED'],
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d'],
+            'q' => ['nullable', 'string', 'max:100'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+
+        $type = $data['type'] ?? 'all';
+        $status = $data['status'] ?? 'all';
+        $from = $data['from'] ?? null;
+        $to = $data['to'] ?? null;
+        $q = isset($data['q']) ? trim($data['q']) : null;
+        $page = (int) ($data['page'] ?? 1);
+        $perPage = (int) ($data['per_page'] ?? 20);
+
+        $employeeIds = EmployeeController::visibleTo($request->user())->pluck('employees.id');
+        $items = collect();
+
+        // 1. Izin Terlambat
+        if ($type === 'all' || $type === 'late') {
+            $query = LatePermission::query()
+                ->with(['employee.department:id,name', 'session.assignment', 'decidedBy:id,name', 'attachments'])
+                ->whereIn('employee_id', $employeeIds);
+
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            } else {
+                $query->whereIn('status', ['APPROVED', 'REJECTED', 'CANCELLED']);
+            }
+
+            if ($from && $to) {
+                $query->whereHas('session.assignment', fn ($sq) => $sq->whereBetween('work_date', [$from, $to]));
+            }
+
+            if ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->whereHas('employee', fn ($eq) => $eq->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
+                        ->orWhere('reason', 'like', "%{$q}%")
+                        ->orWhere('decision_reason', 'like', "%{$q}%");
+                });
+            }
+
+            $lateItems = $query->get()->map(function (LatePermission $item) {
+                $decidedAt = $item->decided_at ?? $item->updated_at;
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'late',
+                    'type_label' => 'Izin Terlambat',
+                    'employee' => [
+                        'id' => $item->employee->id,
+                        'name' => $item->employee->name,
+                        'code' => $item->employee->code,
+                        'avatar_url' => $item->employee->avatar_url,
+                        'department' => $item->employee->department?->name ?? '-',
+                    ],
+                    'work_date' => $item->session?->assignment?->work_date,
+                    'shift' => $item->session ? ($item->session->assignment?->template_name.' · sesi '.$item->session->seq) : '-',
+                    'detail' => $item->allowed_minutes ? "Izin {$item->allowed_minutes} menit" : ($item->allowed_until ? 'Hadir s.d. '.WorkTime::local($item->allowed_until)?->format('H:i') : 'Izin terlambat'),
+                    'reason' => $item->reason,
+                    'status' => $item->status,
+                    'decided_by' => $item->decidedBy?->name ?? 'Sistem / Admin',
+                    'decided_at' => WorkTime::iso($decidedAt),
+                    'decided_at_formatted' => WorkTime::local($decidedAt)?->format('d/m/Y H:i'),
+                    'decision_reason' => $item->decision_reason ?? '-',
+                    'attachments' => $item->attachments->map(fn ($att) => $this->attachmentData($att))->values(),
+                    'timestamp' => $decidedAt ? $decidedAt->getTimestamp() : 0,
+                ];
+            });
+
+            $items = $items->concat($lateItems);
+        }
+
+        // 2. Koreksi Absensi
+        if ($type === 'all' || $type === 'correction') {
+            $query = AttendanceCorrection::query()
+                ->with(['employee.department:id,name', 'session.assignment', 'decidedBy:id,name', 'attachments'])
+                ->whereIn('employee_id', $employeeIds);
+
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            } else {
+                $query->whereIn('status', ['APPROVED', 'REJECTED', 'CANCELLED']);
+            }
+
+            if ($from && $to) {
+                $query->whereHas('session.assignment', fn ($sq) => $sq->whereBetween('work_date', [$from, $to]));
+            }
+
+            if ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->whereHas('employee', fn ($eq) => $eq->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
+                        ->orWhere('reason', 'like', "%{$q}%")
+                        ->orWhere('decision_reason', 'like', "%{$q}%");
+                });
+            }
+
+            $corrItems = $query->get()->map(function (AttendanceCorrection $item) {
+                $decidedAt = $item->decided_at ?? $item->updated_at;
+                $inLocal = $item->requested_check_in_at ? WorkTime::local($item->requested_check_in_at)?->format('H:i') : '-';
+                $outLocal = $item->requested_check_out_at ? WorkTime::local($item->requested_check_out_at)?->format('H:i') : '-';
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'correction',
+                    'type_label' => 'Koreksi Absensi',
+                    'employee' => [
+                        'id' => $item->employee->id,
+                        'name' => $item->employee->name,
+                        'code' => $item->employee->code,
+                        'avatar_url' => $item->employee->avatar_url,
+                        'department' => $item->employee->department?->name ?? '-',
+                    ],
+                    'work_date' => $item->session?->assignment?->work_date,
+                    'shift' => $item->session ? ($item->session->assignment?->template_name.' · sesi '.$item->session->seq) : '-',
+                    'detail' => "Masuk: {$inLocal} · Pulang: {$outLocal}",
+                    'reason' => $item->reason,
+                    'status' => $item->status,
+                    'decided_by' => $item->decidedBy?->name ?? 'Sistem / Admin',
+                    'decided_at' => WorkTime::iso($decidedAt),
+                    'decided_at_formatted' => WorkTime::local($decidedAt)?->format('d/m/Y H:i'),
+                    'decision_reason' => $item->decision_reason ?? '-',
+                    'attachments' => $item->attachments->map(fn ($att) => $this->attachmentData($att))->values(),
+                    'timestamp' => $decidedAt ? $decidedAt->getTimestamp() : 0,
+                ];
+            });
+
+            $items = $items->concat($corrItems);
+        }
+
+        // 3. Lembur & SPL
+        if ($type === 'all' || $type === 'overtime') {
+            $query = OvertimeOrder::query()
+                ->with(['employee.department:id,name', 'session.assignment', 'decisionMaker:id,name'])
+                ->whereIn('employee_id', $employeeIds);
+
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            } else {
+                $query->whereIn('status', ['APPROVED', 'REJECTED', 'CANCELLED']);
+            }
+
+            if ($from && $to) {
+                $query->whereBetween('work_date', [$from, $to]);
+            }
+
+            if ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->whereHas('employee', fn ($eq) => $eq->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
+                        ->orWhere('title', 'like', "%{$q}%")
+                        ->orWhere('decision_reason', 'like', "%{$q}%");
+                });
+            }
+
+            $otItems = $query->get()->map(function (OvertimeOrder $item) {
+                $decidedAt = $item->decided_at ?? $item->updated_at;
+                $startLocal = $item->start_at ? WorkTime::local($item->start_at)?->format('H:i') : '-';
+                $endLocal = $item->end_at ? WorkTime::local($item->end_at)?->format('H:i') : '-';
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'overtime',
+                    'type_label' => 'Lembur & SPL',
+                    'employee' => [
+                        'id' => $item->employee->id,
+                        'name' => $item->employee->name,
+                        'code' => $item->employee->code,
+                        'avatar_url' => $item->employee->avatar_url,
+                        'department' => $item->employee->department?->name ?? '-',
+                    ],
+                    'work_date' => $item->work_date,
+                    'shift' => $item->title,
+                    'detail' => "SPL {$startLocal}–{$endLocal} ({$item->planned_minutes}m)",
+                    'reason' => $item->notes ?? $item->title,
+                    'status' => $item->status,
+                    'decided_by' => $item->decisionMaker?->name ?? 'Sistem / Admin',
+                    'decided_at' => WorkTime::iso($decidedAt),
+                    'decided_at_formatted' => WorkTime::local($decidedAt)?->format('d/m/Y H:i'),
+                    'decision_reason' => $item->decision_reason ?? '-',
+                    'attachments' => [],
+                    'timestamp' => $decidedAt ? $decidedAt->getTimestamp() : 0,
+                ];
+            });
+
+            $items = $items->concat($otItems);
+        }
+
+        // 4. Tukar Shift
+        if ($type === 'all' || $type === 'shift_exchange') {
+            $query = ShiftExchangeRequest::query()
+                ->with(['employee.department:id,name', 'targetEmployee.department:id,name', 'shiftAssignment.sessions', 'targetAssignment.sessions', 'decidedBy:id,name'])
+                ->where(function ($sub) use ($employeeIds) {
+                    $sub->whereIn('employee_id', $employeeIds)
+                        ->orWhereIn('target_employee_id', $employeeIds);
+                });
+
+            if ($status !== 'all') {
+                $query->where('status', $status);
+            } else {
+                $query->whereIn('status', ['APPROVED', 'REJECTED', 'CANCELLED']);
+            }
+
+            if ($from && $to) {
+                $query->whereHas('shiftAssignment', fn ($sa) => $sa->whereBetween('work_date', [$from, $to]));
+            }
+
+            if ($q) {
+                $query->where(function ($sub) use ($q) {
+                    $sub->whereHas('employee', fn ($eq) => $eq->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
+                        ->orWhereHas('targetEmployee', fn ($te) => $te->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
+                        ->orWhere('reason', 'like', "%{$q}%")
+                        ->orWhere('decision_reason', 'like', "%{$q}%");
+                });
+            }
+
+            $exchangeItems = $query->get()->map(function (ShiftExchangeRequest $item) {
+                $decidedAt = $item->decided_at ?? $item->updated_at;
+                $sourceDate = $item->shiftAssignment?->work_date ?? '-';
+                $targetName = $item->targetEmployee?->name ?? 'Pengganti';
+                $modeLabel = $item->swap_mode === 'direct' ? 'Tukar Jadwal' : 'Pelimpahan Shift';
+
+                return [
+                    'id' => $item->id,
+                    'type' => 'shift_exchange',
+                    'type_label' => 'Tukar Shift',
+                    'employee' => [
+                        'id' => $item->employee->id,
+                        'name' => $item->employee->name,
+                        'code' => $item->employee->code,
+                        'avatar_url' => $item->employee->avatar_url,
+                        'department' => $item->employee->department?->name ?? '-',
+                    ],
+                    'work_date' => $sourceDate,
+                    'shift' => "{$modeLabel} ke {$targetName}",
+                    'detail' => $item->shiftAssignment ? ($item->shiftAssignment->template_name." ({$sourceDate})") : '-',
+                    'reason' => $item->reason,
+                    'status' => $item->status,
+                    'decided_by' => $item->decidedBy?->name ?? 'Sistem / Admin',
+                    'decided_at' => WorkTime::iso($decidedAt),
+                    'decided_at_formatted' => WorkTime::local($decidedAt)?->format('d/m/Y H:i'),
+                    'decision_reason' => $item->decision_reason ?? '-',
+                    'attachments' => [],
+                    'timestamp' => $decidedAt ? $decidedAt->getTimestamp() : 0,
+                ];
+            });
+
+            $items = $items->concat($exchangeItems);
+        }
+
+        $sorted = $items->sortByDesc('timestamp')->values();
+        $total = $sorted->count();
+        $sliced = $sorted->slice(($page - 1) * $perPage, $perPage)->values();
+        $lastPage = (int) max(1, ceil($total / $perPage));
+
+        return response()->json([
+            'data' => $sliced,
+            'meta' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => $lastPage,
+            ],
+        ]);
     }
 
     private function latePermissionData(LatePermission $item): array

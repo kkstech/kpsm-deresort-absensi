@@ -37,7 +37,7 @@ class AttendanceController extends Controller
             throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Akun tidak terhubung ke karyawan aktif.', 403);
         }
         $assignments = ShiftAssignment::query()
-            ->with('sessions.attendanceRecord')
+            ->with(['sessions.attendanceRecord', 'sessions.latePermissions'])
             ->where('employee_id', $employee->id)
             ->whereBetween('work_date', [$range['from'], $range['to']])
             ->whereNotIn('status', ['DRAFT', 'CANCELLED'])

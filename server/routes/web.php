@@ -52,6 +52,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('reports/export/excel', [ReportController::class, 'exportExcel']);
         Route::get('reports/export/pdf', [ReportController::class, 'exportPdf']);
         Route::get('workflows', [AttendanceWorkflowController::class, 'index']);
+        Route::get('workflows/history', [AttendanceWorkflowController::class, 'history']);
         Route::get('shift-exchanges', [ShiftExchangeController::class, 'index']);
         Route::post('shift-exchanges/{shiftExchange}/decide', [ShiftExchangeController::class, 'decide'])->whereNumber('shiftExchange');
         Route::get('overtimes', [OvertimeAdminController::class, 'index']);

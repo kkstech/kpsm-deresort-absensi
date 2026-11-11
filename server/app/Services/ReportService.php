@@ -9,6 +9,7 @@ use App\Models\AttendancePeriod;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftExchangeRequest;
 use App\Models\ShiftSession;
 use App\Models\User;
 use App\Support\WorkTime;
@@ -162,12 +163,26 @@ class ReportService
             ->whereBetween('work_date', [$filters['from'], $filters['to']])
             ->whereIn('status', ['PUBLISHED', 'IN_PROGRESS', 'COMPLETED'])
             ->with([
+                'category',
                 'sessions' => fn ($q) => $q->whereNull('retired_at')->orderBy('seq'),
                 'sessions.attendanceRecord.latePermission',
                 'sessions.attendanceEvents',
             ])
             ->get()
             ->groupBy('employee_id');
+
+        $approvedExchanges = ShiftExchangeRequest::query()
+            ->where('status', 'APPROVED')
+            ->where(function ($q) use ($employeeIds) {
+                $q->whereIn('employee_id', $employeeIds)
+                    ->orWhereIn('target_employee_id', $employeeIds);
+            })
+            ->get();
+
+        $exchangedAssignmentIds = $approvedExchanges->pluck('shift_assignment_id')
+            ->concat($approvedExchanges->pluck('target_assignment_id'))
+            ->filter()
+            ->unique();
 
         $overtimes = OvertimeOrder::query()
             ->whereIn('employee_id', $employeeIds)
@@ -207,6 +222,11 @@ class ReportService
         $totalLateMinutes = 0;
         $totalReviewCount = 0;
         $totalLeaveDays = 0;
+        $totalShift1 = 0;
+        $totalShift2 = 0;
+        $totalShift3 = 0;
+        $totalSplit = 0;
+        $totalExchange = 0;
 
         foreach ($employees as $employee) {
             $empAssignments = $assignments->get($employee->id, collect());
@@ -254,6 +274,48 @@ class ReportService
                     $reviewCount++;
                 }
             }
+
+            $shiftCounts = [
+                'shift_1' => 0,
+                'shift_2' => 0,
+                'shift_3' => 0,
+                'split' => 0,
+                'exchange' => 0,
+                'total_shifts' => 0,
+            ];
+
+            $attendedAssignments = $empAssignments->filter(function (ShiftAssignment $assignment) {
+                return $assignment->sessions->contains(function (ShiftSession $session) {
+                    $record = $session->attendanceRecord;
+
+                    return ($record && $record->check_in_at !== null)
+                        || in_array($record?->status, ['COMPLETE', 'PRESENT', 'PROVISIONAL'], true);
+                });
+            });
+
+            foreach ($attendedAssignments as $assignment) {
+                $type = $this->classifyShift($assignment);
+                $shiftCounts[$type] = ($shiftCounts[$type] ?? 0) + 1;
+                $shiftCounts['total_shifts']++;
+
+                if ($exchangedAssignmentIds->contains($assignment->id)) {
+                    $shiftCounts['exchange']++;
+                }
+            }
+
+            $empExchangeRequestsCount = $approvedExchanges->filter(function ($ex) use ($employee) {
+                return (int) $ex->employee_id === (int) $employee->id || (int) $ex->target_employee_id === (int) $employee->id;
+            })->count();
+
+            if ($shiftCounts['exchange'] === 0 && $empExchangeRequestsCount > 0) {
+                $shiftCounts['exchange'] = $empExchangeRequestsCount;
+            }
+
+            $totalShift1 += $shiftCounts['shift_1'];
+            $totalShift2 += $shiftCounts['shift_2'];
+            $totalShift3 += $shiftCounts['shift_3'];
+            $totalSplit += $shiftCounts['split'];
+            $totalExchange += $shiftCounts['exchange'];
 
             $attendedDays = count($attendedDates);
             $lateUnpermittedCount = max(0, $lateCount - $latePermittedCount);
@@ -314,6 +376,7 @@ class ReportService
                 'meal_allowance' => $mealAmount,
                 'transport_allowance' => $transportAmount,
                 'total_allowance' => $totalAllowance,
+                'shift_counts' => $shiftCounts,
             ];
         }
 
@@ -338,6 +401,11 @@ class ReportService
             'total_late_minutes' => $totalLateMinutes,
             'total_review_count' => $totalReviewCount,
             'total_leave_days' => $totalLeaveDays,
+            'total_shift_1' => $totalShift1,
+            'total_shift_2' => $totalShift2,
+            'total_shift_3' => $totalShift3,
+            'total_split' => $totalSplit,
+            'total_exchange' => $totalExchange,
             'attendance_rate' => $totalScheduledDays > 0
                 ? (int) round(($totalAttendedDays / $totalScheduledDays) * 100)
                 : 0,
@@ -656,7 +724,94 @@ class ReportService
             'total_late_minutes' => 0,
             'total_review_count' => 0,
             'total_leave_days' => 0,
+            'total_shift_1' => 0,
+            'total_shift_2' => 0,
+            'total_shift_3' => 0,
+            'total_split' => 0,
+            'total_exchange' => 0,
             'attendance_rate' => 0,
         ];
+    }
+
+    public function classifyShift(ShiftAssignment $assignment): string
+    {
+        $sessions = $assignment->sessions;
+        $categoryName = strtolower($assignment->category?->name ?? '');
+        $templateName = strtolower($assignment->template_name ?? '');
+
+        // 1. Split Khusus
+        if (
+            $assignment->template_type === 'special'
+            || $sessions->count() > 1
+            || str_contains($categoryName, 'split')
+            || str_contains($templateName, 'split')
+            || str_contains($categoryName, 'khusus')
+            || str_contains($templateName, 'khusus')
+        ) {
+            return 'split';
+        }
+
+        // 2. Keyword matching for Shift 1, 2, 3
+        if (
+            str_contains($categoryName, 'shift 1')
+            || str_contains($templateName, 'shift 1')
+            || str_contains($categoryName, 'shift 01')
+            || str_contains($templateName, 'shift 01')
+            || str_contains($categoryName, 'pagi')
+            || str_contains($templateName, 'pagi')
+            || str_contains($categoryName, 'morning')
+            || str_contains($templateName, 'morning')
+        ) {
+            return 'shift_1';
+        }
+
+        if (
+            str_contains($categoryName, 'shift 2')
+            || str_contains($templateName, 'shift 2')
+            || str_contains($categoryName, 'shift 02')
+            || str_contains($templateName, 'shift 02')
+            || str_contains($categoryName, 'siang')
+            || str_contains($templateName, 'siang')
+            || str_contains($categoryName, 'sore')
+            || str_contains($templateName, 'sore')
+            || str_contains($categoryName, 'middle')
+            || str_contains($templateName, 'middle')
+            || str_contains($categoryName, 'afternoon')
+            || str_contains($templateName, 'afternoon')
+            || str_contains($categoryName, 'evening')
+            || str_contains($templateName, 'evening')
+        ) {
+            return 'shift_2';
+        }
+
+        if (
+            str_contains($categoryName, 'shift 3')
+            || str_contains($templateName, 'shift 3')
+            || str_contains($categoryName, 'shift 03')
+            || str_contains($templateName, 'shift 03')
+            || str_contains($categoryName, 'malam')
+            || str_contains($templateName, 'malam')
+            || str_contains($categoryName, 'night')
+            || str_contains($templateName, 'night')
+        ) {
+            return 'shift_3';
+        }
+
+        // 3. Fallback based on start hour of first session (local time)
+        $firstSession = $sessions->first();
+        if ($firstSession && $firstSession->start_at) {
+            $localTime = WorkTime::local($firstSession->start_at);
+            $hour = (int) $localTime?->format('H');
+            if ($hour >= 5 && $hour < 12) {
+                return 'shift_1';
+            }
+            if ($hour >= 12 && $hour < 19) {
+                return 'shift_2';
+            }
+
+            return 'shift_3';
+        }
+
+        return 'shift_1';
     }
 }

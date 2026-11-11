@@ -219,9 +219,21 @@ async function loadDashboard(filters = filterValues(dashboardForm), recentPage =
         $('#metric-sessions').textContent = `${summary.scheduled_sessions} sesi terjadwal`;
 
         $('#metric-review').textContent = summary.review_sessions;
-        const pendingLeaves = summary.pending_leaves_count ?? 0;
+        const pendingPermissions = Number(summary.pending_permissions_count || 0);
+        const pendingLeaves = Number(summary.pending_leaves_count || 0);
+        const pendingApprovals = Number(summary.pending_approvals_count || 0);
         const pendingLeavesEl = $('#metric-pending-leaves');
-        if (pendingLeavesEl) pendingLeavesEl.textContent = `${pendingLeaves} pengajuan cuti`;
+        if (pendingLeavesEl) {
+            const parts = [];
+            if (pendingPermissions > 0) parts.push(`${pendingPermissions} izin`);
+            if (pendingLeaves > 0) parts.push(`${pendingLeaves} cuti`);
+            if (parts.length > 0) {
+                pendingLeavesEl.innerHTML = `<a href="#requests" style="color: var(--primary); text-decoration: underline;">${parts.join(' · ')} menunggu</a>`;
+            } else {
+                pendingLeavesEl.textContent = 'Tidak ada antrean izin/cuti';
+            }
+        }
+        updateNavRequestsCount(pendingApprovals);
 
         $('#metric-minutes').textContent = formatMinutes(summary.verified_minutes);
 
@@ -306,6 +318,30 @@ function getMonitoringRange(preset) {
     return { from: today, to: today };
 }
 
+function renderShiftTimingHtml(shift) {
+    const rawStart = formatClock(shift.start_at);
+    const rawEnd = formatClock(shift.end_at);
+    let startHtml = rawStart;
+    if (shift.effective_start && shift.effective_start !== rawStart) {
+        startHtml = `<s>${rawStart}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_start}</strong>`;
+    }
+    let endHtml = rawEnd;
+    if (shift.effective_end && shift.effective_end !== rawEnd) {
+        endHtml = `<s>${rawEnd}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_end}</strong>`;
+    }
+
+    let clockLine = `${startHtml}–${endHtml}`;
+    const perms = shift.approved_permissions || [];
+    let badgesHtml = '';
+    if (perms.length) {
+        badgesHtml = `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">` + perms.map((p) =>
+            `<span class="meta-pill" style="background:#d1fae5;color:#047857;border:1px solid #a7f3d0;font-size:10px;padding:1px 5px;" title="${esc(p.reason || p.type_label)}">✓ ${esc(p.badge_label || p.type_label)}</span>`
+        ).join('') + `</div>`;
+    }
+
+    return `Sesi ${shift.seq} · ${clockLine}${badgesHtml}`;
+}
+
 function renderMonitoring({ data, meta, summary }) {
     monitoringRows = new Map(data.map((row) => [String(row.id), row]));
     $('#monitoring-count').textContent = `${meta.total} sesi pada rentang ini`;
@@ -372,7 +408,7 @@ function renderMonitoring({ data, meta, summary }) {
                 <td data-label="Tanggal / sesi" class="monitoring-date-session-col">
                     <b>${formatDate(row.work_date)}</b>
                     <span class="monitoring-session-name" title="${esc(row.shift.name)}">${esc(row.shift.name)}</span>
-                    <small>Sesi ${row.shift.seq} · ${formatClock(row.shift.start_at)}–${formatClock(row.shift.end_at)}</small>
+                    <small>${renderShiftTimingHtml(row.shift)}</small>
                 </td>
                 <td data-label="Karyawan">
                     <div style="display:flex;align-items:center;">
@@ -834,6 +870,158 @@ function updateApprovalTabCount(tabKey, label, count) {
     if (tab) tab.setAttribute('aria-label', `${label}: ${value} menunggu keputusan`);
 }
 
+function updateNavRequestsCount(count) {
+    const el = $('#nav-requests-count');
+    if (!el) return;
+    const value = Math.max(0, Number(count) || 0);
+    el.textContent = value > 99 ? '99+' : String(value);
+    el.hidden = value < 1;
+}
+
+let historyState = {
+    page: 1,
+    type: 'all',
+    status: 'all',
+    q: '',
+};
+
+function renderApprovalHistoryItem(item) {
+    const initialLetter = esc(item.employee?.name?.charAt(0).toUpperCase() ?? '?');
+    const avatarHtml = item.employee?.avatar_url
+        ? `<img src="${esc(item.employee.avatar_url)}" alt="${esc(item.employee.name ?? '')}" class="avatar workflow-avatar" onerror="this.onerror=null;this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar workflow-avatar',textContent:'${initialLetter}'}))">`
+        : `<span class="avatar workflow-avatar">${initialLetter}</span>`;
+
+    let statusBadge = '<span class="status neutral">—</span>';
+    if (item.status === 'APPROVED') {
+        statusBadge = '<span class="status success">Disetujui</span>';
+    } else if (item.status === 'REJECTED') {
+        statusBadge = '<span class="status danger">Ditolak</span>';
+    } else if (item.status === 'CANCELLED') {
+        statusBadge = '<span class="status neutral">Dibatalkan</span>';
+    }
+
+    let typeColor = '#0284c7';
+    if (item.type === 'correction') typeColor = '#7c3aed';
+    else if (item.type === 'overtime') typeColor = '#d97706';
+    else if (item.type === 'shift_exchange') typeColor = '#059669';
+
+    const typeBadge = `<span class="status" style="background:${typeColor}15;color:${typeColor};border:1px solid ${typeColor}30;min-height:22px;padding:2px 8px;font-size:11.5px;font-weight:600;">${esc(item.type_label)}</span>`;
+
+    const attachmentsHtml = item.attachments?.length
+        ? `<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">` + item.attachments.map((att) => `
+            <a href="/admin/api/attachments/${att.id}/preview" target="_blank" rel="noopener noreferrer" class="secondary-button" style="font-size:11.5px;padding:2px 8px;min-height:24px;display:inline-flex;align-items:center;gap:4px;">
+                ${icon('clip', 12)} ${esc(att.name)}
+            </a>`).join('') + `</div>`
+        : '';
+
+    return `<article class="workflow-card">
+        <div class="workflow-card-header">
+            <div class="workflow-user-info">
+                ${avatarHtml}
+                <div class="workflow-user-meta">
+                    <strong>${esc(item.employee?.name ?? '—')}</strong>
+                    <div class="workflow-sub-meta">
+                        <span class="meta-pill">${esc(item.employee?.department ?? 'Tanpa departemen')}</span>
+                        <span><code>${esc(item.employee?.code ?? '')}</code></span>
+                        <span>${esc(item.work_date ? formatDate(item.work_date) : '')}</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+                ${typeBadge}
+                ${statusBadge}
+            </div>
+        </div>
+        <div class="workflow-card-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+                <div><span class="modal-label" style="font-size:12px;color:var(--muted);">Detail:</span> <strong>${esc(item.shift ?? '')}</strong> · ${esc(item.detail ?? '')}</div>
+                <div style="font-size:11.5px;color:var(--muted);">${esc(item.decided_at_formatted ? `Diputuskan: ${item.decided_at_formatted}` : '')}</div>
+            </div>
+            ${item.reason ? `
+                <div class="workflow-reason-box" style="margin-bottom:6px;">
+                    <span class="reason-label">Alasan pengajuan:</span>
+                    <p class="reason-text">${esc(item.reason)}</p>
+                </div>
+            ` : ''}
+            <div style="background:var(--surface-soft,#f8fafc);border-left:3px solid ${item.status === 'APPROVED' ? 'var(--success,#16a34a)' : 'var(--danger,#dc2626)'};padding:8px 12px;border-radius:4px;font-size:12.5px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px;">
+                    <strong style="color:var(--ink);">${item.status === 'APPROVED' ? 'Disetujui' : 'Ditolak'} oleh: ${esc(item.decided_by)}</strong>
+                </div>
+                <div style="color:var(--text-muted);font-size:12px;">Catatan: ${esc(item.decision_reason && item.decision_reason !== '-' ? item.decision_reason : 'Tanpa catatan tambahan')}</div>
+            </div>
+            ${attachmentsHtml}
+        </div>
+    </article>`;
+}
+
+async function loadApprovalHistory(page = 1) {
+    historyState.page = page;
+    const queue = $('#approval-history-queue');
+    const badge = $('#approval-history-count-badge');
+    const countEl = $('#approval-history-count');
+    const pagination = $('#approval-history-pagination');
+
+    if (queue) {
+        queue.innerHTML = `
+            <div class="workflow-empty-state">
+                <span>Memuat riwayat persetujuan...</span>
+            </div>`;
+    }
+
+    try {
+        const query = {
+            page: historyState.page,
+            type: historyState.type,
+            status: historyState.status,
+            q: historyState.q,
+        };
+        const response = await api('workflows/history', { query });
+        const items = response.data || [];
+        const meta = response.meta || { total: items.length, current_page: 1, last_page: 1 };
+
+        if (badge) badge.textContent = meta.total;
+        if (countEl) countEl.textContent = `${meta.total} keputusan tercatat`;
+
+        if (queue) {
+            if (!items.length) {
+                queue.innerHTML = `
+                    <div class="workflow-empty-state">
+                        <div class="empty-icon-wrap">${icon('check', 26)}</div>
+                        <strong>Tidak ada riwayat persetujuan</strong>
+                        <span>Belum ada data keputusan persetujuan untuk filter ini.</span>
+                    </div>`;
+            } else {
+                queue.innerHTML = items.map(renderApprovalHistoryItem).join('');
+            }
+        }
+
+        if (pagination) {
+            if (meta.last_page > 1) {
+                pagination.hidden = false;
+                pagination.innerHTML = `
+                    <span>Halaman ${meta.current_page} dari ${meta.last_page} (${meta.total} data)</span>
+                    <div style="display:flex;gap:8px;">
+                        <button type="button" class="secondary-button" id="history-prev-btn" ${meta.current_page <= 1 ? 'disabled' : ''}>Sebelumnya</button>
+                        <button type="button" class="secondary-button" id="history-next-btn" ${meta.current_page >= meta.last_page ? 'disabled' : ''}>Selanjutnya</button>
+                    </div>`;
+                $('#history-prev-btn')?.addEventListener('click', () => loadApprovalHistory(meta.current_page - 1));
+                $('#history-next-btn')?.addEventListener('click', () => loadApprovalHistory(meta.current_page + 1));
+            } else {
+                pagination.hidden = true;
+                pagination.innerHTML = '';
+            }
+        }
+    } catch (e) {
+        if (queue) {
+            queue.innerHTML = `
+                <div class="workflow-empty-state" style="color:var(--danger,#dc2626);">
+                    <strong>Gagal memuat riwayat</strong>
+                    <span>${esc(e.message)}</span>
+                </div>`;
+        }
+    }
+}
+
 function activateApprovalTab(tabKey) {
     const tabs = $$('[data-approval-tab]');
     const activeTab = tabs.find((tab) => tab.dataset.approvalTab === tabKey);
@@ -847,6 +1035,9 @@ function activateApprovalTab(tabKey) {
     $$('[data-approval-panel]').forEach((panel) => {
         panel.hidden = panel.dataset.approvalPanel !== tabKey;
     });
+    if (tabKey === 'history') {
+        loadApprovalHistory(1);
+    }
 }
 
 function initApprovalTabs() {
@@ -903,8 +1094,8 @@ export async function showApprovals() {
         const emptyLate = `
             <div class="workflow-empty-state">
                 <div class="empty-icon-wrap">${icon('check', 26)}</div>
-                <strong>Tidak ada izin terlambat</strong>
-                <span>Semua permohonan izin terlambat sudah ditinjau.</span>
+                <strong>Tidak ada permohonan izin</strong>
+                <span>Semua permohonan izin absensi sudah ditinjau.</span>
             </div>`;
         const emptyCorrection = `
             <div class="workflow-empty-state">
@@ -1041,6 +1232,14 @@ export async function showApprovals() {
                 const item = exchangeList.find((exchange) => exchange.id === Number(button.dataset.shiftExchangeReview));
                 if (item) decisionShiftExchangeModal(item).catch((failure) => toast(failure.message, 'error'));
             }));
+        }
+
+        const totalPendingApprovals = lateCount + correctionCount + pendingOtCount + exchangeList.length;
+        updateNavRequestsCount(totalPendingApprovals);
+
+        const activeApprovalTab = document.querySelector('[data-approval-tab][aria-selected="true"]');
+        if (activeApprovalTab?.dataset.approvalTab === 'history') {
+            loadApprovalHistory(historyState.page);
         }
     } catch (failure) {
         const message = failure instanceof Error ? failure.message : 'Terjadi kesalahan.';
@@ -1408,6 +1607,22 @@ export async function initAttendance() {
     initApprovalTabs();
     $('#workflow-refresh').addEventListener('click', showApprovals);
     $('#overtime-filter')?.addEventListener('change', showApprovals);
+    $('#approval-history-type-filter')?.addEventListener('change', (e) => {
+        historyState.type = e.target.value;
+        loadApprovalHistory(1);
+    });
+    $('#approval-history-status-filter')?.addEventListener('change', (e) => {
+        historyState.status = e.target.value;
+        loadApprovalHistory(1);
+    });
+    let historySearchTimer = null;
+    $('#approval-history-search')?.addEventListener('input', (e) => {
+        clearTimeout(historySearchTimer);
+        historySearchTimer = setTimeout(() => {
+            historyState.q = e.target.value.trim();
+            loadApprovalHistory(1);
+        }, 300);
+    });
     initOvertimeModal();
     $('#workflow-modal').querySelectorAll('[data-close-modal]').forEach((button) => button.addEventListener('click', () => $('#workflow-modal').close()));
     $('#workflow-modal').addEventListener('click', (event) => { if (event.target === $('#workflow-modal')) $('#workflow-modal').close(); });

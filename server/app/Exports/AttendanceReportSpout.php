@@ -73,6 +73,11 @@ class AttendanceReportSpout
             'Hari Hadir',
             'Sesi Jadwal',
             'Sesi Hadir',
+            'Shift 1',
+            'Shift 2',
+            'Shift 3',
+            'Split Khusus',
+            'Tukar Shift',
             'Menit Valid',
             'Durasi Valid',
             'Kali Terlambat',
@@ -95,6 +100,7 @@ class AttendanceReportSpout
         $no = 1;
         foreach ($rows as $item) {
             $emp = $item['employee'];
+            $counts = $item['shift_counts'] ?? [];
             $writer->addRow(Row::fromValues([
                 $no++,
                 $emp['code'],
@@ -106,6 +112,11 @@ class AttendanceReportSpout
                 $item['attended_days'],
                 $item['scheduled_sessions'],
                 $item['attended_sessions'],
+                $counts['shift_1'] ?? 0,
+                $counts['shift_2'] ?? 0,
+                $counts['shift_3'] ?? 0,
+                $counts['split'] ?? 0,
+                $counts['exchange'] ?? 0,
                 $item['verified_minutes'],
                 $item['verified_hours_formatted'],
                 $item['late_count'],
@@ -136,6 +147,11 @@ class AttendanceReportSpout
             $kpi['total_attended_days'],
             $kpi['total_scheduled_sessions'],
             $kpi['total_attended_sessions'],
+            $kpi['total_shift_1'] ?? 0,
+            $kpi['total_shift_2'] ?? 0,
+            $kpi['total_shift_3'] ?? 0,
+            $kpi['total_split'] ?? 0,
+            $kpi['total_exchange'] ?? 0,
             $kpi['total_verified_minutes'],
             $kpi['total_verified_hours_formatted'],
             $kpi['total_late_count'],
@@ -224,20 +240,28 @@ class AttendanceReportSpout
         $sheet3->setName('Frekuensi Shift');
         $writer->addRow(Row::fromValuesWithStyle([$siteName], $titleStyle));
         $writer->addRow(Row::fromValuesWithStyle(['FREKUENSI SHIFT PER KARYAWAN'], $titleStyle));
-        $writer->addRow(Row::fromValuesWithStyle(["Periode: {$filters['from']} s.d. {$filters['to']} | Hanya shift dengan check-in"], $subTitleStyle));
+        $writer->addRow(Row::fromValuesWithStyle(["Periode: {$filters['from']} s.d. {$filters['to']} | Rekapitulasi jenis shift kehadiran"], $subTitleStyle));
         $writer->addRow(Row::fromValues(['']));
-        $writer->addRow(Row::fromValuesWithStyle(['No', 'NIK', 'Nama Karyawan', 'Departemen', 'Kategori Shift', 'Jumlah Shift'], $headerStyle));
+        $writer->addRow(Row::fromValuesWithStyle([
+            'No', 'NIK', 'Nama Karyawan', 'Departemen',
+            'Shift 1', 'Shift 2', 'Shift 3', 'Split Khusus', 'Tukar Shift', 'Total Hadir',
+        ], $headerStyle));
 
         $breakdownNo = 1;
-        foreach ($shiftBreakdown as $item) {
+        foreach ($rows as $item) {
             $employee = $item['employee'];
+            $counts = $item['shift_counts'] ?? [];
             $writer->addRow(Row::fromValues([
                 $breakdownNo++,
                 $employee['code'],
                 $employee['name'],
                 $employee['department'],
-                $item['category_name'],
-                $item['shift_count'],
+                $counts['shift_1'] ?? 0,
+                $counts['shift_2'] ?? 0,
+                $counts['shift_3'] ?? 0,
+                $counts['split'] ?? 0,
+                $counts['exchange'] ?? 0,
+                $counts['total_shifts'] ?? 0,
             ]));
         }
 

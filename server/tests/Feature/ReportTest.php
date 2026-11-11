@@ -586,6 +586,98 @@ class ReportTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_reports_summary_and_shift_breakdown_include_shift_type_counts(): void
+    {
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $employee = $this->createEmployee($engineering, 'ENG-888', 'Shift Analyst');
+
+        $templateReguler = ShiftTemplate::query()->with('sessions')->where('name', 'Reguler')->firstOrFail();
+        $templateMalam = ShiftTemplate::query()->with('sessions')->where('name', 'Malam')->firstOrFail();
+        $templateSplit = ShiftTemplate::query()->with('sessions')->where('name', 'Khusus 2 sesi')->firstOrFail();
+
+        $admin = User::factory()->role('admin')->create();
+        $publisher = app(PublishSchedule::class);
+
+        $sch1 = $publisher->upsert($employee, '2026-10-25', $templateReguler, $admin);
+        $sch2 = $publisher->upsert($employee, '2026-10-26', $templateMalam, $admin);
+        $sch3 = $publisher->upsert($employee, '2026-10-27', $templateSplit, $admin);
+
+        $publisher->publish('2026-10-25', '2026-10-27', [$employee->id]);
+
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $sch1->sessions->first()->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => '2026-10-25 08:00:00',
+            'check_out_at' => '2026-10-25 17:00:00',
+            'status' => 'COMPLETE',
+            'verified_minutes' => 480,
+        ]);
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $sch2->sessions->first()->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => '2026-10-26 22:00:00',
+            'check_out_at' => '2026-10-27 06:00:00',
+            'status' => 'COMPLETE',
+            'verified_minutes' => 480,
+        ]);
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $sch3->sessions->first()->id,
+            'employee_id' => $employee->id,
+            'check_in_at' => '2026-10-27 06:00:00',
+            'check_out_at' => '2026-10-27 10:00:00',
+            'status' => 'COMPLETE',
+            'verified_minutes' => 240,
+        ]);
+
+        \App\Models\ShiftExchangeRequest::query()->create([
+            'employee_id' => $employee->id,
+            'requested_by' => $admin->id,
+            'shift_assignment_id' => $sch1->id,
+            'target_employee_id' => $employee->id,
+            'swap_mode' => 'delegation',
+            'reason' => 'Tukar shift dinas',
+            'status' => 'APPROVED',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)
+            ->getJson('/admin/api/reports/summary?from=2026-10-01&to=2026-10-31&department_id='.$engineering->id);
+
+        $response->assertOk();
+        $row = collect($response->json('rows'))->firstWhere('employee.id', $employee->id);
+        $this->assertNotNull($row);
+        $this->assertArrayHasKey('shift_counts', $row);
+        $this->assertEquals(1, $row['shift_counts']['shift_1']);
+        $this->assertEquals(0, $row['shift_counts']['shift_2']);
+        $this->assertEquals(1, $row['shift_counts']['shift_3']);
+        $this->assertEquals(1, $row['shift_counts']['split']);
+        $this->assertEquals(1, $row['shift_counts']['exchange']);
+        $this->assertEquals(3, $row['shift_counts']['total_shifts']);
+
+        $kpi = $response->json('kpi');
+        $this->assertGreaterThanOrEqual(1, $kpi['total_shift_1']);
+        $this->assertGreaterThanOrEqual(1, $kpi['total_shift_3']);
+        $this->assertGreaterThanOrEqual(1, $kpi['total_split']);
+        $this->assertGreaterThanOrEqual(1, $kpi['total_exchange']);
+
+        $breakdown = $this->actingAs($admin)
+            ->getJson('/admin/api/reports/shift-breakdown?from=2026-10-01&to=2026-10-31&department_id='.$engineering->id);
+        $breakdown->assertOk();
+        $this->assertNotNull($breakdown->json('summary_rows'));
+        $bRow = collect($breakdown->json('summary_rows'))->firstWhere('employee.id', $employee->id);
+        $this->assertNotNull($bRow);
+        $this->assertEquals(1, $bRow['shift_counts']['shift_1']);
+        $this->assertEquals(1, $bRow['shift_counts']['shift_3']);
+        $this->assertEquals(1, $bRow['shift_counts']['split']);
+        $this->assertEquals(1, $bRow['shift_counts']['exchange']);
+
+        $excelResponse = $this->actingAs($admin)
+            ->get('/admin/api/reports/export/excel?from=2026-10-01&to=2026-10-31');
+        $excelResponse->assertOk();
+        $this->assertStringContainsString('spreadsheet', $excelResponse->headers->get('Content-Type'));
+    }
+
     private function createEmployee(Department $department, string $code, string $name): Employee
     {
         $user = User::factory()->create(['name' => $name]);

@@ -67,11 +67,14 @@ class ReportController extends Controller
     public function shiftBreakdown(Request $request, ReportService $reportService): JsonResponse
     {
         $filters = $reportService->validatedFilters($request);
+        $summary = $reportService->getSummary($request->user(), $filters);
 
         return response()->json([
             'filters' => $filters,
             'period_status' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
             'data' => $reportService->getShiftBreakdown($request->user(), $filters),
+            'summary_rows' => $summary['rows'],
+            'kpi' => $summary['kpi'],
         ]);
     }
 
@@ -156,10 +159,13 @@ class ReportController extends Controller
 
             $filename = "rekap_lembur_{$filters['from']}_{$filters['to']}.pdf";
         } elseif ($type === 'shift-breakdown') {
+            $summary = $reportService->getSummary($request->user(), $filters);
             $rows = $reportService->getShiftBreakdown($request->user(), $filters);
             $pdf = Pdf::loadView('reports.shift-breakdown-pdf', [
                 'site' => SiteSetting::current(),
                 'rows' => $rows,
+                'summaryRows' => $summary['rows'],
+                'kpi' => $summary['kpi'],
                 'filters' => $filters,
                 'periodStatus' => $reportService->determinePeriodStatus($filters['from'], $filters['to']),
                 'generatedAtLocal' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),

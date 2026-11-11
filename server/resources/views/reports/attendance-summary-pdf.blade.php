@@ -245,6 +245,7 @@
                 <th>Departemen</th>
                 <th style="width: 35px;">Jadwal</th>
                 <th style="width: 35px;">Hadir</th>
+                <th style="width: 65px;">Rincian Shift</th>
                 <th style="width: 55px;">Jam Reguler</th>
                 <th style="width: 45px;">Terlambat</th>
                 <th style="width: 50px;">Lembur Aktual</th>
@@ -266,6 +267,11 @@
                     <td class="text-left">{{ $emp['department'] }}</td>
                     <td class="text-center">{{ $row['scheduled_days'] }} h</td>
                     <td class="text-center"><strong>{{ $row['attended_days'] }} h</strong></td>
+                    <td class="text-center" style="font-size: 6pt; line-height: 1.1;">
+                        @php($sc = $row['shift_counts'] ?? [])
+                        S1:{{ $sc['shift_1'] ?? 0 }} S2:{{ $sc['shift_2'] ?? 0 }}<br>
+                        S3:{{ $sc['shift_3'] ?? 0 }} Sp:{{ $sc['split'] ?? 0 }} Tk:{{ $sc['exchange'] ?? 0 }}
+                    </td>
                     <td class="text-center">{{ $row['verified_hours_formatted'] }}</td>
                     <td class="text-center">
                         @if ($row['late_count'] > 0)
@@ -285,7 +291,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="15" class="text-center" style="padding: 15px; color: #64748b;">
+                    <td colspan="16" class="text-center" style="padding: 15px; color: #64748b;">
                         Tidak ada data kehadiran untuk periode dan filter ini.
                     </td>
                 </tr>
@@ -295,6 +301,10 @@
                     <td colspan="4" class="text-center">TOTAL KESELURUHAN</td>
                     <td class="text-center">-</td>
                     <td class="text-center">{{ $kpi['total_attended_days'] }} h</td>
+                    <td class="text-center" style="font-size: 6pt; line-height: 1.1;">
+                        S1:{{ $kpi['total_shift_1'] ?? 0 }} S2:{{ $kpi['total_shift_2'] ?? 0 }}<br>
+                        S3:{{ $kpi['total_shift_3'] ?? 0 }} Sp:{{ $kpi['total_split'] ?? 0 }} Tk:{{ $kpi['total_exchange'] ?? 0 }}
+                    </td>
                     <td class="text-center">{{ $kpi['total_verified_hours_formatted'] }}</td>
                     <td class="text-center">{{ $kpi['total_late_count'] }}x ({{ $kpi['total_late_minutes'] }}m)</td>
                     <td class="text-center">{{ $kpi['total_actual_overtime_hours_formatted'] }}</td>

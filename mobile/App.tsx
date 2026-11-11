@@ -35,8 +35,23 @@ const tabItems: Array<{
   { key: 'Profil', label: 'Profil', activeIcon: 'person', inactiveIcon: 'person-outline' },
 ];
 
+type ApprovedPermission = {
+  id: number;
+  permission_type: 'late_arrival' | 'temporary_exit' | 'early_departure';
+  type_label: string;
+  time_label: string;
+  effective_clock?: string | null;
+  leave_clock?: string | null;
+  return_clock?: string | null;
+  badge_label?: string | null;
+  reason: string;
+};
+
 type Session = {
   id: number; seq: number; start_at: string; end_at: string; local_start: string; local_end: string; local_start_date?: string; local_end_date?: string;
+  effective_start?: string | null;
+  effective_end?: string | null;
+  approved_permissions?: ApprovedPermission[];
   attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null; effective_work_end_at?: string | null; checkout_deadline_at?: string | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
   attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
@@ -171,6 +186,54 @@ const minimumLeaveDate = (minimumNoticeDays = 14) => {
 };
 const clock = (value?: string | null) => value ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' }).format(new Date(value)) : '—';
 const shortClock = (value: string) => value.replace('.', ':').replace(' (+1)', ' (+1)');
+
+function renderSessionTitleClock(session: Session) {
+  const baseStart = shortClock(session.local_start);
+  const baseEnd = shortClock(session.local_end);
+  const effectiveStart = session.effective_start ? shortClock(session.effective_start) : null;
+  const effectiveEnd = session.effective_end ? shortClock(session.effective_end) : null;
+
+  const hasAdjustedStart = Boolean(effectiveStart && effectiveStart !== baseStart);
+  const hasAdjustedEnd = Boolean(effectiveEnd && effectiveEnd !== baseEnd);
+
+  if (!hasAdjustedStart && !hasAdjustedEnd) {
+    return `${baseStart}–${baseEnd}`;
+  }
+
+  return (
+    <Text>
+      {hasAdjustedStart ? (
+        <>
+          <Text style={styles.clockStrikethrough}>{baseStart}</Text>
+          <Text style={styles.clockAdjusted}> {effectiveStart} </Text>
+        </>
+      ) : (
+        <Text>{baseStart} </Text>
+      )}
+      <Text>– </Text>
+      {hasAdjustedEnd ? (
+        <>
+          <Text style={styles.clockStrikethrough}>{baseEnd}</Text>
+          <Text style={styles.clockAdjusted}> {effectiveEnd}</Text>
+        </>
+      ) : (
+        <Text>{baseEnd}</Text>
+      )}
+    </Text>
+  );
+}
+
+function sessionTitleClockString(session: Session): string {
+  const baseStart = shortClock(session.local_start);
+  const baseEnd = shortClock(session.local_end);
+  const effectiveStart = session.effective_start ? shortClock(session.effective_start) : null;
+  const effectiveEnd = session.effective_end ? shortClock(session.effective_end) : null;
+
+  const startStr = effectiveStart && effectiveStart !== baseStart ? `${effectiveStart}*` : baseStart;
+  const endStr = effectiveEnd && effectiveEnd !== baseEnd ? `${effectiveEnd}*` : baseEnd;
+
+  return `${startStr}–${endStr}`;
+}
 const nameOrString = (val: unknown, fallback = '—'): string => {
   if (!val) return fallback;
   if (typeof val === 'string') return val;
@@ -2505,7 +2568,7 @@ function Main() {
       <View key={session.id} style={styles.sessionCard}>
         <View style={styles.sessionTop}>
           <View style={styles.flex}>
-            <Text style={styles.sessionTitle}>Sesi {session.seq} · {shortClock(session.local_start)}–{shortClock(session.local_end)}</Text>
+            <Text style={styles.sessionTitle}>Sesi {session.seq} · {renderSessionTitleClock(session)}</Text>
             <Text style={styles.mutedCopy}>{label}{record?.needs_review ? ' · perlu verifikasi' : ''}</Text>
           </View>
           <Pill tone={pillTone}>{pillLabel}</Pill>
@@ -2546,6 +2609,19 @@ function Main() {
             </Pill>
           </View>
         )}
+        {Boolean(session.approved_permissions?.length) && session.approved_permissions!.map((perm) => (
+          <View key={perm.id} style={{ marginTop: 8, padding: 8, borderRadius: 8, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#166534' }}>
+                ✓ {perm.type_label}: {perm.time_label}
+              </Text>
+              <Text style={{ fontSize: 12, color: '#15803d', marginTop: 2 }}>
+                Alasan: "{perm.reason}"
+              </Text>
+            </View>
+            <Pill tone="success">Disetujui</Pill>
+          </View>
+        ))}
         {verifiedMinutes > 0 && <Text style={styles.verified}>Terverifikasi {Math.floor(verifiedMinutes / 60)}j {verifiedMinutes % 60}m</Text>}
         {Boolean(record?.verified_overtime_minutes) && (
           <Text style={[styles.verified, { color: '#047857', marginTop: 2 }]}>
@@ -2741,7 +2817,7 @@ function Main() {
           ) : activeIntent ? (
             <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
               <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? `Check-in · ${activeIntent.assignment.template_name}` : `Check-out · ${activeIntent.assignment.template_name}`}</Text>
-              <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {shortClock(activeIntent.session.local_start)}–{shortClock(activeIntent.session.local_end)}</Text>
+              <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {sessionTitleClockString(activeIntent.session)}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -3241,7 +3317,7 @@ function Main() {
                   style={[styles.quickChip, otSessionId === session.id && styles.quickChipActive]}
                 >
                   <Text style={[styles.quickChipText, otSessionId === session.id && styles.quickChipTextActive]}>
-                    {assignment.template_name} · {shortClock(session.local_start)}–{shortClock(session.local_end)}
+                    {assignment.template_name} · {sessionTitleClockString(session)}
                   </Text>
                 </Pressable>
               ))}
@@ -3442,7 +3518,7 @@ function Main() {
                     <Text style={styles.cardTitle}>{localDate(assignment.work_date)} · {assignment.template_name}</Text>
                     {isSelected && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
                   </View>
-                  <Text style={styles.cardCopy}>Sesi {session.seq} ({shortClock(session.local_start)}–{shortClock(session.local_end)}){session.attendance_policy?.location_required ? ' · GPS diwajibkan' : ''}</Text>
+                  <Text style={styles.cardCopy}>Sesi {session.seq} ({sessionTitleClockString(session)}){session.attendance_policy?.location_required ? ' · GPS diwajibkan' : ''}</Text>
                 </Pressable>
               );
             })}
@@ -4179,7 +4255,7 @@ function Main() {
           <View style={styles.modalCard}>
             <Text style={styles.modalEyebrow}>{intent?.assignment.template_name.toUpperCase()} · SESI {intent?.session.seq}</Text>
             <Text style={styles.modalTitle}>Konfirmasi {intent?.eventType === 'CHECK_IN' ? 'Check-In' : 'Check-Out'}</Text>
-            <Text style={styles.modalCopy}>{intent ? `${localDate(intent.assignment.work_date)} · ${shortClock(intent.session.local_start)}–${shortClock(intent.session.local_end)}` : ''}. Ambil foto selfie wajah Anda di lokasi kerja resort.</Text>
+            <Text style={styles.modalCopy}>{intent ? `${localDate(intent.assignment.work_date)} · ${sessionTitleClockString(intent.session)}` : ''}. Ambil foto selfie wajah Anda di lokasi kerja resort.</Text>
 
             {/* Selfie Photo Box */}
             <View style={styles.selfieBox}>
@@ -4643,6 +4719,8 @@ const styles = StyleSheet.create({
   sessionBlockText: { color: colors.ink, fontSize: 13, fontWeight: '700', lineHeight: 19 },
   sessionTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sessionTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  clockStrikethrough: { textDecorationLine: 'line-through', color: colors.muted, opacity: 0.75 },
+  clockAdjusted: { fontWeight: '800', color: colors.primary },
   mutedCopy: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
   verified: { color: '#1B5E20', fontSize: 13, fontWeight: '700', marginTop: 10 },
   pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.successSoft },

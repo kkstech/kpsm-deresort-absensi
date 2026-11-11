@@ -4,10 +4,14 @@ namespace App\Http\Controllers\Admin;
 
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceCorrection;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
+use App\Models\LatePermission;
 use App\Models\LeaveRequest;
+use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
+use App\Models\ShiftExchangeRequest;
 use App\Models\ShiftSession;
 use App\Models\User;
 use App\Support\WorkTime;
@@ -63,6 +67,12 @@ class AttendanceMonitoringController extends Controller
             ->limit(5)->get();
 
         $pendingLeavesCount = LeaveRequest::query()->where('status', 'PENDING')->count();
+        $employeeIds = EmployeeController::visibleTo($request->user())->select('employees.id');
+        $pendingLateCount = LatePermission::query()->where('status', 'PENDING')->whereIn('employee_id', $employeeIds)->count();
+        $pendingCorrectionsCount = AttendanceCorrection::query()->where('status', 'PENDING')->whereIn('employee_id', $employeeIds)->count();
+        $pendingOvertimeCount = OvertimeOrder::query()->where('status', 'PENDING')->whereIn('employee_id', $employeeIds)->count();
+        $pendingExchangesCount = ShiftExchangeRequest::query()->where('status', 'PENDING')->whereIn('employee_id', $employeeIds)->count();
+        $pendingApprovalsCount = $pendingLateCount + $pendingCorrectionsCount + $pendingOvertimeCount + $pendingExchangesCount;
 
         return response()->json([
             'filters' => $filters,
@@ -78,6 +88,8 @@ class AttendanceMonitoringController extends Controller
                 'in_progress_count' => (clone $records)->whereNotNull('check_in_at')->whereNull('check_out_at')->count(),
                 'completed_count' => (clone $records)->whereNotNull('check_out_at')->count(),
                 'pending_leaves_count' => $pendingLeavesCount,
+                'pending_permissions_count' => $pendingLateCount,
+                'pending_approvals_count' => $pendingApprovalsCount,
             ],
             'recent' => $recent->getCollection()->map(fn (ShiftSession $session) => $this->row($session))->values(),
             'recent_meta' => [
@@ -164,6 +176,7 @@ class AttendanceMonitoringController extends Controller
             'attendanceRecord:id,shift_session_id,check_in_event_id,check_out_event_id,late_permission_id,overtime_order_id,check_in_at,check_out_at,provisional_out_at,check_in_photo_path,check_out_photo_path,is_late,needs_review,review_reason,verified_minutes,verified_overtime_minutes',
             'attendanceRecord.latePermission:id,status',
             'attendanceEvents:id,shift_session_id,type,source,effective_at,server_received_at,device_time,device_timezone,latitude,longitude,accuracy_meters,distance_meters,is_mocked,result,reason_code,photo_path',
+            'latePermissions:id,shift_session_id,permission_type,allowed_until,allowed_minutes,leave_at,return_at,reason,status',
         ];
     }
 
@@ -232,6 +245,8 @@ class AttendanceMonitoringController extends Controller
         $checkOutEvent = ($record?->check_out_event_id ? $events->firstWhere('id', $record->check_out_event_id) : null)
             ?? $events->where('type', 'CHECK_OUT')->last();
 
+        $permPayload = $session->approvedPermissionsPayload();
+
         return [
             'id' => $session->id,
             'work_date' => $assignment->work_date,
@@ -242,7 +257,15 @@ class AttendanceMonitoringController extends Controller
                 'department' => $employee->department?->name,
                 'avatar_url' => $employee->avatar_url,
             ],
-            'shift' => ['name' => $assignment->template_name, 'seq' => $session->seq, 'start_at' => WorkTime::iso($session->start_at), 'end_at' => WorkTime::iso($session->end_at)],
+            'shift' => [
+                'name' => $assignment->template_name,
+                'seq' => $session->seq,
+                'start_at' => WorkTime::iso($session->start_at),
+                'end_at' => WorkTime::iso($session->end_at),
+                'effective_start' => $permPayload['effective_start'],
+                'effective_end' => $permPayload['effective_end'],
+                'approved_permissions' => $permPayload['approved_permissions'],
+            ],
             'attendance' => [
                 'state' => $state,
                 'check_in_at' => WorkTime::iso($record?->check_in_at),

@@ -56,7 +56,7 @@
                 <button type="button" class="nav-item active" data-view="dashboard" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-dashboard"/></svg>Dashboard</button>
                 <button type="button" class="nav-item" data-view="schedule"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Jadwal &amp; Shift</button>
                 <button type="button" class="nav-item" data-view="attendance"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Monitoring Absensi</button>
-                <button type="button" class="nav-item" data-view="requests"><svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg>Persetujuan</button>
+                <button type="button" class="nav-item" data-view="requests"><svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg><span>Persetujuan</span><b id="nav-requests-count" hidden>0</b></button>
                 <button type="button" class="nav-item" data-view="employees"><svg class="icon" aria-hidden="true"><use href="#i-people"/></svg>Karyawan</button>
                 <button type="button" class="nav-item" data-view="leaves" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-umbrella"/></svg>Cuti</button>
                 <button type="button" class="nav-item" data-view="allowances" data-requires="admin"><svg class="icon" aria-hidden="true"><use href="#i-coins"/></svg>Tunjangan</button>
@@ -186,7 +186,7 @@
                                 <span class="metric-tag alert" id="metric-review-tag">Tinjauan</span>
                             </div>
                             <div class="metric-extra-info">
-                                <span id="metric-pending-leaves">0 pengajuan cuti</span>
+                                <span id="metric-pending-leaves">0 antrean izin &amp; cuti</span>
                             </div>
                             <small class="metric-subtext">Sesi absensi butuh tindakan verifikasi</small>
                         </div>
@@ -470,6 +470,7 @@
                         <button type="button" role="tab" id="approval-tab-correction" aria-controls="approval-panel-correction" aria-label="Koreksi Absensi: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="correction">Koreksi Absensi <span class="approval-tab-count" id="approval-tab-count-correction" aria-hidden="true">0</span></button>
                         <button type="button" role="tab" id="approval-tab-overtime" aria-controls="approval-panel-overtime" aria-label="Lembur: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="overtime" data-requires="admin">Lembur <span class="approval-tab-count" id="approval-tab-count-overtime" aria-hidden="true">0</span></button>
                         <button type="button" role="tab" id="approval-tab-shift-exchange" aria-controls="approval-panel-shift-exchange" aria-label="Tukar Shift: 0 menunggu keputusan" aria-selected="false" tabindex="-1" data-approval-tab="shift-exchange" data-requires="admin">Tukar Shift <span class="approval-tab-count" id="approval-tab-count-shift-exchange" aria-hidden="true">0</span></button>
+                        <button type="button" role="tab" id="approval-tab-history" aria-controls="approval-panel-history" aria-label="Riwayat Persetujuan" aria-selected="false" tabindex="-1" data-approval-tab="history">Riwayat Persetujuan</button>
                     </div>
                     <div class="workflow-tab-panels">
                     <section class="workflow-tab-panel" id="approval-panel-izin" role="tabpanel" aria-labelledby="approval-tab-izin" tabindex="0" data-approval-panel="izin">
@@ -519,7 +520,7 @@
                             <div class="panel-heading">
                                 <div>
                                     <div class="queue-title-wrap">
-                                        <h2>Izin Terlambat</h2>
+                                        <h2>Izin Absensi</h2>
                                         <span class="queue-count-badge" id="late-permission-count-badge">0</span>
                                     </div>
                                     <p id="late-permission-count">Memuat…</p>
@@ -587,6 +588,38 @@
                             <div id="shift-exchange-queue" class="workflow-queue-list" aria-live="polite">
                                 <p class="list-empty">Memuat pengajuan tukar shift…</p>
                             </div>
+                        </section>
+                    </section>
+                    <section class="workflow-tab-panel" id="approval-panel-history" role="tabpanel" aria-labelledby="approval-tab-history" tabindex="0" data-approval-panel="history" hidden>
+                        <section class="panel workflow-queue-panel">
+                            <div class="panel-heading" style="flex-wrap: wrap; gap: 12px;">
+                                <div>
+                                    <div class="queue-title-wrap">
+                                        <h2>Riwayat Keputusan Persetujuan</h2>
+                                        <span class="queue-count-badge" id="approval-history-count-badge">0</span>
+                                    </div>
+                                    <p id="approval-history-count">Daftar keputusan izin, koreksi, lembur, dan tukar shift.</p>
+                                </div>
+                                <div class="history-filter-bar" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                                    <select id="approval-history-type-filter" style="font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter jenis pengajuan">
+                                        <option value="all">Semua Jenis</option>
+                                        <option value="late">Izin Terlambat</option>
+                                        <option value="correction">Koreksi Absensi</option>
+                                        <option value="overtime">Lembur &amp; SPL</option>
+                                        <option value="shift_exchange">Tukar Shift</option>
+                                    </select>
+                                    <select id="approval-history-status-filter" style="font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter status keputusan">
+                                        <option value="all">Semua Status</option>
+                                        <option value="APPROVED">Disetujui</option>
+                                        <option value="REJECTED">Ditolak</option>
+                                    </select>
+                                    <input type="search" id="approval-history-search" placeholder="Cari karyawan / alasan…" style="font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); min-width: 180px;">
+                                </div>
+                            </div>
+                            <div id="approval-history-queue" class="workflow-queue-list" aria-live="polite">
+                                <p class="list-empty">Memuat riwayat persetujuan…</p>
+                            </div>
+                            <div id="approval-history-pagination" class="table-pagination" hidden></div>
                         </section>
                     </section>
                     </div>
@@ -760,6 +793,7 @@
                                         <th>Departemen</th>
                                         <th style="text-align: center;">Hari Hadir / Jadwal</th>
                                         <th style="text-align: center;">Sesi Hadir</th>
+                                        <th style="text-align: center;">Rincian Shift</th>
                                         <th style="text-align: center;">Jam Reguler</th>
                                         <th style="text-align: center;">Terlambat</th>
                                         <th style="text-align: center;">Lembur Aktual</th>
@@ -770,7 +804,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="report-summary-tbody">
-                                    <tr><td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat data rekapitulasi...</td></tr>
+                                    <tr><td colspan="12" style="text-align: center; padding: 24px; color: var(--text-muted);">Memuat data rekapitulasi...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -839,8 +873,8 @@
                         <div class="panel table-card report-table-scroll">
                             <div class="panel-heading">
                                 <div>
-                                    <h2>Frekuensi shift berdasarkan kategori</h2>
-                                    <p>Satu jadwal dihitung satu kali jika ada check-in pada salah satu sesinya. Jadwal split tidak dihitung per sesi.</p>
+                                    <h2>Frekuensi shift per karyawan</h2>
+                                    <p>Rekapitulasi jumlah kehadiran berdasarkan jenis shift (Shift 1, Shift 2, Shift 3, Split Khusus, dan Tukar Shift).</p>
                                 </div>
                             </div>
                             <table class="data-table" id="report-shift-breakdown-table">
@@ -848,12 +882,16 @@
                                     <tr>
                                         <th>Karyawan</th>
                                         <th>Departemen</th>
-                                        <th>Kategori Shift</th>
-                                        <th style="text-align: center;">Jumlah Shift Hadir</th>
+                                        <th style="text-align: center;">Shift 1</th>
+                                        <th style="text-align: center;">Shift 2</th>
+                                        <th style="text-align: center;">Shift 3</th>
+                                        <th style="text-align: center;">Split Khusus</th>
+                                        <th style="text-align: center;">Tukar Shift</th>
+                                        <th style="text-align: center;">Total Hadir</th>
                                     </tr>
                                 </thead>
                                 <tbody id="report-shift-breakdown-tbody">
-                                    <tr><td colspan="4" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat frekuensi shift...</td></tr>
+                                    <tr><td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat frekuensi shift...</td></tr>
                                 </tbody>
                             </table>
                         </div>

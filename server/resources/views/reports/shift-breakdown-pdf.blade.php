@@ -38,26 +38,58 @@
         <thead>
             <tr>
                 <th style="width: 5%;">No</th>
-                <th style="width: 14%;">NIK</th>
+                <th style="width: 12%;">NIK</th>
                 <th>Karyawan</th>
                 <th>Departemen</th>
-                <th>Kategori Shift</th>
-                <th style="width: 12%;">Jumlah Shift Hadir</th>
+                <th style="width: 9%;" class="center">Shift 1</th>
+                <th style="width: 9%;" class="center">Shift 2</th>
+                <th style="width: 9%;" class="center">Shift 3</th>
+                <th style="width: 10%;" class="center">Split Khusus</th>
+                <th style="width: 10%;" class="center">Tukar Shift</th>
+                <th style="width: 10%;" class="center">Total Hadir</th>
             </tr>
         </thead>
         <tbody>
-            @forelse ($rows as $index => $row)
+            @php($list = ! empty($summaryRows) ? $summaryRows : [])
+            @forelse ($list as $index => $item)
+                @php($counts = $item['shift_counts'] ?? [])
                 <tr>
                     <td class="center">{{ $index + 1 }}</td>
-                    <td>{{ $row['employee']['code'] }}</td>
-                    <td>{{ $row['employee']['name'] }}</td>
-                    <td>{{ $row['employee']['department'] }}</td>
-                    <td>{{ $row['category_name'] }}</td>
-                    <td class="center">{{ $row['shift_count'] }}</td>
+                    <td>{{ $item['employee']['code'] }}</td>
+                    <td><strong>{{ $item['employee']['name'] }}</strong></td>
+                    <td>{{ $item['employee']['department'] }}</td>
+                    <td class="center">{{ $counts['shift_1'] ?? 0 }}</td>
+                    <td class="center">{{ $counts['shift_2'] ?? 0 }}</td>
+                    <td class="center">{{ $counts['shift_3'] ?? 0 }}</td>
+                    <td class="center">{{ $counts['split'] ?? 0 }}</td>
+                    <td class="center">{{ $counts['exchange'] ?? 0 }}</td>
+                    <td class="center"><strong>{{ $counts['total_shifts'] ?? 0 }}</strong></td>
                 </tr>
             @empty
-                <tr><td colspan="6" class="center">Belum ada shift yang memiliki check-in pada periode ini.</td></tr>
+                @forelse ($rows as $index => $row)
+                    <tr>
+                        <td class="center">{{ $index + 1 }}</td>
+                        <td>{{ $row['employee']['code'] }}</td>
+                        <td>{{ $row['employee']['name'] }}</td>
+                        <td>{{ $row['employee']['department'] }}</td>
+                        <td colspan="5">{{ $row['category_name'] }}</td>
+                        <td class="center">{{ $row['shift_count'] }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="10" class="center">Belum ada shift yang memiliki check-in pada periode ini.</td></tr>
+                @endforelse
             @endforelse
+            @if (! empty($list) && ! empty($kpi))
+                <tr style="background: #e2e8f0; font-weight: bold;">
+                    <td colspan="4" class="center">TOTAL KESELURUHAN</td>
+                    <td class="center">{{ $kpi['total_shift_1'] ?? 0 }}</td>
+                    <td class="center">{{ $kpi['total_shift_2'] ?? 0 }}</td>
+                    <td class="center">{{ $kpi['total_shift_3'] ?? 0 }}</td>
+                    <td class="center">{{ $kpi['total_split'] ?? 0 }}</td>
+                    <td class="center">{{ $kpi['total_exchange'] ?? 0 }}</td>
+                    <td class="center">{{ ($kpi['total_shift_1'] ?? 0) + ($kpi['total_shift_2'] ?? 0) + ($kpi['total_shift_3'] ?? 0) + ($kpi['total_split'] ?? 0) }}</td>
+                </tr>
+            @endif
         </tbody>
     </table>
 

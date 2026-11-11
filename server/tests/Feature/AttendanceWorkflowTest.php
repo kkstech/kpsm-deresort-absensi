@@ -18,7 +18,9 @@ use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\EmployeeLevel;
 use App\Models\LatePermission;
+use App\Models\OvertimeOrder;
 use App\Models\Position;
+use App\Models\ShiftExchangeRequest;
 use App\Models\ShiftSession;
 use App\Models\ShiftTemplate;
 use App\Models\User;
@@ -494,6 +496,164 @@ class AttendanceWorkflowTest extends TestCase
             ->assertJsonPath('data.correction_proof_required', true);
 
         $this->assertTrue((bool) AttendancePolicy::query()->findOrFail($policyId)->late_permission_proof_required);
+    }
+
+    public function test_workflow_history_endpoint_returns_decided_records_across_types(): void
+    {
+        $admin = User::factory()->role('admin')->create();
+        $this->actingAs($admin);
+
+        LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'allowed_minutes' => 30,
+            'reason' => 'Macet jalan',
+            'status' => 'APPROVED',
+            'approval_tier' => 'admin',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+            'decision_reason' => 'Disetujui admin',
+        ]);
+
+        AttendanceCorrection::query()->create([
+            'shift_session_id' => $this->session->id,
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'reason' => 'Lupa check in',
+            'status' => 'REJECTED',
+            'approval_tier' => 'admin',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+            'decision_reason' => 'Bukti tidak mencukupi',
+        ]);
+
+        OvertimeOrder::query()->create([
+            'order_number' => 'SPL-HIST-001',
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'shift_session_id' => $this->session->id,
+            'initiator_type' => 'ADMIN',
+            'created_by' => $admin->id,
+            'title' => 'Lembur perbaikan server',
+            'start_at' => '2026-10-25 17:00:00',
+            'end_at' => '2026-10-25 19:00:00',
+            'planned_minutes' => 120,
+            'actual_minutes' => 120,
+            'verified_minutes' => 120,
+            'status' => 'APPROVED',
+            'approval_tier' => 'admin',
+            'consent_status' => 'ACCEPTED',
+            'decision_by' => $admin->id,
+            'decision_at' => now(),
+            'decision_notes' => 'Disetujui lembur',
+        ]);
+
+        ShiftExchangeRequest::query()->create([
+            'employee_id' => $this->employee->id,
+            'requested_by' => $this->employeeUser->id,
+            'shift_assignment_id' => $this->session->shift_assignment_id,
+            'target_employee_id' => $this->employee->id,
+            'swap_mode' => 'delegation',
+            'reason' => 'Ada urusan penting',
+            'status' => 'APPROVED',
+            'approval_tier' => 'admin',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+            'decision_reason' => 'Disetujui tukar shift',
+        ]);
+
+        $response = $this->getJson('/admin/api/workflows/history');
+        $response->assertOk();
+        $this->assertCount(4, $response->json('data'));
+
+        $lateResponse = $this->getJson('/admin/api/workflows/history?type=late');
+        $lateResponse->assertOk();
+        $this->assertCount(1, $lateResponse->json('data'));
+        $this->assertEquals('late', $lateResponse->json('data.0.type'));
+
+        $rejectedResponse = $this->getJson('/admin/api/workflows/history?status=REJECTED');
+        $rejectedResponse->assertOk();
+        $this->assertCount(1, $rejectedResponse->json('data'));
+        $this->assertEquals('REJECTED', $rejectedResponse->json('data.0.status'));
+        $this->assertEquals('correction', $rejectedResponse->json('data.0.type'));
+
+        $searchResponse = $this->getJson('/admin/api/workflows/history?q=server');
+        $searchResponse->assertOk();
+        $this->assertCount(1, $searchResponse->json('data'));
+        $this->assertEquals('overtime', $searchResponse->json('data.0.type'));
+    }
+
+    public function test_approved_permissions_adjust_session_clock_and_payload_in_schedule_and_monitoring(): void
+    {
+        $admin = User::factory()->role('admin')->create();
+
+        // 1. Initially, pending permission does not adjust effective times
+        $perm = LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'allowed_minutes' => 30,
+            'reason' => 'Macet parah',
+            'status' => 'PENDING',
+            'approval_tier' => 'admin',
+        ]);
+
+        $payload = $this->session->approvedPermissionsPayload();
+        $this->assertNull($payload['effective_start']);
+        $this->assertNull($payload['effective_end']);
+        $this->assertEmpty($payload['approved_permissions']);
+
+        // 2. Approve the late arrival permission
+        $perm->update([
+            'status' => 'APPROVED',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+            'decision_reason' => 'Disetujui',
+        ]);
+
+        $this->session->unsetRelation('latePermissions');
+        $payload = $this->session->approvedPermissionsPayload();
+        $this->assertNotNull($payload['effective_start']);
+        $this->assertCount(1, $payload['approved_permissions']);
+        $this->assertEquals('Izin Terlambat', $payload['approved_permissions'][0]['type_label']);
+
+        // Check via mobile schedule API
+        $schedResponse = $this->withToken($this->token)->getJson('/api/v1/me/schedule?from=2026-10-25&to=2026-10-25');
+        $schedResponse->assertOk();
+        $sessionData = $schedResponse->json('data.0.sessions.0');
+        $this->assertEquals($payload['effective_start'], $sessionData['effective_start']);
+        $this->assertCount(1, $sessionData['approved_permissions']);
+
+        // Check via admin monitoring API
+        $monResponse = $this->actingAs($admin)->getJson('/admin/api/attendance?from=2026-10-25&to=2026-10-25');
+        $monResponse->assertOk();
+        $monRow = collect($monResponse->json('data'))->firstWhere('id', $this->session->id);
+        $this->assertNotNull($monRow);
+        $this->assertEquals($payload['effective_start'], $monRow['shift']['effective_start']);
+        $this->assertCount(1, $monRow['shift']['approved_permissions']);
+
+        // 3. Test early departure permission
+        LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'early_departure',
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'leave_at' => '2026-10-25 08:00:00',
+            'reason' => 'Acara keluarga',
+            'status' => 'APPROVED',
+            'approval_tier' => 'admin',
+            'decided_by' => $admin->id,
+            'decided_at' => now(),
+        ]);
+
+        $this->session->unsetRelation('latePermissions');
+        $payload = $this->session->approvedPermissionsPayload();
+        $this->assertNotNull($payload['effective_start']);
+        $this->assertNotNull($payload['effective_end']);
+        $this->assertCount(2, $payload['approved_permissions']);
     }
 
     private function rawEvent(ShiftSession $session, string $uuidSuffix, string $type, $effectiveAt): AttendanceEvent

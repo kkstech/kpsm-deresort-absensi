@@ -25,6 +25,11 @@ class LatePermission extends Model
         return $this->belongsTo(User::class, 'requester_id');
     }
 
+    public function decidedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'decided_by');
+    }
+
     public function attachments(): MorphMany
     {
         return $this->morphMany(AttendanceAttachment::class, 'attachable');

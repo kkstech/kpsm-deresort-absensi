@@ -3228,3 +3228,43 @@ main:focus { outline: none; }
     padding: 12px 14px;
     color: var(--ink);
 }
+
+/* Shift Breakdown Pills */
+.shift-pill-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+.shift-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    line-height: 1.25;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+}
+.shift-pill-s1 { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.shift-pill-s2 { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.shift-pill-s3 { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; }
+.shift-pill-split { background: #d1fae5; color: #047857; border: 1px solid #a7f3d0; }
+.shift-pill-swap { background: #ffe4e6; color: #be123c; border: 1px solid #fecdd3; }
+
+/* Approval History Styles */
+.history-filter-bar select,
+.history-filter-bar input {
+    font-family: inherit;
+    font-size: 12.5px;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    transition: border-color .15s ease;
+}
+.history-filter-bar select:focus,
+.history-filter-bar input:focus {
+    border-color: var(--primary);
+    outline: none;
+}
