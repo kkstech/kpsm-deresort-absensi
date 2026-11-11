@@ -673,7 +673,7 @@ type TimePickerModalProps = {
   visible: boolean;
   title: string;
   selectedTime: string;
-  onSelect: (timeStr: string) => void;
+  onSelect: (timeStr: string) => string | void;
   onClose: () => void;
 };
 
@@ -681,6 +681,7 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
   const [hour, setHour] = useState('17');
   const [minute, setMinute] = useState('00');
   const [activeTab, setActiveTab] = useState<'hour' | 'minute'>('hour');
+  const [selectionError, setSelectionError] = useState('');
 
   useEffect(() => {
     if (visible) {
@@ -688,6 +689,7 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
       setHour(parts[0] ? parts[0].padStart(2, '0') : '12');
       setMinute(parts[1] ? parts[1].padStart(2, '0') : '00');
       setActiveTab('hour');
+      setSelectionError('');
     }
   }, [visible, selectedTime]);
 
@@ -698,14 +700,21 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
   const handleHourPick = (h: string) => {
     setHour(h);
     setActiveTab('minute');
+    setSelectionError('');
   };
 
   const handleMinutePick = (m: string) => {
     setMinute(m);
+    setSelectionError('');
   };
 
   const handleConfirm = () => {
-    onSelect(`${hour}:${minute}`);
+    const error = onSelect(`${hour}:${minute}`);
+    if (error) {
+      setSelectionError(error);
+      return;
+    }
+    setSelectionError('');
     onClose();
   };
 
@@ -713,6 +722,7 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
     const parts = preset.split(':');
     setHour(parts[0] ?? '12');
     setMinute(parts[1] ?? '00');
+    setSelectionError('');
   };
 
   return (
@@ -805,6 +815,8 @@ function TimePickerModal({ visible, title, selectedTime, onSelect, onClose }: Ti
               </Pressable>
             ))}
           </ScrollView>
+
+          {!!selectionError && <Text accessibilityRole="alert" style={styles.errorText}>{selectionError}</Text>}
 
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line }}>
             <Pressable onPress={onClose} style={styles.cancelButton}>
@@ -1178,7 +1190,7 @@ function Main() {
     setPermissionReturnFromDuration(permissionLeaveAt, durationMinutes);
   }
 
-  function handleClockSelect(timeStr: string) {
+  function handleClockSelect(timeStr: string): string | void {
     if (clockTarget === 'otStart') {
       setOtStartTime(timeStr);
     } else if (clockTarget === 'otEnd') {
@@ -1186,8 +1198,7 @@ function Main() {
     } else if (clockTarget === 'lateTarget') {
       const chosenSession = openSessions.find((item) => item.session.id === sessionId)?.session;
       if (!chosenSession) {
-        showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
-        return;
+        return 'Pilih sesi kerja terlebih dahulu.';
       }
       const dates = [...new Set([chosenSession.local_start_date, chosenSession.local_end_date].filter(Boolean))] as string[];
       const selectedTime = dates.map((date) => `${date}T${timeStr}:00+07:00`)
@@ -1195,16 +1206,14 @@ function Main() {
           && new Date(value) <= new Date(chosenSession.end_at))
         .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
       if (!selectedTime) {
-        showFeedback('error', 'Pilih target jam yang masih berada dalam sesi kerja.');
-        return;
+        return 'Pilih target jam yang masih berada dalam sesi kerja.';
       }
       setAllowedUntil(selectedTime);
       setMinutes('');
     } else if (clockTarget === 'permissionLeave' || clockTarget === 'permissionReturn') {
       const selected = openSessions.find((item) => item.session.id === sessionId)?.session;
       if (!selected) {
-        showFeedback('error', 'Pilih sesi kerja terlebih dahulu.');
-        return;
+        return 'Pilih sesi kerja terlebih dahulu.';
       }
       const dates = [...new Set([selected.local_start_date, selected.local_end_date].filter(Boolean))] as string[];
       const notBefore = clockTarget === 'permissionReturn' && permissionLeaveAt
@@ -1216,8 +1225,9 @@ function Main() {
           && (clockTarget === 'permissionReturn' ? new Date(value) <= new Date(selected.end_at) : new Date(value) < new Date(selected.end_at)))
         .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
       if (!selectedTime) {
-        showFeedback('error', 'Pilih waktu yang masih berada dalam sesi kerja.');
-        return;
+        return clockTarget === 'permissionLeave'
+          ? 'Pilih jam keluar setelah waktu sekarang dan sebelum akhir sesi.'
+          : 'Pilih jam kembali setelah jam keluar dan sampai akhir sesi.';
       }
       if (clockTarget === 'permissionLeave') {
         setPermissionLeaveAt(selectedTime);
@@ -2787,10 +2797,15 @@ function Main() {
         </View>
         {eventType && (
           allowAction ? (
-            <Pressable accessibilityRole="button" onPress={() => openAttendance({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
-              <Text style={[styles.actionButtonText, styles.eventButtonText]}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
-              <Text style={[styles.actionHint, styles.eventButtonText]}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server'}</Text>
-            </Pressable>
+            <View>
+              <Pressable accessibilityRole="button" onPress={() => openAttendance({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+                <View style={styles.btnContentRow}>
+                  <Ionicons name={eventType === 'CHECK_IN' ? 'log-in-outline' : 'log-out-outline'} size={18} color="#fff" />
+                  <Text style={[styles.actionButtonText, styles.eventButtonText]}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
+                </View>
+              </Pressable>
+              <Text style={styles.actionHint}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server'}</Text>
+            </View>
           ) : profileBlock ? (
             <View style={styles.sessionBlockNotice}>
               <Text style={styles.sessionBlockText}>{profileBlock}</Text>
@@ -3027,10 +3042,15 @@ function Main() {
               <Text style={styles.sessionBlockText}>{activeAssignment.attendance_block_message}</Text>
             </View>
           ) : activeIntent ? (
-            <Pressable accessibilityRole="button" onPress={() => openAttendance(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
-              <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? `Check-in · ${activeIntent.assignment.template_name}` : `Check-out · ${activeIntent.assignment.template_name}`}</Text>
-              <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {sessionTitleClockString(activeIntent.session)}</Text>
-            </Pressable>
+            <View>
+              <Pressable accessibilityRole="button" onPress={() => openAttendance(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+                <View style={styles.btnContentRow}>
+                  <Ionicons name={activeIntent.eventType === 'CHECK_IN' ? 'log-in-outline' : 'log-out-outline'} size={20} color="#fff" />
+                  <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
+                </View>
+              </Pressable>
+              <Text style={styles.attendanceSessionHint}>Sesi {activeIntent.session.seq} · {sessionTitleClockString(activeIntent.session)}</Text>
+            </View>
           ) : null}
         </View>
 
@@ -4527,7 +4547,18 @@ function Main() {
             )}
             <View style={styles.modalActions}>
               <Pressable onPress={() => { setIntent(null); setAttendancePhoto(null); }} style={styles.cancelButton}><Text style={styles.cancelButtonText}>Batal</Text></Pressable>
-              <Pressable disabled={busy || !attendancePhoto || !online} onPress={recordAttendance} style={[styles.confirmButton, intent?.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, (busy || !attendancePhoto || !online) && styles.disabled]}><Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : intent?.eventType === 'CHECK_IN' ? 'Kirim Check-in' : 'Kirim Check-out'}</Text></Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={intent?.eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}
+                disabled={busy || !attendancePhoto || !online}
+                onPress={recordAttendance}
+                style={[styles.confirmButton, intent?.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, (busy || !attendancePhoto || !online) && styles.disabled]}
+              >
+                <View style={styles.btnContentRow}>
+                  {busy ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name={intent?.eventType === 'CHECK_IN' ? 'log-in-outline' : 'log-out-outline'} size={18} color="#fff" />}
+                  <Text style={styles.confirmButtonText}>{busy ? 'Mencatat…' : intent?.eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
+                </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -4946,6 +4977,7 @@ const styles = StyleSheet.create({
   attendanceButton: { minHeight: 60, justifyContent: 'center', alignItems: 'center', marginTop: 20, borderRadius: 14, backgroundColor: colors.accent },
   attendanceButtonText: { color: colors.primary, fontSize: 16, fontWeight: '800' },
   attendanceHint: { color: '#3A4D1A', fontSize: 12.5, marginTop: 4, fontWeight: '600' },
+  attendanceSessionHint: { color: '#E2EBE5', fontSize: 12.5, fontWeight: '600', marginTop: 6, textAlign: 'center' },
   checkInButton: { backgroundColor: colors.primary },
   checkOutButton: { backgroundColor: colors.danger },
   eventButtonText: { color: '#FFFFFF' },

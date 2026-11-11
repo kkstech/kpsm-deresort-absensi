@@ -1629,8 +1629,19 @@ main:focus { outline: none; }
     overflow-wrap: anywhere;
 }
 .monitoring-data-table .monitoring-actions-col {
-    width: 132px;
-    min-width: 132px;
+    width: 208px;
+    min-width: 208px;
+}
+.monitoring-data-table .monitoring-action-btn {
+    width: auto;
+    height: 36px;
+    min-width: 0;
+    min-height: 36px;
+    gap: 6px;
+    padding: 0 9px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
 }
 .monitoring-session-name {
     display: block;

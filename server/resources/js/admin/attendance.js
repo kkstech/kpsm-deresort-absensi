@@ -385,7 +385,7 @@ function renderMonitoring({ data, meta, summary }) {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
-            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button><button type="button" class="action-btn" data-session-action="events" data-session-id="${row.id}" title="Riwayat event sinkronisasi" aria-label="Lihat riwayat event absensi ${esc(row.employee.name)}">${icon('file-text')}</button></td>` : '';
+            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
 
@@ -1664,17 +1664,6 @@ export async function initAttendance() {
         if (!row) return;
         if (button.dataset.sessionAction === 'verify') openVerify(row);
         if (button.dataset.sessionAction === 'correction') openDirectCorrection(row);
-        if (button.dataset.sessionAction === 'events') {
-            api(`attendance/${row.id}/events`).then(({ data }) => {
-                const dialog = $('#workflow-modal');
-                $('#workflow-modal-title').textContent = 'Event absensi';
-                $('#workflow-modal-hint').textContent = `${row.employee.name} · ${row.shift.name}`;
-                $('#workflow-modal-error').hidden = true;
-                $('#workflow-modal-submit').hidden = true;
-                $('#workflow-modal-fields').innerHTML = data.length ? data.map((item) => `<div><strong>${esc(item.type)} · ${esc(item.result)}</strong><p>${esc(formatAttendanceDateTime(item.server_received_at))} WIB · ${esc(item.source)} · ${esc(item.reason_code || 'tanpa alasan penolakan')}</p><small>${esc(item.event_uuid)}</small></div>`).join('') : '<p>Belum ada event yang diterima server. Periksa perangkat karyawan.</p>';
-                dialog.showModal();
-            }).catch((failure) => toast(failure.message || 'Gagal memuat event.', 'error'));
-        }
     });
     const directLateForm = $('#direct-late-form');
     const directToggle = $('#direct-late-toggle');
