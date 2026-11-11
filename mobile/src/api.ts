@@ -77,7 +77,7 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
   return data as T;
 }
 
-const keys = { token: 'auth-token', url: 'api-url', device: 'device-uuid', userId: 'auth-user-id' };
+const keys = { token: 'auth-token', url: 'api-url', device: 'device-uuid', userId: 'auth-user-id', appBuild: 'app-build' };
 export const authStore = {
   token: async (): Promise<string | null> => {
     try {
@@ -117,6 +117,16 @@ export const authStore = {
       return;
     }
     await SecureStore.setItemAsync(keys.userId, String(value));
+  },
+  appBuild: async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync(keys.appBuild);
+    } catch {
+      return null;
+    }
+  },
+  saveAppBuild: async (value: string): Promise<void> => {
+    await SecureStore.setItemAsync(keys.appBuild, value);
   },
   url: async (): Promise<string | null> => {
     try {
@@ -324,7 +334,7 @@ async function db(): Promise<SQLite.SQLiteDatabase> {
   return database;
 }
 
-export async function migrateOutbox(previousUrl: string | null, currentUrl: string, ownerUserId: number | null): Promise<OutboxRow[]> {
+export async function migrateOutbox(previousUrl: string | null, currentUrl: string): Promise<OutboxRow[]> {
   const connection = await db();
   const rows = await connection.getAllAsync<Pick<OutboxRow, 'event_uuid' | 'status' | 'origin_url' | 'owner_user_id' | 'message'>>(
     'SELECT event_uuid,status,origin_url,owner_user_id,message FROM attendance_outbox',
@@ -332,15 +342,22 @@ export async function migrateOutbox(previousUrl: string | null, currentUrl: stri
   const currentOrigin = normalizeBaseUrl(currentUrl);
   for (const row of rows) {
     const origin = row.origin_url || previousUrl || null;
-    const legacy = ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status)
+    const unresolved = ['uncertain', 'needs_correction', 'rejected', 'legacy_review'].includes(row.status);
+    const ownerUnknown = !row.owner_user_id && unresolved;
+    const legacy = unresolved
       && (!origin || normalizeBaseUrl(origin) !== currentOrigin);
+    const message = ownerUnknown
+      ? 'Event absensi lama tidak memiliki identitas akun pemilik dan tidak akan disinkronkan. Hubungi HR untuk pemeriksaan.'
+      : legacy
+        ? 'Event berasal dari alamat server sebelumnya dan tidak dikirim ke production. Hubungi HR untuk pemeriksaan.'
+        : row.message;
     await connection.runAsync(
-      'UPDATE attendance_outbox SET owner_user_id = COALESCE(owner_user_id, ?), origin_url = COALESCE(NULLIF(origin_url, \'\'), ?), payload = ?, status = ?, message = ? WHERE event_uuid = ?',
-      ownerUserId,
+      'UPDATE attendance_outbox SET owner_user_id = ?, origin_url = COALESCE(NULLIF(origin_url, \'\'), ?), payload = ?, status = ?, message = ? WHERE event_uuid = ?',
+      row.owner_user_id,
       origin,
       '{}',
-      legacy ? 'legacy_review' : row.status,
-      legacy ? 'Event berasal dari alamat server sebelumnya dan tidak dikirim ke production. Hubungi HR untuk pemeriksaan.' : row.message,
+      ownerUnknown || legacy ? 'legacy_review' : row.status,
+      message,
       row.event_uuid,
     );
   }

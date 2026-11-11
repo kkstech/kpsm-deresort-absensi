@@ -22,6 +22,23 @@ use Illuminate\Http\Request;
 
 class AttendanceMonitoringController extends Controller
 {
+    public function events(Request $request, int $session): JsonResponse
+    {
+        $employeeIds = EmployeeController::visibleTo($request->user())->select('employees.id');
+        $item = ShiftSession::query()->whereKey($session)
+            ->whereHas('assignment', fn (Builder $query) => $query->whereIn('employee_id', $employeeIds))
+            ->firstOrFail();
+
+        return response()->json(['data' => $item->attendanceEvents()->orderBy('server_received_at')->get()->map(fn ($event) => [
+            'event_uuid' => $event->event_uuid,
+            'type' => $event->type,
+            'source' => $event->source,
+            'result' => $event->result,
+            'reason_code' => $event->reason_code,
+            'server_received_at' => WorkTime::iso($event->server_received_at),
+        ])->values()]);
+    }
+
     public function filters(Request $request): JsonResponse
     {
         $employees = EmployeeController::visibleTo($request->user())
@@ -218,7 +235,7 @@ class AttendanceMonitoringController extends Controller
 
     private function sessions(User $user, array $filters): Builder
     {
-        return ShiftSession::query()->whereIn('shift_assignment_id', $this->assignments($user, $filters)->select('id'));
+        return ShiftSession::query()->whereNull('retired_at')->whereIn('shift_assignment_id', $this->assignments($user, $filters)->select('id'));
     }
 
     private function row(ShiftSession $session): array

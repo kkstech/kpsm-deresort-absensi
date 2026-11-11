@@ -20,6 +20,7 @@ use App\Models\ShiftTemplate;
 use App\Models\SiteSetting;
 use App\Models\User;
 use App\Models\WorkLocation;
+use App\Support\AttendanceWindow;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -144,11 +145,71 @@ class AttendanceTest extends TestCase
         $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
     }
 
+    public function test_late_checkout_is_recorded_with_original_time_and_requires_review(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('a7777777-7777-4777-8777-777777777777'), $this->device->id);
+        $this->travelTo('2026-10-25 11:01:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('a8888888-8888-4888-8888-888888888888', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
+        $this->assertSame('CHECKOUT_LATE', $result['data']['reason_code']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 11:01:00', 'provisional_out_at' => null, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE']);
+    }
+
+    public function test_checkout_within_grace_is_accepted_normally(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('a9999999-9999-4999-8999-999999999999'), $this->device->id);
+        $this->travelTo('2026-10-25 10:50:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('b9999999-9999-4999-8999-999999999999', ['event_type' => 'CHECK_OUT']), $this->device->id);
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 10:50:00', 'needs_review' => 0]);
+    }
+
+    public function test_checkout_three_hours_after_shift_is_recorded_for_review(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('c7777777-7777-4777-8777-777777777777'), $this->device->id);
+        $this->travelTo('2026-10-25 13:00:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('c8888888-8888-4888-8888-888888888888', ['event_type' => 'CHECK_OUT']), $this->device->id);
+        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 13:00:00', 'review_reason' => 'CHECKOUT_LATE']);
+    }
+
+    public function test_admin_can_configure_checkout_cutoff_and_grace(): void
+    {
+        $this->actingAs(User::factory()->role('admin')->create())
+            ->putJson('/admin/api/attendance-settings', ['checkin_early_minutes' => 180, 'checkout_grace_minutes' => 45, 'checkout_cutoff_time' => '20:00'])
+            ->assertOk()->assertJsonPath('data.checkout_grace_minutes', 45)->assertJsonPath('data.checkout_cutoff_time', '20:00');
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $this->assertSame('2026-10-25 13:00:00', AttendanceWindow::checkoutDeadline($session)->format('Y-m-d H:i:s'));
+    }
+
+    public function test_old_auto_checkout_can_be_replaced_before_the_new_deadline(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('b7777777-7777-4777-8777-777777777777'), $this->device->id);
+        AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->update(['provisional_out_at' => '2026-10-25 10:00:00', 'status' => 'PROVISIONAL', 'needs_review' => true, 'review_reason' => 'AUTO_CHECKOUT']);
+        $this->travelTo('2026-10-25 11:01:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('b8888888-8888-4888-8888-888888888888', ['event_type' => 'CHECK_OUT']), $this->device->id);
+        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 11:01:00', 'provisional_out_at' => null, 'review_reason' => 'CHECKOUT_LATE']);
+    }
+
+    public function test_night_shift_cutoff_uses_the_calendar_day_when_the_session_ends(): void
+    {
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $session->update(['start_at' => '2026-10-25 15:00:00', 'end_at' => '2026-10-25 19:00:00']);
+
+        $this->assertSame('2026-10-26 16:59:00', AttendanceWindow::checkoutDeadline($session->fresh())->format('Y-m-d H:i:s'));
+    }
+
     public function test_auto_checkout_is_provisional_and_can_be_retried_without_duplicate_audit(): void
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a1111111-1111-4111-8111-111111111111'), $this->device->id);
-        $this->travelTo('2026-10-25 11:00:01');
+        $this->travelTo('2026-10-25 17:00:00');
 
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
@@ -179,10 +240,13 @@ class AttendanceTest extends TestCase
         $thirdAssignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-25', $third, User::factory()->role('admin')->create());
         app(PublishSchedule::class)->publish('2026-10-25', '2026-10-25', [$this->employee->id]);
         $thirdSession = $thirdAssignment->sessions->firstOrFail();
+        $this->assertTrue(AttendanceWindow::checkoutDeadline($firstSession->fresh())->equalTo($thirdSession->start_at));
 
         $this->travelTo('2026-10-25 00:00:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a4444444-4444-4444-8444-444444444444'), $this->device->id);
         $this->travelTo('2026-10-25 16:00:00');
+        $lateOldCheckout = app(RecordAttendance::class)->handle($this->employee, $this->event('a6666666-6666-4666-8666-666666666666', ['event_type' => 'CHECK_OUT']), $this->device->id);
+        $this->assertSame('OUTSIDE_WINDOW', $lateOldCheckout['data']['reason_code']);
         $result = app(RecordAttendance::class)->handle($this->employee, $this->event('a5555555-5555-4555-8555-555555555555', [
             'shift_session_id' => $thirdSession->id,
         ]), $this->device->id);
@@ -200,7 +264,7 @@ class AttendanceTest extends TestCase
     {
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a2222222-2222-4222-8222-222222222222'), $this->device->id);
-        $this->travelTo('2026-10-25 14:11:00');
+        $this->travelTo('2026-10-25 17:00:00');
         $this->artisan('attendance:auto-checkout')->assertExitCode(0);
 
         $checkout = $this->event('a3333333-3333-4333-8333-333333333333', [

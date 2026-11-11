@@ -177,6 +177,7 @@ class AttendanceController extends Controller
             ->with('sessions.attendanceRecord', 'sessions.attendanceEvents')
             ->where('employee_id', $employee->id)
             ->whereBetween('work_date', [$range['from'], $range['to']])
+            ->whereNotIn('status', ['DRAFT', 'CANCELLED'])
             ->orderBy('work_date')
             ->get();
 

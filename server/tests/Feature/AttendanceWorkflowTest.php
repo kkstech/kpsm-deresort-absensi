@@ -83,6 +83,7 @@ class AttendanceWorkflowTest extends TestCase
         $this->session->update(['policy_snapshot' => [...$this->session->policy_snapshot, 'late_permission_proof_required' => true]]);
         $input = [
             'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
             'allowed_minutes' => 60,
             'reason' => 'Kendala transportasi',
         ];
@@ -157,6 +158,23 @@ class AttendanceWorkflowTest extends TestCase
         $this->travelTo($checkIn->addMinutes(30)->toDateTimeString());
         $leaveAt = $checkIn->addHours(2);
         $returnAt = $leaveAt->addHour();
+        $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
+            'shift_session_id' => $this->session->id,
+            'allowed_minutes' => 30,
+            'reason' => 'Jenis izin belum dipilih',
+        ])->assertUnprocessable()->assertJsonPath('code', 'VALIDATION_ERROR')
+            ->assertJsonPath('details.permission_type.0', 'Pilih jenis izin agar pengajuan dan riwayat tercatat dengan benar.');
+
+        $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
+            'allowed_minutes' => 30,
+            'leave_at' => $leaveAt->toIso8601String(),
+            'return_at' => $returnAt->toIso8601String(),
+            'reason' => 'Jenis izin tidak cocok dengan waktu keluar',
+        ])->assertUnprocessable()->assertJsonPath('code', 'VALIDATION_ERROR');
+        $this->assertDatabaseCount('late_permissions', 0);
+
         $response = $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
             'shift_session_id' => $this->session->id,
             'permission_type' => 'temporary_exit',
@@ -164,6 +182,8 @@ class AttendanceWorkflowTest extends TestCase
             'return_at' => $returnAt->toIso8601String(),
             'reason' => 'Keperluan mendadak keluarga',
         ])->assertCreated()->assertJsonPath('data.permission_type', 'temporary_exit');
+        $this->withToken($this->token)->getJson('/api/v1/late-permissions')
+            ->assertOk()->assertJsonPath('data.0.permission_type', 'temporary_exit');
 
         $permissionId = $response->json('data.id');
         $admin = User::factory()->role('admin')->create();
@@ -178,6 +198,35 @@ class AttendanceWorkflowTest extends TestCase
             'verified_minutes' => AttendanceRecord::paidMinutes($this->session, $checkIn, $checkOut),
         ]);
         $this->assertSame(420, $record->fresh()->verified_minutes);
+    }
+
+    public function test_permission_type_migration_recovers_types_from_saved_exit_times(): void
+    {
+        $temporaryExit = LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'leave_at' => '2026-10-25 10:00:00',
+            'return_at' => '2026-10-25 11:00:00',
+            'reason' => 'Keperluan keluarga',
+            'status' => 'REJECTED',
+        ]);
+        $earlyDeparture = LatePermission::query()->create([
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'late_arrival',
+            'employee_id' => $this->employee->id,
+            'requester_id' => $this->employeeUser->id,
+            'leave_at' => '2026-10-25 15:00:00',
+            'reason' => 'Keperluan keluarga',
+            'status' => 'REJECTED',
+        ]);
+
+        $migration = require database_path('migrations/2026_11_11_112453_infer_late_permission_types_from_times.php');
+        $migration->up();
+
+        $this->assertSame('temporary_exit', $temporaryExit->fresh()->permission_type);
+        $this->assertSame('early_departure', $earlyDeparture->fresh()->permission_type);
     }
 
     public function test_admin_can_preview_image_attachment_inline_with_employee_scope(): void
@@ -253,6 +302,40 @@ class AttendanceWorkflowTest extends TestCase
         $payload['event_uuid'] = 'wf-early-checkout-approved';
         $second = app(RecordAttendance::class)->handle($this->employee, $payload);
         $this->assertSame('ACCEPTED', $second['data']['status']);
+    }
+
+    public function test_pending_temporary_exit_checkout_is_rejected_with_matching_permission_type(): void
+    {
+        $checkIn = $this->session->start_at;
+        AttendanceRecord::query()->create([
+            'shift_session_id' => $this->session->id,
+            'employee_id' => $this->employee->id,
+            'check_in_at' => $checkIn,
+            'status' => 'IN_PROGRESS',
+        ]);
+
+        $leaveAt = $checkIn->addHours(2);
+        $returnAt = $leaveAt->addHour();
+        $this->travelTo($checkIn->addMinutes(30)->toDateTimeString());
+        $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
+            'shift_session_id' => $this->session->id,
+            'permission_type' => 'temporary_exit',
+            'leave_at' => $leaveAt->toIso8601String(),
+            'return_at' => $returnAt->toIso8601String(),
+            'reason' => 'Keperluan mendadak keluarga',
+        ])->assertCreated();
+
+        $this->travelTo($leaveAt->toDateTimeString());
+        $result = app(RecordAttendance::class)->handle($this->employee, [
+            'event_uuid' => 'wf-temporary-exit-pending',
+            'shift_session_id' => $this->session->id,
+            'event_type' => 'CHECK_OUT',
+            'device_id' => 'workflow-phone',
+            'captured_offline' => false,
+        ]);
+
+        $this->assertSame('REJECTED', $result['data']['status']);
+        $this->assertSame('TEMPORARY_EXIT_NOT_APPROVED', $result['data']['reason_code']);
     }
 
     public function test_employee_cannot_approve_own_request_and_direct_permission_is_super_admin_only(): void
@@ -439,7 +522,7 @@ class AttendanceWorkflowTest extends TestCase
         AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED']);
 
         $this->withToken($this->token)->postJson('/api/v1/late-permissions', [
-            'shift_session_id' => $this->session->id, 'allowed_minutes' => 45, 'reason' => 'Terlambat',
+            'shift_session_id' => $this->session->id, 'permission_type' => 'late_arrival', 'allowed_minutes' => 45, 'reason' => 'Terlambat',
         ])->assertConflict()->assertJsonPath('code', 'PERIOD_LOCKED');
 
         $admin = User::factory()->role('admin')->create();
@@ -463,6 +546,7 @@ class AttendanceWorkflowTest extends TestCase
         $this->withToken($this->token)
             ->postJson('/api/v1/late-permissions', [
                 'shift_session_id' => $this->session->id,
+                'permission_type' => 'late_arrival',
                 'allowed_until' => '2026-10-25T01:30:00Z',
                 'allowed_minutes' => 30,
                 'reason' => 'Terlambat hadir',

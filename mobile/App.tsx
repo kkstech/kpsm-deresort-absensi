@@ -21,7 +21,7 @@ import {
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
 } from './src/api';
-import { APP_VERSION_LABEL } from './src/version';
+import { APP_BUILD, APP_VERSION_LABEL } from './src/version';
 
 type Tab = 'Hari ini' | 'Jadwal' | 'Pengajuan' | 'Profil';
 const tabItems: Array<{
@@ -55,7 +55,7 @@ type Session = {
   approved_permissions?: ApprovedPermission[];
   attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null; effective_work_end_at?: string | null; checkout_deadline_at?: string | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
-  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
+  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; review_reason?: string | null; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
   overtime?: OvertimeItem | null;
 };
 type Assignment = { id: number; employee_id?: number; employee_name?: string; work_date: string; template_name: string; status: string; revision?: number; scheduled_minutes: number; attendance_block_message?: string | null; sessions: Session[] };
@@ -326,6 +326,14 @@ function humanizeReason(code?: string | null): string {
       return 'Belum dapat check-out karena Anda belum check-in pada sesi ini.';
     case 'EARLY_CHECKOUT_NOT_APPROVED':
       return 'Pengajuan pulang lebih awal harus disetujui atasan sebelum check-out.';
+    case 'TEMPORARY_EXIT_NOT_APPROVED':
+      return 'Izin keluar sementara belum disetujui. Check-out shift ditolak server.';
+    case 'TEMPORARY_EXIT_REJECTED':
+      return 'Izin keluar sementara ditolak. Check-out shift ditolak server.';
+    case 'TEMPORARY_EXIT_CANCELLED':
+      return 'Izin keluar sementara telah dibatalkan. Check-out shift ditolak server.';
+    case 'TEMPORARY_EXIT_CHECKOUT_NOT_ALLOWED':
+      return 'Izin keluar sementara disetujui sebagai interval. Check-out shift tetap dicatat pada akhir jadwal.';
     case 'SCHEDULE_CHANGED':
       return 'Jadwal sesi telah diubah atau diperbarui oleh HR.';
     case 'SCHEDULE_CANCELLED':
@@ -336,6 +344,8 @@ function humanizeReason(code?: string | null): string {
       return 'Periode absensi telah dikunci oleh HR.';
     case 'AUTO_CHECKOUT_DUE':
       return 'Batas waktu kerja sesi telah terlampaui (auto-checkout).';
+    case 'CHECKOUT_LATE':
+      return 'Check-out tercatat terlambat dan menunggu verifikasi HR.';
     case 'OFFLINE_ATTENDANCE_DISABLED':
       return 'Presensi offline tidak diterima. Hubungkan internet untuk mencatat presensi atau ajukan koreksi ke HR.';
     case 'FAKE_GPS_DETECTED':
@@ -351,6 +361,38 @@ function humanizeReason(code?: string | null): string {
     default:
       return code ? `Penolakan server (${code}). Periksa jadwal dan waktu absensi Anda.` : 'Periksa jadwal dan waktu absensi Anda.';
   }
+}
+
+function permissionHistoryTitle(type?: WorkRequest['permission_type']): string {
+  switch (type) {
+    case 'late_arrival':
+      return 'Izin terlambat';
+    case 'temporary_exit':
+      return 'Izin keluar sementara';
+    case 'early_departure':
+      return 'Izin pulang lebih awal';
+    default:
+      return 'Izin absensi';
+  }
+}
+
+function canResumeAutoCheckout(session: Session): boolean {
+  const record = session.attendance;
+  const deadline = session.attendance_window?.checkout_deadline_at;
+  return Boolean(record?.provisional_out_at && record.review_reason === 'AUTO_CHECKOUT' && deadline && Date.now() < new Date(deadline).getTime());
+}
+
+function attendanceOutboxMessage(row: OutboxRow): string {
+  if (row.message === 'ACCEPTED') {
+    return 'Absensi sudah tercatat di server.';
+  }
+  if (row.message === 'REVIEW_REQUIRED') {
+    return 'Presensi dicatat dan menunggu verifikasi HR.';
+  }
+  if (row.message && /^[A-Z][A-Z0-9_]*$/.test(row.message)) {
+    return humanizeReason(row.message);
+  }
+  return row.message ?? localDate(row.created_at);
 }
 let syncingOutbox = false;
 
@@ -1204,13 +1246,32 @@ function Main() {
     let alive = true;
     (async () => {
       try {
-        const [storedUrl, storedToken, storedUserId, device] = await Promise.all([
+        const [storedUrl, persistedToken, persistedUserId, device, previousBuild] = await Promise.all([
           authStore.url(), authStore.token(), authStore.userId(), authStore.device(),
+          authStore.appBuild(),
         ]);
-        const migratedOutbox = await migrateOutbox(storedUrl, targetBaseUrl, storedUserId);
-        if (storedToken && !storedUserId) {
+        const migratedOutbox = await migrateOutbox(storedUrl, targetBaseUrl);
+        let storedToken = persistedToken;
+        let storedUserId = persistedUserId;
+        if (previousBuild !== String(APP_BUILD)) {
+          if (persistedToken) {
+            try {
+              const logoutBase = normalizeBaseUrl(storedUrl || targetBaseUrl);
+              await fetch(`${logoutBase}/api/v1/auth/logout`, {
+                method: 'POST',
+                headers: { Accept: 'application/json', Authorization: `Bearer ${persistedToken}` },
+              });
+            } catch {
+              // Clear the local session even when the server cannot be reached.
+            }
+          }
           await clearCache();
+          await Promise.all([authStore.clearToken(), authStore.saveUserId(null)]);
+          storedToken = null;
+          storedUserId = null;
         }
+        await authStore.saveAppBuild(String(APP_BUILD));
+        if (storedToken && !storedUserId) await clearCache();
         if (!alive) return;
         setBaseUrl(targetBaseUrl);
         if (storedUrl !== targetBaseUrl) {
@@ -1222,6 +1283,9 @@ function Main() {
         setDeviceId(device);
         setToken(storedToken);
         setOutbox(migratedOutbox);
+        if (persistedToken && previousBuild !== String(APP_BUILD)) {
+          setError('Pembaruan aplikasi selesai. Silakan masuk kembali.');
+        }
       } catch (failure) {
         if (alive) setError(failure instanceof Error ? failure.message : 'Penyimpanan perangkat tidak tersedia.');
       } finally {
@@ -1239,33 +1303,52 @@ function Main() {
     return () => subscription.remove();
   }, []);
 
-  const handleSessionExpired = useCallback(async (msg?: string, expiredToken?: string | null, clearUserId = false) => {
-    if (expiredToken && sessionTokenRef.current !== expiredToken && !(clearUserId && sessionTokenRef.current === null)) return;
-    sessionEpochRef.current += 1;
+  const resetAccountState = useCallback((message = '') => {
+    if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
     colleagueRequestRef.current += 1;
     if (colleagueSearchTimerRef.current) clearTimeout(colleagueSearchTimerRef.current);
-    sessionTokenRef.current = null;
-    if (clearUserId) {
-      activeUserIdRef.current = null;
-    }
-    setLoading(false);
-    await Promise.all([
-      authStore.clearToken(),
-      clearCache(),
-      clearUserId ? authStore.saveUserId(null) : Promise.resolve(),
-    ]);
+
     setToken(null);
     setProfile(null);
     setAssignments([]);
     setBalance(null);
+    setLeaveTypes([]);
+    setLeaveReasons([]);
     setLeaveRequests([]);
     setLateRequests([]);
-    setNotificationFeed({ data: [], unread_count: 0 });
     setCorrections([]);
+    setNotificationFeed({ data: [], unread_count: 0 });
+    setNotificationsModalOpen(false);
+    setOutbox([]);
+    setLoading(false);
+    setRefreshing(false);
+    setError(message);
+    setTab('Hari ini');
+    setUsername('');
+    setPassword('');
+    setIntent(null);
+    setAttendancePhoto(null);
+    setBusy(false);
+
+    setRequestKind('leave');
+    setWorkDate('');
+    setEndDate('');
+    setLeaveType('regular');
+    setReason('');
+    setMinutes('');
+    setAllowedUntil('');
+    setSessionId(null);
+    setRequestedIn('');
+    setRequestedOut('');
+    setProof(null);
+    setPermissionCategory('Terlambat Hadir');
+    setAttendancePermissionType('late_arrival');
+    setPermissionLeaveAt('');
+    setPermissionReturnAt('');
+    setPermissionDurationMinutes(null);
+
     setShiftExchanges([]);
     setAdminShiftExchanges([]);
-    setAdminSchedules([]);
-    setOvertimes([]);
     setColleagues([]);
     setSelectedColleagueDetail(null);
     setColleagueNextOffset(0);
@@ -1274,8 +1357,100 @@ function Main() {
     setColleagueLoadingMore(false);
     setColleagueError('');
     setAllEmployees([]);
-    setError(msg || 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
+    setAdminSchedules([]);
+    setAdminScheduleEmpFilter(null);
+    setAdminScheduleEmployeePage(1);
+    setAdminScheduleEmployeeQuery('');
+    setAdminScheduleLoading(false);
+    setPengajuanView('mine');
+    setApprovalFilter('PENDING');
+
+    setOvertimes([]);
+    setOtWorkDate('');
+    setOtSessionId(null);
+    setOtStartTime('17:00');
+    setOtEndTime('20:00');
+    setOtTitle('');
+    setOtNotes('');
+    setOtCrossDay(false);
+
+    setSwapSourceAssId(null);
+    setSwapTargetEmpId(null);
+    setColleagueQuery('');
+    setSwapMode('direct');
+    setSwapTargetAssId(null);
+    setSwapVacancyAction('roster_off');
+    setTargetEmpSchedules([]);
+    setLoadingTargetSchedules(false);
+    setTargetScheduleError('');
+
+    setDirectSwapOpen(false);
+    setDirectSourceEmpId(null);
+    setDirectSourceQuery('');
+    setDirectSourceSchedules([]);
+    setDirectSourceAssId(null);
+    setDirectTargetEmpId(null);
+    setDirectTargetQuery('');
+    setDirectTargetSchedules([]);
+    setDirectTargetAssId(null);
+    setDirectSourceSchedulesBusy(false);
+    setDirectTargetSchedulesBusy(false);
+    setDirectSourceScheduleError('');
+    setDirectTargetScheduleError('');
+    setDirectSwapMode('direct');
+    setDirectVacancyAction('roster_off');
+    setDirectCrossUnitConfirm(false);
+    setDirectReason('');
+    setDirectPreview(null);
+    setDirectPreviewBusy(false);
+    setDirectCommitBusy(false);
+    setDirectError('');
+    setFeedback(null);
+
+    setDecisionModalOpen(false);
+    setDecisionItem(null);
+    setDecisionType('APPROVED');
+    setDecisionReason('');
+    setDecisionVacancyAction('roster_off');
+    setDecisionCrossUnitConfirm(false);
+    setDecisionBusy(false);
+
+    setEditProfileOpen(false);
+    setEditName('');
+    setEditPhone('');
+    setEditEmail('');
+    setEditCurrentPassword('');
+    setEditNewPassword('');
+    setEditConfirmPassword('');
+    setEditProfileBusy(false);
+    setEditProfileError('');
+    setAvatarUploading(false);
+
+    setCalendarVisible(false);
+    setCalendarTarget(null);
+    setCalendarMinDate(undefined);
+    setClockVisible(false);
+    setClockTarget(null);
+    setSwapStep(1);
   }, []);
+
+  const handleSessionExpired = useCallback(async (msg?: string, expiredToken?: string | null, clearUserId = false) => {
+    if (expiredToken && sessionTokenRef.current !== expiredToken && !(clearUserId && sessionTokenRef.current === null)) return;
+    sessionEpochRef.current += 1;
+    sessionTokenRef.current = null;
+    if (clearUserId) {
+      activeUserIdRef.current = null;
+    }
+    const message = clearUserId
+      ? (msg ?? '')
+      : (msg || 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.');
+    resetAccountState(message);
+    await Promise.all([
+      authStore.clearToken(),
+      clearCache(),
+      clearUserId ? authStore.saveUserId(null) : Promise.resolve(),
+    ]);
+  }, [resetAccountState]);
 
   useEffect(() => {
     onUnauthorized(handleSessionExpired);
@@ -1673,6 +1848,9 @@ function Main() {
       }
 
       sessionEpochRef.current += 1;
+      sessionTokenRef.current = null;
+      activeUserIdRef.current = null;
+      resetAccountState('');
       await clearCache();
       sessionTokenRef.current = receivedToken;
       activeUserIdRef.current = loginProfile.id;
@@ -1759,7 +1937,14 @@ function Main() {
     if (!session.attendance_policy?.location_required) return undefined;
     const permission = await Location.requestForegroundPermissionsAsync();
     if (!permission.granted) throw new Error('Lokasi harus diizinkan untuk absensi pada sesi ini.');
-    const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    let position: Location.LocationObject;
+    try {
+      if (!await Location.hasServicesEnabledAsync()) throw new Error('Layanan lokasi belum aktif. Aktifkan lokasi di pengaturan perangkat.');
+      position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    } catch (failure) {
+      if (failure instanceof Error && failure.message.startsWith('Layanan lokasi')) throw failure;
+      throw new Error('Lokasi belum dapat diperoleh. Aktifkan lokasi, pindah ke area terbuka, lalu coba lagi.');
+    }
 
     if (position.mocked) {
       throw new Error('Terdeteksi aplikasi lokasi tiruan (Fake GPS). Harap nonaktifkan Fake GPS untuk melakukan presensi.');
@@ -1773,6 +1958,21 @@ function Main() {
       accuracy_meters: position.coords.accuracy ?? undefined,
       is_mocked: Boolean(position.mocked),
     };
+  }
+
+  async function openAttendance(action: ActionIntent) {
+    try {
+      if (action.session.attendance_policy?.location_required) {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted || !await Location.hasServicesEnabledAsync()) {
+          Alert.alert('Lokasi diperlukan', 'Izinkan akses lokasi dan aktifkan layanan lokasi pada perangkat untuk mencatat absensi.');
+          return;
+        }
+      }
+      setIntent(action);
+    } catch {
+      Alert.alert('Lokasi diperlukan', 'Lokasi belum tersedia. Periksa pengaturan lokasi perangkat dan coba lagi.');
+    }
   }
 
   async function takeAttendanceSelfie() {
@@ -2544,7 +2744,8 @@ function Main() {
     const closesAt = new Date(session.end_at);
 
     const hasCheckedIn = Boolean(record?.check_in_at);
-    const hasCheckedOut = Boolean(record?.check_out_at || record?.provisional_out_at);
+    const canRecoverAutoCheckout = canResumeAutoCheckout(session);
+    const hasCheckedOut = Boolean(record?.check_out_at || (record?.provisional_out_at && !canRecoverAutoCheckout));
 
     let eventType: 'CHECK_IN' | 'CHECK_OUT' | null = null;
     let timingNotice: string | null = null;
@@ -2586,7 +2787,7 @@ function Main() {
         </View>
         {eventType && (
           allowAction ? (
-            <Pressable accessibilityRole="button" onPress={() => setIntent({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" onPress={() => openAttendance({ assignment, session, eventType })} style={({ pressed }) => [styles.actionButton, eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
               <Text style={[styles.actionButtonText, styles.eventButtonText]}>{eventType === 'CHECK_IN' ? 'Check-in' : 'Check-out'}</Text>
               <Text style={[styles.actionHint, styles.eventButtonText]}>{session.attendance_policy?.location_required ? 'Lokasi diperlukan · waktu server' : 'Waktu server'}</Text>
             </Pressable>
@@ -2649,7 +2850,7 @@ function Main() {
       <View style={styles.listCard} key={row.event_uuid}>
         <View style={styles.flex}>
           <Text style={styles.cardTitle}>{title}</Text>
-          <Text style={styles.cardCopy}>{row.message ?? localDate(row.created_at)}</Text>
+          <Text style={styles.cardCopy}>{attendanceOutboxMessage(row)}</Text>
         </View>
       </View>
     );
@@ -2751,7 +2952,7 @@ function Main() {
 
     const sessions = todayAssignments.flatMap((assignment) => assignment.sessions.map((session) => ({ assignment, session })));
     const now = Date.now();
-    const openCheckouts = sessions.filter(({ session }) => session.attendance?.check_in_at && !session.attendance.check_out_at && !session.attendance.provisional_out_at);
+    const openCheckouts = sessions.filter(({ session }) => session.attendance?.check_in_at && !session.attendance.check_out_at && (!session.attendance.provisional_out_at || canResumeAutoCheckout(session)));
     const activeWork = openCheckouts
       .filter(({ session }) => new Date(session.attendance_window?.effective_work_end_at ?? session.end_at).getTime() > now)
       .sort((a, b) => new Date(a.session.start_at).getTime() - new Date(b.session.start_at).getTime());
@@ -2826,7 +3027,7 @@ function Main() {
               <Text style={styles.sessionBlockText}>{activeAssignment.attendance_block_message}</Text>
             </View>
           ) : activeIntent ? (
-            <Pressable accessibilityRole="button" onPress={() => setIntent(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" onPress={() => openAttendance(activeIntent)} style={({ pressed }) => [styles.attendanceButton, activeIntent.eventType === 'CHECK_IN' ? styles.checkInButton : styles.checkOutButton, pressed && styles.pressed]}>
               <Text style={[styles.attendanceButtonText, styles.eventButtonText]}>{activeIntent.eventType === 'CHECK_IN' ? `Check-in · ${activeIntent.assignment.template_name}` : `Check-out · ${activeIntent.assignment.template_name}`}</Text>
               <Text style={[styles.attendanceHint, styles.eventButtonText]}>Sesi {activeIntent.session.seq} · {sessionTitleClockString(activeIntent.session)}</Text>
             </Pressable>
@@ -3916,7 +4117,7 @@ function Main() {
             <Text style={styles.sectionTitle}>Riwayat pengajuan</Text>
             {[
               ...leaveRequests.map((item) => ({ ...item, group: item.leave_type?.name ?? leaveTypeName(leaveTypes, item.type), sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
-              ...lateRequests.map((item) => ({ ...item, group: 'Izin absensi', reason: `${item.permission_type === 'temporary_exit' ? `Keluar ${item.leave_at ? clock(item.leave_at) : '—'} · kembali ${item.return_at ? clock(item.return_at) : '—'}` : item.permission_type === 'early_departure' ? `Pulang ${item.leave_at ? clock(item.leave_at) : '—'}` : `Izin terlambat${item.allowed_until ? ` · target ${clock(item.allowed_until)}` : item.allowed_minutes ? ` · ${item.allowed_minutes} menit` : ''}`} · ${item.reason}`, sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu persetujuan' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
+              ...lateRequests.map((item) => ({ ...item, group: permissionHistoryTitle(item.permission_type), reason: `${item.permission_type === 'temporary_exit' ? `Keluar ${item.leave_at ? clock(item.leave_at) : '—'} · kembali ${item.return_at ? clock(item.return_at) : '—'}` : item.permission_type === 'early_departure' ? `Pulang ${item.leave_at ? clock(item.leave_at) : '—'}` : item.permission_type === 'late_arrival' ? `Izin terlambat${item.allowed_until ? ` · target ${clock(item.allowed_until)}` : item.allowed_minutes ? ` · ${item.allowed_minutes} menit` : ''}` : 'Jenis izin tidak dikenali'} · ${item.reason}`, sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu persetujuan' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })),
               ...(isAdmin ? corrections.map((item) => ({ ...item, group: 'Koreksi', sortDate: item.work_date, statusTone: (item.status === 'APPROVED' ? 'success' : item.status === 'PENDING' ? 'warning' : item.status === 'REJECTED' ? 'danger' : 'neutral') as 'success' | 'warning' | 'danger' | 'neutral', statusLabel: item.status === 'PENDING' ? 'Menunggu' : item.status === 'APPROVED' ? 'Disetujui' : item.status === 'REJECTED' ? 'Ditolak' : 'Dibatalkan' })) : []),
               ...shiftExchanges.map((item) => ({
                 id: item.id,
@@ -3991,7 +4192,7 @@ function Main() {
                       ? cancelOvertimeItem(item.id)
                       : cancelRequest(
                           item.group === 'Cuti' ? `leaves/${item.id}/cancel` :
-                          item.group === 'Izin absensi' ? `late-permissions/${item.id}/cancel` :
+                          item.group.startsWith('Izin ') ? `late-permissions/${item.id}/cancel` :
                           item.group === 'Koreksi' ? `attendance-corrections/${item.id}/cancel` :
                           `shift-exchanges/${item.id}/cancel`,
                           item.group
@@ -4581,7 +4782,7 @@ function Main() {
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
+            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
               <TextField label="Nama Lengkap" value={editName} onChangeText={setEditName} placeholder="Nama lengkap karyawan" />
               <TextField label="Nomor Telepon / WhatsApp" value={editPhone} onChangeText={setEditPhone} placeholder="contoh: 081234567890" keyboardType="phone-pad" />
               <TextField label="Email Pribadi" value={editEmail} onChangeText={setEditEmail} placeholder="contoh: nama@gmail.com" keyboardType="email-address" autoCapitalize="none" />
@@ -4698,7 +4899,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.canvas },
   app: { flex: 1 },
   flex: { flex: 1, minWidth: 0 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 118 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 160 },
   loginContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 36, paddingBottom: 140 },
   headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   overline: { color: colors.muted, fontSize: 13, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6 },

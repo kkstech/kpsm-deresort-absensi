@@ -34,14 +34,15 @@ class AttendanceWorkflowController extends Controller
     {
         $data = $request->validate([
             'shift_session_id' => ['required', 'integer', 'exists:shift_sessions,id'],
-            'permission_type' => ['sometimes', 'in:late_arrival,temporary_exit,early_departure'],
-            'allowed_until' => ['nullable', 'date', 'prohibits:allowed_minutes'],
-            'allowed_minutes' => ['nullable', 'integer', 'between:0,1440', 'prohibits:allowed_until'],
-            'leave_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit,early_departure'],
-            'return_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit'],
+            'permission_type' => ['required', 'in:late_arrival,temporary_exit,early_departure'],
+            'allowed_until' => ['nullable', 'date', 'prohibits:allowed_minutes', 'prohibited_unless:permission_type,late_arrival'],
+            'allowed_minutes' => ['nullable', 'integer', 'between:0,1440', 'prohibits:allowed_until', 'prohibited_unless:permission_type,late_arrival'],
+            'leave_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit,early_departure', 'prohibited_if:permission_type,late_arrival'],
+            'return_at' => ['nullable', 'date', 'required_if:permission_type,temporary_exit', 'prohibited_unless:permission_type,temporary_exit'],
             'reason' => ['required', 'string', 'max:2000'],
             'evidence' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
         ], [
+            'permission_type.required' => 'Pilih jenis izin agar pengajuan dan riwayat tercatat dengan benar.',
             'allowed_until.prohibits' => 'Isi jam target hadir atau durasi izin, jangan keduanya.',
             'allowed_minutes.prohibits' => 'Isi jam target hadir atau durasi izin, jangan keduanya.',
             'allowed_minutes.between' => 'Durasi izin harus 0 sampai 1440 menit.',

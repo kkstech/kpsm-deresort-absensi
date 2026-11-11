@@ -42,6 +42,7 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('attendance/filters', [AttendanceMonitoringController::class, 'filters']);
         Route::get('dashboard/attendance', [AttendanceMonitoringController::class, 'dashboard']);
         Route::get('attendance', [AttendanceMonitoringController::class, 'index']);
+        Route::get('attendance/{session}/events', [AttendanceMonitoringController::class, 'events'])->whereNumber('session');
         Route::get('reports/filters', [ReportController::class, 'filters']);
         Route::get('reports/summary', [ReportController::class, 'summary']);
         Route::get('reports/details', [ReportController::class, 'details']);

@@ -65,12 +65,14 @@ async function initBalanceDepartments() {
 }
 
 async function loadSettings() {
+    settingsForm.elements.minimum_notice_days.value = '';
     try {
         const requestedYear = settingsForm.elements.year.value || todayKey().slice(0, 4);
         const { data } = await api('leave-settings', { query: { year: requestedYear } });
         yearSettings = data;
         settingsForm.elements.year.value = data.year;
-        settingsForm.elements.minimum_notice_days.value = data.minimum_notice_days ?? 14;
+        if (!Number.isInteger(data.minimum_notice_days)) throw new Error('Jarak minimal cuti tidak tersedia dari server.');
+        settingsForm.elements.minimum_notice_days.value = data.minimum_notice_days;
         renderQuotaFields(data.quotas ?? []);
 
         const isOpened = Boolean(data.opening_confirmed_at);

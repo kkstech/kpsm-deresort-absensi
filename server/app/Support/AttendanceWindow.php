@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\ShiftSession;
+use App\Models\SiteSetting;
 use Carbon\CarbonImmutable;
 
 class AttendanceWindow
@@ -22,6 +23,13 @@ class AttendanceWindow
 
     public static function checkoutDeadline(ShiftSession $session): CarbonImmutable
     {
-        return self::effectiveWorkEnd($session)->addMinutes(60);
+        $setting = SiteSetting::current();
+        $cutoff = WorkTime::at(WorkTime::local($session->end_at)->toDateString(), $setting->checkout_cutoff_time ?? '23:59');
+        $nextStart = ShiftSession::query()->whereNull('retired_at')->where('id', '!=', $session->id)
+            ->where('start_at', '>=', $session->end_at)
+            ->whereHas('assignment', fn ($query) => $query->where('employee_id', $session->assignment->employee_id)->whereNotIn('status', ['DRAFT', 'CANCELLED']))
+            ->orderBy('start_at')->value('start_at');
+
+        return $nextStart ? $cutoff->min(CarbonImmutable::parse($nextStart, 'UTC')) : $cutoff;
     }
 }

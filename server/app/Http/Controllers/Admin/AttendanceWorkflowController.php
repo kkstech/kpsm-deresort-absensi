@@ -110,7 +110,7 @@ class AttendanceWorkflowController extends Controller
         abort_unless($request->user()->isAdmin(), 403, 'Hanya Admin atau Super Admin yang dapat melihat riwayat persetujuan.');
 
         $data = $request->validate([
-            'type' => ['nullable', 'string', 'in:all,late,correction,overtime,shift_exchange'],
+            'type' => ['nullable', 'string', 'in:all,late,temporary_exit,early_departure,correction,overtime,shift_exchange'],
             'status' => ['nullable', 'string', 'in:all,APPROVED,REJECTED,CANCELLED'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d'],
@@ -131,10 +131,14 @@ class AttendanceWorkflowController extends Controller
         $items = collect();
 
         // 1. Izin Terlambat
-        if ($type === 'all' || $type === 'late') {
+        if (in_array($type, ['all', 'late', 'temporary_exit', 'early_departure'], true)) {
             $query = LatePermission::query()
                 ->with(['employee.department:id,name', 'session.assignment', 'decidedBy:id,name', 'attachments'])
                 ->whereIn('employee_id', $employeeIds);
+
+            if ($type !== 'all') {
+                $query->where('permission_type', $type === 'late' ? 'late_arrival' : $type);
+            }
 
             if ($status !== 'all') {
                 $query->where('status', $status);
@@ -160,7 +164,11 @@ class AttendanceWorkflowController extends Controller
                 return [
                     'id' => $item->id,
                     'type' => 'late',
-                    'type_label' => 'Izin Terlambat',
+                    'type_label' => match ($item->permission_type) {
+                        'temporary_exit' => 'Izin Keluar Sementara',
+                        'early_departure' => 'Izin Pulang Lebih Awal',
+                        default => 'Izin Terlambat',
+                    },
                     'employee' => [
                         'id' => $item->employee->id,
                         'name' => $item->employee->name,
@@ -170,7 +178,11 @@ class AttendanceWorkflowController extends Controller
                     ],
                     'work_date' => $item->session?->assignment?->work_date,
                     'shift' => $item->session ? ($item->session->assignment?->template_name.' · sesi '.$item->session->seq) : '-',
-                    'detail' => $item->allowed_minutes ? "Izin {$item->allowed_minutes} menit" : ($item->allowed_until ? 'Hadir s.d. '.WorkTime::local($item->allowed_until)?->format('H:i') : 'Izin terlambat'),
+                    'detail' => match ($item->permission_type) {
+                        'temporary_exit' => 'Keluar '.(WorkTime::local($item->leave_at)?->format('H:i') ?? '-').' · kembali '.(WorkTime::local($item->return_at)?->format('H:i') ?? '-'),
+                        'early_departure' => 'Pulang '.(WorkTime::local($item->leave_at)?->format('H:i') ?? '-'),
+                        default => $item->allowed_minutes ? "Izin {$item->allowed_minutes} menit" : ($item->allowed_until ? 'Hadir s.d. '.WorkTime::local($item->allowed_until)?->format('H:i') : 'Izin terlambat'),
+                    },
                     'reason' => $item->reason,
                     'status' => $item->status,
                     'decided_by' => $item->decidedBy?->name ?? 'Sistem / Admin',
@@ -262,7 +274,7 @@ class AttendanceWorkflowController extends Controller
                 $query->where(function ($sub) use ($q) {
                     $sub->whereHas('employee', fn ($eq) => $eq->where('name', 'like', "%{$q}%")->orWhere('code', 'like', "%{$q}%"))
                         ->orWhere('title', 'like', "%{$q}%")
-                        ->orWhere('decision_reason', 'like', "%{$q}%");
+                        ->orWhere('decision_notes', 'like', "%{$q}%");
                 });
             }
 
@@ -290,7 +302,7 @@ class AttendanceWorkflowController extends Controller
                     'decided_by' => $item->decisionMaker?->name ?? 'Sistem / Admin',
                     'decided_at' => WorkTime::iso($decidedAt),
                     'decided_at_formatted' => WorkTime::local($decidedAt)?->format('d/m/Y H:i'),
-                    'decision_reason' => $item->decision_reason ?? '-',
+                    'decision_reason' => $item->decision_notes ?? '-',
                     'attachments' => [],
                     'timestamp' => $decidedAt ? $decidedAt->getTimestamp() : 0,
                 ];

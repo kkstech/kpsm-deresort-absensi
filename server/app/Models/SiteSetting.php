@@ -15,6 +15,8 @@ class SiteSetting extends Model
         'logo_path',
         'favicon_path',
         'checkin_early_minutes',
+        'checkout_grace_minutes',
+        'checkout_cutoff_time',
         'retirement_age_years',
         'leave_minimum_notice_days',
     ];

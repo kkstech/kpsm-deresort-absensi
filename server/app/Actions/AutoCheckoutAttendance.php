@@ -48,7 +48,7 @@ class AutoCheckoutAttendance
                 }
 
                 [$closeAt, $deadline] = $this->closeAt($session, $record);
-                if ($deadline === null || $deadline->gte($now)) {
+                if ($deadline === null || ((int) ($session->rules_version ?: $session->assignment->rules_version) === 3 ? $deadline->gt($now) : $deadline->gte($now))) {
                     return 0;
                 }
 
@@ -149,7 +149,7 @@ class AutoCheckoutAttendance
         if ($rulesVersion === 3) {
             $workEnd = AttendanceWindow::effectiveWorkEnd($session);
 
-            return [$workEnd, $workEnd->addMinutes(60)];
+            return [$workEnd, AttendanceWindow::checkoutDeadline($session)];
         }
 
         if ($rulesVersion === 0) {

@@ -377,6 +377,8 @@ async function loadAttendanceSettings() {
     try {
         const { data } = await api('attendance-settings');
         attendanceWindowForm.elements.checkin_early_minutes.value = data.checkin_early_minutes;
+        attendanceWindowForm.elements.checkout_grace_minutes.value = data.checkout_grace_minutes;
+        attendanceWindowForm.elements.checkout_cutoff_time.value = data.checkout_cutoff_time;
     } catch (error) {
         attendanceWindowError.textContent = error.message;
         attendanceWindowError.hidden = false;
@@ -815,7 +817,7 @@ attendanceWindowForm.addEventListener('submit', async (event) => {
     try {
         const { data } = await api('attendance-settings', {
             method: 'PUT',
-            body: { checkin_early_minutes: Number(attendanceWindowForm.elements.checkin_early_minutes.value) },
+            body: { checkin_early_minutes: Number(attendanceWindowForm.elements.checkin_early_minutes.value), checkout_grace_minutes: Number(attendanceWindowForm.elements.checkout_grace_minutes.value), checkout_cutoff_time: attendanceWindowForm.elements.checkout_cutoff_time.value },
         });
         attendanceWindowForm.elements.checkin_early_minutes.value = data.checkin_early_minutes;
         toast('Pengaturan jendela check-in disimpan.');

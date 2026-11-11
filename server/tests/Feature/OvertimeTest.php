@@ -397,7 +397,7 @@ class OvertimeTest extends TestCase
         ]);
     }
 
-    public function test_approved_overtime_extends_checkout_past_thirteen_hours_through_the_inclusive_deadline(): void
+    public function test_approved_overtime_extends_checkout_past_thirteen_hours_before_daily_cutoff(): void
     {
         $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
         $assignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-26', $template, $this->admin);
@@ -427,7 +427,7 @@ class OvertimeTest extends TestCase
             'device_id' => $this->device->device_uuid,
         ])->assertCreated();
 
-        $this->travelTo($overtimeEnd->addHour());
+        $this->travelTo($overtimeEnd->addMinutes(58));
         $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
             'event_uuid' => (string) Str::uuid(),
             'shift_session_id' => $session->id,
@@ -437,7 +437,7 @@ class OvertimeTest extends TestCase
 
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $session->id,
-            'check_out_at' => $overtimeEnd->addHour()->format('Y-m-d H:i:s'),
+            'check_out_at' => $overtimeEnd->addMinutes(58)->format('Y-m-d H:i:s'),
             'verified_overtime_minutes' => 360,
         ]);
     }

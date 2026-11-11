@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Actions\PublishSchedule;
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\Employee;
@@ -22,6 +23,26 @@ class AttendanceMonitoringTest extends TestCase
         parent::setUp();
         $this->seed(MasterDataSeeder::class);
         $this->travelTo('2026-10-24 03:00:00');
+    }
+
+    public function test_admin_can_inspect_received_attendance_events(): void
+    {
+        $schedule = $this->schedule(Department::query()->where('name', 'Engineering')->firstOrFail(), 'MON-EVT', 'Event User');
+        $session = $schedule->sessions->first();
+        AttendanceEvent::query()->create([
+            'event_uuid' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'payload_hash' => hash('sha256', 'event'),
+            'employee_id' => $schedule->employee_id,
+            'shift_session_id' => $session->id,
+            'type' => 'CHECK_OUT', 'source' => 'ONLINE',
+            'server_received_at' => now(), 'effective_at' => now(),
+            'result' => 'REJECTED', 'reason_code' => 'OUTSIDE_WINDOW',
+        ]);
+        $this->actingAs(User::factory()->role('admin')->create())
+            ->getJson("/admin/api/attendance/{$session->id}/events")
+            ->assertOk()->assertJsonPath('data.0.reason_code', 'OUTSIDE_WINDOW');
+        $this->actingAs(User::factory()->role('employee')->create())
+            ->getJson("/admin/api/attendance/{$session->id}/events")->assertForbidden();
     }
 
     public function test_dashboard_counts_real_schedules_and_attendance_records(): void

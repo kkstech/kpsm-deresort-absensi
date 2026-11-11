@@ -19,7 +19,9 @@ class SiteSettingController extends Controller
     {
         Gate::authorize('admin');
 
-        return response()->json(['data' => ['checkin_early_minutes' => SiteSetting::checkInEarlyMinutes()]]);
+        $setting = SiteSetting::current();
+
+        return response()->json(['data' => ['checkin_early_minutes' => SiteSetting::checkInEarlyMinutes(), 'checkout_grace_minutes' => (int) $setting->checkout_grace_minutes, 'checkout_cutoff_time' => $setting->checkout_cutoff_time]]);
     }
 
     public function updateAttendance(Request $request): JsonResponse
@@ -27,6 +29,8 @@ class SiteSettingController extends Controller
         Gate::authorize('admin');
         $data = $request->validate([
             'checkin_early_minutes' => ['required', 'integer', 'between:0,720'],
+            'checkout_grace_minutes' => ['sometimes', 'required', 'integer', 'between:0,720'],
+            'checkout_cutoff_time' => ['sometimes', 'required', 'date_format:H:i'],
         ]);
 
         $setting = SiteSetting::current();
@@ -37,7 +41,7 @@ class SiteSettingController extends Controller
         });
         Cache::forget('attendance.checkin_early_minutes');
 
-        return response()->json(['data' => ['checkin_early_minutes' => SiteSetting::checkInEarlyMinutes()]]);
+        return $this->attendance();
     }
 
     public function show(): JsonResponse

@@ -608,6 +608,8 @@
                                     <select id="approval-history-type-filter" style="font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: #fff;" aria-label="Filter jenis pengajuan">
                                         <option value="all">Semua Jenis</option>
                                         <option value="late">Izin Terlambat</option>
+                                        <option value="temporary_exit">Izin Keluar Sementara</option>
+                                        <option value="early_departure">Izin Pulang Lebih Awal</option>
                                         <option value="correction">Koreksi Absensi</option>
                                         <option value="overtime">Lembur &amp; SPL</option>
                                         <option value="shift_exchange">Tukar Shift</option>
@@ -1300,6 +1302,11 @@
                                                 <small class="field-hint">Contoh: 60 berarti check-in dibuka satu jam lebih awal. Nilai 0 membolehkan check-in kapan saja dan tetap menghitung jam kerja mulai dari awal shift.</small>
                                                 <small class="field-error" id="attendance-window-checkin-early-minutes-error" hidden></small>
                                             </label>
+                                        </section>
+                                        <section class="site-settings-section"><h3>Check-out</h3>
+                                            <label>Grace setelah akhir shift (menit)<input name="checkout_grace_minutes" type="number" min="0" max="720" required></label>
+                                            <label>Batas akhir hari (WIB)<input name="checkout_cutoff_time" type="time" required></label>
+                                            <small>Check-out tersedia sampai shift berikutnya atau batas akhir hari, mana yang lebih dulu.</small>
                                         </section>
                                     </div>
                                 </div>

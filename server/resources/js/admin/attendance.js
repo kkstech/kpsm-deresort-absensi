@@ -85,6 +85,7 @@ function reviewReasonLabel(reason) {
         FAKE_GPS_DETECTED: 'Absensi tercatat menggunakan lokasi tiruan.',
         AUTO_CHECKOUT: 'Sesi ditutup otomatis karena checkout belum tercatat.',
         CHECKOUT_AFTER_AUTO: 'Checkout dicatat setelah sistem menutup sesi otomatis.',
+        CHECKOUT_LATE: 'Checkout terlambat / perlu verifikasi.',
         EARLY_CHECKOUT_NOT_APPROVED: 'Checkout lebih awal belum didukung izin yang disetujui.',
         OUTSIDE_WINDOW: 'Waktu absensi berada di luar jendela sesi.',
         NOT_CHECKED_IN: 'Checkout offline diterima sebelum check-in tercatat.',
@@ -385,7 +386,7 @@ function renderMonitoring({ data, meta, summary }) {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
-            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button></td>` : '';
+            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}</button>` : ''}<button type="button" class="action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi langsung" aria-label="Koreksi langsung ${esc(row.employee.name)}">${icon('edit')}</button><button type="button" class="action-btn" data-session-action="events" data-session-id="${row.id}" aria-label="Lihat event absensi ${esc(row.employee.name)}">Event</button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
 
@@ -492,6 +493,7 @@ function openWorkflowModal(title, hint, fields, submit, submitLabel = 'Simpan') 
     $('#workflow-modal-fields').innerHTML = fields;
     $('#workflow-modal-error').hidden = true;
     const submitBtn = $('#workflow-modal-submit');
+    submitBtn.hidden = false;
     submitBtn.textContent = submitLabel;
     form.onsubmit = async (event) => {
         event.preventDefault();
@@ -1663,6 +1665,17 @@ export async function initAttendance() {
         if (!row) return;
         if (button.dataset.sessionAction === 'verify') openVerify(row);
         if (button.dataset.sessionAction === 'correction') openDirectCorrection(row);
+        if (button.dataset.sessionAction === 'events') {
+            api(`attendance/${row.id}/events`).then(({ data }) => {
+                const dialog = $('#workflow-modal');
+                $('#workflow-modal-title').textContent = 'Event absensi';
+                $('#workflow-modal-hint').textContent = `${row.employee.name} · ${row.shift.name}`;
+                $('#workflow-modal-error').hidden = true;
+                $('#workflow-modal-submit').hidden = true;
+                $('#workflow-modal-fields').innerHTML = data.length ? data.map((item) => `<div><strong>${esc(item.type)} · ${esc(item.result)}</strong><p>${esc(formatAttendanceDateTime(item.server_received_at))} WIB · ${esc(item.source)} · ${esc(item.reason_code || 'tanpa alasan penolakan')}</p><small>${esc(item.event_uuid)}</small></div>`).join('') : '<p>Belum ada event yang diterima server. Periksa perangkat karyawan.</p>';
+                dialog.showModal();
+            }).catch((failure) => toast(failure.message || 'Gagal memuat event.', 'error'));
+        }
     });
     const directLateForm = $('#direct-late-form');
     const directToggle = $('#direct-late-toggle');
