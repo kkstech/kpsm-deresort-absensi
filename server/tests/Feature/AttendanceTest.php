@@ -608,7 +608,7 @@ class AttendanceTest extends TestCase
 
     public function test_attendance_event_with_photo_saves_path_and_projects(): void
     {
-        Storage::fake('public');
+        Storage::fake('local');
         $this->travelTo('2026-10-25 01:10:00');
 
         // Tiny valid 1x1 PNG as base64 data URI
@@ -623,8 +623,8 @@ class AttendanceTest extends TestCase
 
         $event = AttendanceEvent::query()->where('event_uuid', '66666666-6666-4666-8666-666666666666')->firstOrFail();
         $this->assertNotNull($event->photo_path);
-        $this->assertStringEndsWith('.webp', $event->photo_path);
-        Storage::disk('public')->assertExists($event->photo_path);
+        $this->assertStringEndsWith('.jpg', $event->photo_path);
+        Storage::disk('local')->assertExists($event->photo_path);
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertSame($event->photo_path, $record->check_in_photo_path);

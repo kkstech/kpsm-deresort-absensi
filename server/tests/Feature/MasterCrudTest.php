@@ -61,7 +61,7 @@ class MasterCrudTest extends TestCase
             ->assertJsonPath('data.0.current_age_months', 11);
     }
 
-    public function test_admin_creates_employee_with_weak_password_and_no_email(): void
+    public function test_admin_rejects_weak_password_and_allows_no_email(): void
     {
         $payload = $this->employeePayload([
             'code' => 'FO-999',
@@ -69,11 +69,15 @@ class MasterCrudTest extends TestCase
         ]);
         unset($payload['email']);
 
-        $this->asAdmin()->postJson('/admin/api/employees', $payload)->assertCreated();
+        $this->asAdmin()->postJson('/admin/api/employees', $payload)
+            ->assertStatus(422)->assertJsonPath('code', 'VALIDATION_ERROR');
+
+        $payload['account_password'] = 'secure123';
+        $this->postJson('/admin/api/employees', $payload)->assertCreated();
         $employee = Employee::query()->where('code', 'FO-999')->firstOrFail();
         $this->assertNotNull($employee->user_id);
         $this->assertSame('fo-999', $employee->user->username);
-        $this->assertTrue(Hash::check('1234', $employee->user->password));
+        $this->assertTrue(Hash::check('secure123', $employee->user->password));
     }
 
     public function test_department_change_records_placement_and_deactivate_revokes_access(): void
@@ -136,6 +140,7 @@ class MasterCrudTest extends TestCase
 
     public function test_admin_can_upload_and_update_employee_avatar(): void
     {
+        Storage::fake('local');
         Storage::fake('public');
 
         $file = UploadedFile::fake()->image('profile.jpg', 200, 200);
@@ -151,7 +156,7 @@ class MasterCrudTest extends TestCase
         $res->assertCreated();
         $employee = Employee::query()->where('code', 'FO-001')->firstOrFail();
         $this->assertNotNull($employee->avatar_path);
-        Storage::disk('public')->assertExists($employee->avatar_path);
+        Storage::disk('local')->assertExists($employee->avatar_path);
         $this->assertSame($employee->avatar_path, $employee->user->fresh()->avatar_path);
 
         $listRes = $this->asAdmin()->getJson('/admin/api/employees');
@@ -172,8 +177,8 @@ class MasterCrudTest extends TestCase
         $employee->refresh();
         $this->assertSame('Rina Updated', $employee->name);
         $this->assertNotSame($oldPath, $employee->avatar_path);
-        Storage::disk('public')->assertExists($employee->avatar_path);
-        Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('local')->assertExists($employee->avatar_path);
+        Storage::disk('local')->assertMissing($oldPath);
     }
 
     public function test_admin_can_read_employees_across_departments_and_write(): void

@@ -331,6 +331,7 @@ class AuthTest extends TestCase
 
     public function test_upload_and_delete_avatar(): void
     {
+        Storage::fake('local');
         Storage::fake('public');
 
         $user = $this->employeeUser();
@@ -349,7 +350,7 @@ class AuthTest extends TestCase
         $this->assertNotNull($upload->json('user.avatar_path'));
         $this->assertNotNull($upload->json('user.avatar_url'));
         $this->assertNotNull($user->fresh()->avatar_path);
-        Storage::disk('public')->assertExists($user->fresh()->avatar_path);
+        Storage::disk('local')->assertExists($user->fresh()->avatar_path);
 
         // Delete avatar
         $delete = $this->withToken($token)->deleteJson('/api/v1/me/avatar')->assertOk();

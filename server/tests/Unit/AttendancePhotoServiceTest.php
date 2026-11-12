@@ -24,7 +24,7 @@ class AttendancePhotoServiceTest extends TestCase
             'code' => 'EMP-099',
         ]);
         $this->employee->id = 99;
-        Storage::fake('public');
+        Storage::fake('local');
     }
 
     public function test_returns_null_on_empty_source(): void
@@ -33,7 +33,7 @@ class AttendancePhotoServiceTest extends TestCase
         $this->assertNull($this->service->processAndStore($this->employee, ''));
     }
 
-    public function test_converts_base64_photo_to_watermarked_webp(): void
+    public function test_converts_base64_photo_to_watermarked_jpeg(): void
     {
         // Generate a 200x200 PNG image
         $gd = imagecreatetruecolor(200, 200);
@@ -49,12 +49,13 @@ class AttendancePhotoServiceTest extends TestCase
 
         $this->assertNotNull($result);
         $this->assertStringStartsWith('attendance_photos/att_99_', $result);
-        $this->assertStringEndsWith('.webp', $result);
-        Storage::disk('public')->assertExists($result);
+        $this->assertStringEndsWith('.jpg', $result);
+        Storage::disk('local')->assertExists($result);
 
-        // Verify the stored content is valid WebP
-        $storedBinary = Storage::disk('public')->get($result);
+        // Verify the stored content is a valid JPEG
+        $storedBinary = Storage::disk('local')->get($result);
         $this->assertGreaterThan(0, strlen($storedBinary));
+        $this->assertSame('image/jpeg', getimagesizefromstring($storedBinary)['mime']);
         $storedGd = @imagecreatefromstring($storedBinary);
         $this->assertNotFalse($storedGd);
         $this->assertSame(200, imagesx($storedGd));
@@ -67,7 +68,7 @@ class AttendancePhotoServiceTest extends TestCase
         $result = $this->service->processAndStore($this->employee, $file);
 
         $this->assertNotNull($result);
-        $this->assertStringEndsWith('.webp', $result);
-        Storage::disk('public')->assertExists($result);
+        $this->assertStringEndsWith('.jpg', $result);
+        Storage::disk('local')->assertExists($result);
     }
 }

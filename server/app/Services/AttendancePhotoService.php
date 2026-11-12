@@ -137,4 +137,5 @@ class AttendancePhotoService
             imagestring($image, 4, 14, $h - $barHeight + 8, $empStr, $textColor);
             imagestring($image, 3, 14, $h - $barHeight + 28, $timeStr, $subColor);
         }
+    }
 }

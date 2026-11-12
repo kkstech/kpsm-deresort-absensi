@@ -141,8 +141,9 @@ class ShiftExchangeTest extends TestCase
         $loadedIds = collect($firstPage->json('data'))->pluck('id')->merge(collect($secondPage->json('data'))->pluck('id'));
         $this->assertCount(15, $loadedIds->unique());
 
-        $this->withToken($token)->getJson('/api/v1/shift-exchanges/colleagues?offset=0&limit=5&search=COL-14')
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.code', 'COL-14');
+        $this->withToken($token)->getJson('/api/v1/shift-exchanges/colleagues?offset=0&limit=5&search=Colleague%2014')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'Colleague 14')
+            ->assertJsonMissingPath('data.0.code');
     }
 
     public function test_manager_shift_exchange_is_visible_and_decidable_only_by_super_admin(): void
