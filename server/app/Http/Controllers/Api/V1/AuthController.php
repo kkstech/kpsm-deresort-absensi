@@ -7,12 +7,12 @@ use App\Http\Controllers\Controller;
 use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\PrivateImageService;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -145,12 +145,16 @@ class AuthController extends Controller
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['sometimes', 'required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'current_password' => ['required_with:password', 'nullable', 'string'],
-            'password' => ['nullable', 'string', 'confirmed'],
+            'password' => ['nullable', 'string', 'confirmed', 'min:8', 'max:255'],
         ]);
 
-        if (! empty($data['password'])) {
+        $passwordChanged = ! empty($data['password']);
+        if ($passwordChanged) {
             if (! Hash::check($data['current_password'] ?? '', $user->password)) {
                 throw new BusinessRuleException('INVALID_PASSWORD', 'Kata sandi saat ini tidak cocok.', 422);
+            }
+            if ($request->hasSession()) {
+                $request->session()->forget(['auth.reauthenticated_at', 'auth.reauthenticated_user_id']);
             }
             $user->password = $data['password'];
         }
@@ -178,9 +182,12 @@ class AuthController extends Controller
             }
         }
 
-        DB::transaction(function () use ($user, $employee) {
+        DB::transaction(function () use ($user, $employee, $passwordChanged) {
             $user->save();
             $employee?->save();
+            if ($passwordChanged) {
+                $user->tokens()->delete();
+            }
             Audit::log('user.profile_updated', $user, null, [
                 'name' => $user->name,
                 'email' => $user->email,
@@ -190,14 +197,15 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Profil berhasil diperbarui.',
+            'password_changed' => $passwordChanged,
             'user' => $this->profile($user->fresh(['employee.department', 'employee.position'])),
         ]);
     }
 
-    public function uploadAvatar(Request $request): JsonResponse
+    public function uploadAvatar(Request $request, PrivateImageService $images): JsonResponse
     {
         $request->validate([
-            'avatar' => ['required', 'file', 'max:5120'],
+            'avatar' => ['required', 'file', 'mimetypes:image/jpeg,image/png', 'max:5120'],
         ]);
 
         $file = $request->file('avatar');
@@ -208,28 +216,15 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $mime = $file->getMimeType() ?: $file->getClientMimeType();
-        $allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
-        if (! in_array($mime, $allowed, true) && ! str_starts_with((string) $mime, 'image/')) {
-            return response()->json([
-                'code' => 'INVALID_IMAGE_TYPE',
-                'message' => 'Format file harus berupa gambar (JPG, PNG, atau WEBP).',
-            ], 422);
-        }
-
         $user = $request->user();
         $employee = $user->employee;
-
-        $ext = match ($mime) {
-            'image/png' => 'png',
-            'image/webp' => 'webp',
-            default => 'jpg',
-        };
-        $filename = 'avatar_'.$user->id.'_'.time().'.'.$ext;
-        $path = $file->storeAs('avatars', $filename, 'public');
-
-        if ($user->avatar_path && Storage::disk('public')->exists($user->avatar_path)) {
-            Storage::disk('public')->delete($user->avatar_path);
+        $oldPaths = array_unique(array_filter([$user->avatar_path, $employee?->avatar_path]));
+        $path = $images->storeAvatar($file, 'avatars/avatar_'.$user->id.'_'.Str::uuid().'.jpg');
+        if (! $path) {
+            return response()->json([
+                'code' => 'INVALID_IMAGE_TYPE',
+                'message' => 'Foto harus berupa JPG atau PNG yang dapat dibaca.',
+            ], 422);
         }
 
         DB::transaction(function () use ($user, $employee, $path) {
@@ -239,6 +234,9 @@ class AuthController extends Controller
             }
             Audit::log('user.avatar_updated', $user, null, ['avatar_path' => $path]);
         });
+        foreach ($oldPaths as $oldPath) {
+            $images->delete($oldPath);
+        }
 
         return response()->json([
             'message' => 'Foto profil berhasil diperbarui.',
@@ -246,14 +244,11 @@ class AuthController extends Controller
         ]);
     }
 
-    public function deleteAvatar(Request $request): JsonResponse
+    public function deleteAvatar(Request $request, PrivateImageService $images): JsonResponse
     {
         $user = $request->user();
         $employee = $user->employee;
-
-        if ($user->avatar_path && Storage::disk('public')->exists($user->avatar_path)) {
-            Storage::disk('public')->delete($user->avatar_path);
-        }
+        $oldPaths = array_unique(array_filter([$user->avatar_path, $employee?->avatar_path]));
 
         DB::transaction(function () use ($user, $employee) {
             $user->update(['avatar_path' => null]);
@@ -262,6 +257,9 @@ class AuthController extends Controller
             }
             Audit::log('user.avatar_deleted', $user);
         });
+        foreach ($oldPaths as $oldPath) {
+            $images->delete($oldPath);
+        }
 
         return response()->json([
             'message' => 'Foto profil berhasil dihapus.',
@@ -375,6 +373,12 @@ class AuthController extends Controller
     {
         $employee = $user->employee?->loadMissing('department:id,name', 'position:id,name');
         $avatarPath = $user->avatar_path ?? $employee?->avatar_path;
+        $avatarUrl = match (true) {
+            ! $avatarPath => null,
+            $user->avatar_path !== null => url('/private-media/avatars/users/'.$user->id),
+            $employee !== null => url('/private-media/avatars/employees/'.$employee->id),
+            default => null,
+        };
 
         return [
             'id' => $user->id,
@@ -383,8 +387,8 @@ class AuthController extends Controller
             'email' => $user->email,
             'phone' => $user->phone ?? $employee?->phone,
             'role' => $user->role,
-            'avatar_path' => $avatarPath ? '/storage/'.ltrim($avatarPath, '/') : null,
-            'avatar_url' => $avatarPath ? url('storage/'.ltrim($avatarPath, '/')) : null,
+            'avatar_path' => $avatarUrl,
+            'avatar_url' => $avatarUrl,
             'employee' => $employee ? [
                 'id' => $employee->id,
                 'code' => $employee->code,
@@ -393,8 +397,8 @@ class AuthController extends Controller
                 'position' => $employee->position?->name,
                 'email' => $employee->email,
                 'phone' => $employee->phone,
-                'avatar_path' => $employee->avatar_path ? '/storage/'.ltrim($employee->avatar_path, '/') : null,
-                'avatar_url' => $employee->avatar_path ? url('storage/'.ltrim($employee->avatar_path, '/')) : null,
+                'avatar_path' => $employee->avatar_path ? url('/private-media/avatars/employees/'.$employee->id) : null,
+                'avatar_url' => $employee->avatar_path ? url('/private-media/avatars/employees/'.$employee->id) : null,
             ] : null,
         ];
     }

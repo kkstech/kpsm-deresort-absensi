@@ -366,15 +366,22 @@ class ShiftExchangeController extends Controller
             ->with('department:id,name', 'position:id,name')
             ->where('status', 'active');
 
-        if ($currentEmployeeId && ! $user->isAdmin()) {
-            $query->where('id', '!=', $currentEmployeeId);
+        if (! $user->isAdmin()) {
+            $currentEmployee = $user->employee;
+            $departmentId = $currentEmployee?->department_id;
+            if (! $currentEmployee || $currentEmployee->status !== 'active' || ! $departmentId) {
+                return response()->json([
+                    'data' => [],
+                    'meta' => ['offset' => $offset, 'limit' => $limit, 'next_offset' => $offset, 'has_more' => false],
+                ]);
+            }
+            $query->where('department_id', $departmentId)->where('id', '!=', $currentEmployeeId);
         }
 
         if ($search !== '') {
             $query->where(function ($query) use ($search) {
                 $like = '%'.$search.'%';
                 $query->where('name', 'like', $like)
-                    ->orWhere('code', 'like', $like)
                     ->orWhereHas('department', fn ($department) => $department->where('name', 'like', $like))
                     ->orWhereHas('position', fn ($position) => $position->where('name', 'like', $like));
             });
@@ -384,7 +391,6 @@ class ShiftExchangeController extends Controller
         $hasMore = $employees->count() > $limit;
         $employees = $employees->take($limit)->map(fn (Employee $e) => [
             'id' => $e->id,
-            'code' => $e->code,
             'name' => $e->name,
             'department' => $e->department?->name,
             'position' => $e->position?->name,
@@ -414,6 +420,10 @@ class ShiftExchangeController extends Controller
         if ($employee->status !== 'active') {
             throw new BusinessRuleException('EMPLOYEE_INACTIVE', 'Karyawan tidak aktif.', 422);
         }
+        $currentEmployee = $user->employee;
+        if (! $user->isAdmin() && (! $currentEmployee || $currentEmployee->status !== 'active' || ! $currentEmployee->department_id || $employee->department_id !== $currentEmployee->department_id)) {
+            throw new BusinessRuleException('FORBIDDEN', 'Jadwal hanya tersedia untuk rekan satu departemen.', 403);
+        }
 
         $from = $data['from'] ?? WorkTime::today();
         $to = $data['to'] ?? CarbonImmutable::parse($from)->addDays(30)->toDateString();
@@ -422,7 +432,7 @@ class ShiftExchangeController extends Controller
             ->with('sessions')
             ->where('employee_id', $employee->id)
             ->whereBetween('work_date', [$from, $to])
-            ->whereIn('status', ['DRAFT', 'PUBLISHED'])
+            ->where('status', 'PUBLISHED')
             ->orderBy('work_date')
             ->get()
             ->filter(function (ShiftAssignment $ass) {

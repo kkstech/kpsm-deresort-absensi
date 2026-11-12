@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'overtime_order_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'check_in_photo_path', 'check_out_photo_path', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_overtime_minutes', 'verified_at', 'verified_by'])]
 class AttendanceRecord extends Model
@@ -35,34 +34,23 @@ class AttendanceRecord extends Model
         return $this->belongsTo(OvertimeOrder::class);
     }
 
-    private function resolvePhotoUrl(?string $path): ?string
+    private function resolvePhotoUrl(?string $path, string $kind): ?string
     {
-        if (! $path) {
+        if (! $path || ! $this->exists) {
             return null;
         }
 
-        if (app()->environment('testing')) {
-            return Storage::disk('public')->exists($path)
-                ? url('storage/'.ltrim($path, '/'))
-                : null;
-        }
-
-        $relPath = ltrim($path, '/');
-        if (! is_file(public_path('storage/'.$relPath)) && ! is_file(storage_path('app/public/'.$relPath))) {
-            return null;
-        }
-
-        return url('storage/'.$relPath);
+        return url('/private-media/attendance-records/'.$this->id.'/'.$kind);
     }
 
     public function getCheckInPhotoUrlAttribute(): ?string
     {
-        return $this->resolvePhotoUrl($this->check_in_photo_path);
+        return $this->resolvePhotoUrl($this->check_in_photo_path, 'check-in');
     }
 
     public function getCheckOutPhotoUrlAttribute(): ?string
     {
-        return $this->resolvePhotoUrl($this->check_out_photo_path);
+        return $this->resolvePhotoUrl($this->check_out_photo_path, 'check-out');
     }
 
     /** Menit dibayar = irisan hadir dengan jendela sesi, maksimal panjang sesi dikurangi istirahat. */

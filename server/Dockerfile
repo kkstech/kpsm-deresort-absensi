@@ -21,7 +21,10 @@ RUN sed -ri "s!/var/www/html!${APACHE_DOCUMENT_ROOT}!g" /etc/apache2/sites-avail
     && a2enconf laravel \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf '%s\n' 'opcache.enable=1' 'opcache.memory_consumption=128' 'opcache.max_accelerated_files=20000' 'opcache.validate_timestamps=0' > "$PHP_INI_DIR/conf.d/opcache.ini" \
-    && printf '%s\n' 'upload_max_filesize=100M' 'post_max_size=105M' 'max_execution_time=0' > "$PHP_INI_DIR/conf.d/database-backup.ini"
+    && printf '%s\n' 'upload_max_filesize=100M' 'post_max_size=105M' 'max_execution_time=0' > "$PHP_INI_DIR/conf.d/database-backup.ini" \
+    && printf '%s\n' 'expose_php=Off' > "$PHP_INI_DIR/conf.d/security.ini" \
+    && printf '%s\n' 'ServerTokens Prod' 'ServerSignature Off' > /etc/apache2/conf-available/server-signature.conf \
+    && a2enconf server-signature
 
 FROM php-base AS vendor
 WORKDIR /var/www/html
@@ -45,10 +48,9 @@ ENV APP_ENV=production \
     LOG_CHANNEL=stderr \
     SESSION_DRIVER=file \
     SESSION_SECURE_COOKIE=true \
-    CACHE_STORE=file \
+    CACHE_STORE=database \
     QUEUE_CONNECTION=sync \
-    FILESYSTEM_DISK=local \
-    TRUSTED_PROXIES=REMOTE_ADDR
+    FILESYSTEM_DISK=local
 
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \

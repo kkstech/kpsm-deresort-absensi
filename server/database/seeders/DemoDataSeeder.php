@@ -31,6 +31,13 @@ class DemoDataSeeder extends Seeder
             return;
         }
 
+        $demoPassword = config('demo.user_password');
+        if (! is_string($demoPassword) || mb_strlen($demoPassword) < 8) {
+            $this->command?->error('Atur DEMO_USER_PASSWORD minimal 8 karakter sebelum menjalankan DemoDataSeeder.');
+
+            return;
+        }
+
         $people = [
             ['FO-001', 'Nadia Anjani', 'Front Office', 'nadia.anjani@gmail.com', '081234567801'],
             ['EN-001', 'Dimas Saputra', 'Engineering', 'dimas.saputra@gmail.com', '081234567802'],
@@ -41,12 +48,12 @@ class DemoDataSeeder extends Seeder
             ['EN-002', 'Reza Akbar', 'Engineering', 'reza.akbar@gmail.com', '081234567807'],
         ];
 
-        $employees = collect($people)->map(function ($p) {
+        $employees = collect($people)->map(function ($p) use ($demoPassword) {
             [$code, $name, $department, $email, $phone] = $p;
             $departmentId = Department::query()->where('name', $department)->value('id');
             $user = $email ? User::query()->firstOrCreate(
                 ['email' => $email],
-                ['name' => $name, 'username' => Str::lower($code), 'phone' => $phone, 'password' => 'password123', 'role' => 'employee']
+                ['name' => $name, 'username' => Str::lower($code), 'phone' => $phone, 'password' => $demoPassword, 'role' => 'employee']
             ) : null;
             if ($user) {
                 $userUpdates = [];

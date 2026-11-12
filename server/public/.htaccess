@@ -5,6 +5,9 @@
 
     RewriteEngine On
 
+    # Legacy copies of private attendance images must not be served as static files.
+    RewriteRule ^storage/(avatars|attendance_photos)/ - [F,L,NC]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\ShiftExchangeController;
 use App\Http\Controllers\AttendanceAttachmentController;
+use App\Http\Controllers\PrivateMediaController;
 use App\Http\Controllers\Auth\WebAuthController;
 use Illuminate\Support\Facades\Route;
 
@@ -33,6 +34,14 @@ Route::post('/login', [WebAuthController::class, 'login'])->middleware('throttle
 
 Route::middleware('auth')->group(function () {
     Route::post('/logout', [WebAuthController::class, 'logout'])->name('logout');
+});
+
+Route::middleware(['auth:sanctum', 'active', 'private-media'])->prefix('private-media')->group(function () {
+    Route::get('avatars/employees/{employee}', [PrivateMediaController::class, 'employeeAvatar'])->whereNumber('employee');
+    Route::get('avatars/users/{user}', [PrivateMediaController::class, 'userAvatar'])->whereNumber('user');
+    Route::get('attendance-records/{record}/{photo}', [PrivateMediaController::class, 'attendanceRecordPhoto'])
+        ->whereNumber('record')->whereIn('photo', ['check-in', 'check-out']);
+    Route::get('attendance-events/{event}/photo', [PrivateMediaController::class, 'attendanceEventPhoto'])->whereNumber('event');
 });
 
 Route::middleware(['auth', 'admin'])->group(function () {
@@ -75,9 +84,10 @@ Route::middleware(['auth', 'admin'])->group(function () {
         Route::get('attendance-settings', [SiteSettingController::class, 'attendance']);
         Route::put('attendance-settings', [SiteSettingController::class, 'updateAttendance']);
         Route::get('database-backup/status', [DatabaseBackupController::class, 'status']);
-        Route::get('database-backup', [DatabaseBackupController::class, 'download']);
-        Route::get('database-backup/safety', [DatabaseBackupController::class, 'downloadSafetyBackup']);
-        Route::post('database-backup/restore', [DatabaseBackupController::class, 'restore'])->middleware('throttle:3,1');
+        Route::post('database-backup/confirm', [DatabaseBackupController::class, 'confirm'])->middleware('throttle:5,1');
+        Route::get('database-backup', [DatabaseBackupController::class, 'download'])->middleware('recent-password');
+        Route::get('database-backup/safety', [DatabaseBackupController::class, 'downloadSafetyBackup'])->middleware('recent-password');
+        Route::post('database-backup/restore', [DatabaseBackupController::class, 'restore'])->middleware(['recent-password', 'throttle:3,1']);
         Route::patch('me', [AuthController::class, 'updateProfile']);
         Route::post('me/avatar', [AuthController::class, 'uploadAvatar']);
         Route::delete('me/avatar', [AuthController::class, 'deleteAvatar']);

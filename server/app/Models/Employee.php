@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['code', 'name', 'department_id', 'position_id', 'level_id', 'work_location_id', 'user_id', 'status', 'started_on', 'ended_on', 'phone', 'email', 'avatar_path', 'base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address'])]
 #[Hidden(['base_salary', 'religion', 'place_of_birth', 'date_of_birth', 'gender', 'marital_status', 'permanent_address', 'current_address'])]
@@ -22,18 +21,7 @@ class Employee extends Model
             return null;
         }
 
-        if (app()->environment('testing')) {
-            return Storage::disk('public')->exists($this->avatar_path)
-                ? url('storage/'.ltrim($this->avatar_path, '/'))
-                : null;
-        }
-
-        $relPath = ltrim($this->avatar_path, '/');
-        if (! is_file(public_path('storage/'.$relPath)) && ! is_file(storage_path('app/public/'.$relPath))) {
-            return null;
-        }
-
-        return url('storage/'.$relPath);
+        return url('/private-media/avatars/employees/'.$this->id);
     }
 
     public function department(): BelongsTo

@@ -56,9 +56,10 @@ class AttendanceController extends Controller
         if ($photo) {
             $photoTimestamp = isset($input['photo_captured_at']) ? CarbonImmutable::parse($input['photo_captured_at']) : null;
             $photoPath = $this->photoService->processAndStore($employee, $photo, $photoTimestamp);
-            if ($photoPath) {
-                $input['photo_path'] = $photoPath;
+            if (! $photoPath) {
+                throw new BusinessRuleException('INVALID_IMAGE', 'Foto harus berupa JPG atau PNG yang dapat dibaca.', 422);
             }
+            $input['photo_path'] = $photoPath;
         }
 
         $device = $this->device($request, $input['device_id']);
@@ -142,9 +143,10 @@ class AttendanceController extends Controller
                 if (! empty($input['photo_base64'])) {
                     $photoTimestamp = isset($input['photo_captured_at']) ? CarbonImmutable::parse($input['photo_captured_at']) : null;
                     $photoPath = $this->photoService->processAndStore($employee, $input['photo_base64'], $photoTimestamp);
-                    if ($photoPath) {
-                        $input['photo_path'] = $photoPath;
+                    if (! $photoPath) {
+                        throw new BusinessRuleException('INVALID_IMAGE', 'Foto harus berupa JPG atau PNG yang dapat dibaca.', 422);
                     }
+                    $input['photo_path'] = $photoPath;
                 }
                 $this->device($request, $input['device_id']);
                 $results[] = $attendance->handle($employee, $input, $device->id, $batch->id)['data'];
@@ -201,8 +203,8 @@ class AttendanceController extends Controller
             'location.longitude' => ['required_with:location', 'numeric', 'between:-180,180'],
             'location.accuracy_meters' => ['nullable', 'numeric', 'min:0', 'max:100000'],
             'location.is_mocked' => ['nullable', 'boolean'],
-            'photo' => ['nullable', 'file', 'image', 'max:5120'],
-            'photo_base64' => ['nullable', 'string'],
+            'photo' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png', 'max:5120'],
+            'photo_base64' => ['nullable', 'string', 'max:6990507'],
         ];
     }
 

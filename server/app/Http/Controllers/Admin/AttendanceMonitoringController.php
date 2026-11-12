@@ -35,7 +35,16 @@ class AttendanceMonitoringController extends Controller
             'source' => $event->source,
             'result' => $event->result,
             'reason_code' => $event->reason_code,
+            'effective_at' => WorkTime::iso($event->effective_at),
+            'device_time' => WorkTime::iso($event->device_time),
+            'device_timezone' => $event->device_timezone,
             'server_received_at' => WorkTime::iso($event->server_received_at),
+            'latitude' => $event->latitude !== null ? (float) $event->latitude : null,
+            'longitude' => $event->longitude !== null ? (float) $event->longitude : null,
+            'accuracy_meters' => $event->accuracy_meters,
+            'distance_meters' => $event->distance_meters,
+            'is_mocked' => (bool) $event->is_mocked,
+            'photo_url' => $event->photo_url,
         ])->values()]);
     }
 

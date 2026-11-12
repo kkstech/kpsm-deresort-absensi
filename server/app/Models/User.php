@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'username', 'phone', 'avatar_path', 'password', 'is_active', 'role'])]
@@ -29,18 +28,7 @@ class User extends Authenticatable
             return null;
         }
 
-        if (app()->environment('testing')) {
-            return Storage::disk('public')->exists($path)
-                ? url('storage/'.ltrim($path, '/'))
-                : null;
-        }
-
-        $relPath = ltrim($path, '/');
-        if (! is_file(public_path('storage/'.$relPath)) && ! is_file(storage_path('app/public/'.$relPath))) {
-            return null;
-        }
-
-        return url('storage/'.$relPath);
+        return url('/private-media/avatars/users/'.$this->id);
     }
 
     public const ROLES = ['super_admin', 'admin', 'employee'];

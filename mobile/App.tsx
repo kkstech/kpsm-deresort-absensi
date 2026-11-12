@@ -2598,11 +2598,16 @@ function Main() {
         body.password = editNewPassword;
         body.password_confirmation = editConfirmPassword;
       }
-      const res = await request<{ message: string; user: Profile }>(baseUrl, 'me', authToken, {
+      const res = await request<{ message: string; password_changed?: boolean; user: Profile }>(baseUrl, 'me', authToken, {
         method: 'PATCH',
         body,
       });
       if (!authToken || sessionTokenRef.current !== authToken) return;
+      if (res.password_changed) {
+        setEditProfileOpen(false);
+        await handleSessionExpired('Kata sandi berhasil diubah. Silakan masuk kembali.', authToken, true);
+        return;
+      }
       const normalized = normalizeProfile(res.user);
       setProfile(normalized);
       await saveUserCache('profile', normalized, userId);
@@ -3314,7 +3319,7 @@ function Main() {
             <TextInput
               value={colleagueQuery}
               onChangeText={searchColleagues}
-              placeholder="Cari nama, jabatan, departemen, atau kode…"
+              placeholder="Cari nama atau jabatan…"
               placeholderTextColor={colors.muted}
               style={[styles.input, { marginTop: 8 }]}
               accessibilityLabel="Cari rekan pengganti"
@@ -3325,7 +3330,7 @@ function Main() {
                 return <Pressable key={col.id} onPress={() => selectColleague(col.id)} style={[styles.employeeChoiceRow, selected && styles.employeeChoiceRowActive]} accessibilityRole="button" accessibilityState={{ selected }}>
                   <View style={styles.employeeChoiceCopy}>
                     <Text style={[styles.choiceChipTitle, selected && styles.employeeChoiceTitleActive]}>{col.name}</Text>
-                    <Text style={styles.choiceChipSub}>{col.position ? `${nameOrString(col.position)} · ${nameOrString(col.department)}` : nameOrString(col.department, col.code)}</Text>
+                    <Text style={styles.choiceChipSub}>{col.position ? `${nameOrString(col.position)} · ${nameOrString(col.department)}` : nameOrString(col.department)}</Text>
                   </View>
                   {selected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
                 </Pressable>;
@@ -4288,7 +4293,10 @@ function Main() {
         <View style={styles.profileCard}>
           <View style={styles.avatarWrapper}>
             {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarLargeImage} />
+              <Image
+                source={{ uri: avatarUri, headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined }}
+                style={styles.avatarLargeImage}
+              />
             ) : (
               <View style={styles.avatarLarge}>
                 <Text style={styles.avatarLargeText}>{(employee?.name ?? profile?.name ?? 'K').split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase()}</Text>

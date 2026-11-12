@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Storage;
 
 #[Fillable(['event_uuid', 'payload_hash', 'employee_id', 'shift_session_id', 'device_registration_id', 'sync_batch_id', 'type', 'source', 'server_received_at', 'device_time', 'device_timezone', 'effective_at', 'latitude', 'longitude', 'accuracy_meters', 'distance_meters', 'photo_path', 'is_mocked', 'local_seq', 'result', 'reason_code'])]
 class AttendanceEvent extends Model
@@ -26,22 +25,11 @@ class AttendanceEvent extends Model
 
     public function getPhotoUrlAttribute(): ?string
     {
-        if (! $this->photo_path) {
+        if (! $this->photo_path || ! $this->exists) {
             return null;
         }
 
-        if (app()->environment('testing')) {
-            return Storage::disk('public')->exists($this->photo_path)
-                ? url('storage/'.ltrim($this->photo_path, '/'))
-                : null;
-        }
-
-        $relPath = ltrim($this->photo_path, '/');
-        if (! is_file(public_path('storage/'.$relPath)) && ! is_file(storage_path('app/public/'.$relPath))) {
-            return null;
-        }
-
-        return url('storage/'.$relPath);
+        return url('/private-media/attendance-events/'.$this->id.'/photo');
     }
 
     protected function casts(): array

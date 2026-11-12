@@ -1643,6 +1643,18 @@ main:focus { outline: none; }
     font-weight: 700;
     white-space: nowrap;
 }
+.attendance-event-details { margin-top: 7px; font-size: 11px; }
+.attendance-event-details summary { color: var(--primary); cursor: pointer; font-weight: 700; }
+.attendance-event-content { display: grid; gap: 8px; min-width: 260px; max-width: 440px; padding: 8px 0 2px; }
+.attendance-event-loading, .attendance-event-error { color: var(--muted); font-size: 11px; }
+.attendance-event-error { color: var(--danger); }
+.attendance-event-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.attendance-event-item { display: grid; gap: 5px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.attendance-event-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.attendance-event-heading > strong { color: var(--ink); }
+.attendance-event-heading .status { font-size: 10px; padding: 1px 5px; }
+.attendance-event-meta { display: grid; gap: 2px; color: var(--muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.attendance-event-reason { margin: 0; color: var(--danger); font-size: 10px; line-height: 1.4; }
 .monitoring-session-name {
     display: block;
     overflow: hidden;

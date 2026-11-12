@@ -268,7 +268,7 @@ class RecordAttendance
             $record->fill($fill);
         } else {
             $afterAuto = $record->provisional_out_at !== null;
-            $recoverAuto = $afterAuto && $this->rulesVersion($session) === 3 && $record->review_reason === 'AUTO_CHECKOUT';
+            $recoverAuto = $afterAuto && $record->review_reason === 'AUTO_CHECKOUT';
             $needsReview = $needsReview || $afterAuto;
             $fill = [
                 'check_out_event_id' => $event->id, 'check_out_at' => $event->effective_at,

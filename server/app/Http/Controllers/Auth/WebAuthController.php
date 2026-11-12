@@ -70,6 +70,7 @@ class WebAuthController extends Controller
         $remember = (bool) ($data['remember'] ?? false);
         Auth::login($user, $remember);
         $request->session()->regenerate();
+        $request->session()->forget(['auth.reauthenticated_at', 'auth.reauthenticated_user_id']);
 
         return redirect()->intended(route('admin.dashboard'));
     }

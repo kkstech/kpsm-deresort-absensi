@@ -10,8 +10,10 @@ use Illuminate\Support\Str;
 
 class AttendancePhotoService
 {
+    public function __construct(private readonly PrivateImageService $images) {}
+
     /**
-     * Process and store an attendance photo (file or base64), apply watermark, and encode to WebP.
+     * Process and store an attendance photo (file or base64), apply watermark, and encode to JPEG.
      */
     public function processAndStore(Employee $employee, UploadedFile|string|null $source, ?CarbonInterface $timestamp = null): ?string
     {
@@ -37,7 +39,9 @@ class AttendancePhotoService
                 return false;
             }
 
-            return file_get_contents($source->getRealPath());
+            $binary = file_get_contents($source->getRealPath());
+
+            return is_string($binary) && strlen($binary) <= 5_242_880 ? $binary : false;
         }
 
         $base64 = $source;
@@ -45,43 +49,44 @@ class AttendancePhotoService
             $base64 = explode(';base64,', $base64)[1];
         }
 
-        return base64_decode($base64, true);
+        if (strlen($base64) > 6_990_507) {
+            return false;
+        }
+
+        $binary = base64_decode($base64, true);
+
+        return is_string($binary) && strlen($binary) <= 5_242_880 ? $binary : false;
     }
 
     /**
-     * Apply watermark, convert to WebP, and store in public storage.
+     * Apply watermark, convert to JPEG, and store in private storage.
      */
     private function optimizeAndStore(Employee $employee, string $binary, ?CarbonInterface $timestamp = null): ?string
     {
-        if (! extension_loaded('gd')) {
-            return $this->fallbackStore($employee, $binary);
+        $image = $this->images->decode($binary);
+        if (! $image) {
+            return null;
         }
 
-        $image = @imagecreatefromstring($binary);
-        if ($image === false) {
-            return $this->fallbackStore($employee, $binary);
+        $image = $this->images->resize($image, 2048);
+        if (! $image) {
+            return null;
         }
 
         // Apply visual watermark
         $this->applyWatermark($image, $employee, $timestamp);
 
-        // Encode to WebP
-        $format = function_exists('imagewebp') ? 'webp' : 'jpg';
-        ob_start();
-        if ($format === 'webp') {
-            imagewebp($image, null, 75);
-        } else {
-            imagejpeg($image, null, 75);
-        }
-        $encodedData = ob_get_clean();
-
-        if (empty($encodedData)) {
-            return $this->fallbackStore($employee, $binary);
+        $encodedData = $this->images->encodeJpeg($image);
+        imagedestroy($image);
+        if ($encodedData === null) {
+            return null;
         }
 
-        $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.'.$format;
+        $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.jpg';
         $photoPath = 'attendance_photos/'.$filename;
-        Storage::disk('public')->put($photoPath, $encodedData);
+        if (! Storage::disk('local')->put($photoPath, $encodedData)) {
+            return null;
+        }
 
         return $photoPath;
     }
@@ -132,17 +137,4 @@ class AttendancePhotoService
             imagestring($image, 4, 14, $h - $barHeight + 8, $empStr, $textColor);
             imagestring($image, 3, 14, $h - $barHeight + 28, $timeStr, $subColor);
         }
-    }
-
-    /**
-     * Fallback to store raw binary as JPG when GD fails.
-     */
-    private function fallbackStore(Employee $employee, string $binary): ?string
-    {
-        $filename = 'att_'.$employee->id.'_'.time().'_'.Str::random(6).'.jpg';
-        $photoPath = 'attendance_photos/'.$filename;
-        Storage::disk('public')->put($photoPath, $binary);
-
-        return $photoPath;
-    }
 }

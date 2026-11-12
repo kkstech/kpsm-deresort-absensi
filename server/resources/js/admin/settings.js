@@ -418,6 +418,7 @@ async function loadDatabaseBackup() {
 }
 
 async function downloadDatabaseBackup(path, filename) {
+    if (!await reauthenticateForSensitiveAction()) return;
     const response = await fetch(`/admin/api/${path}`, {
         credentials: 'same-origin',
         headers: { Accept: 'application/json, application/gzip' },
@@ -441,6 +442,62 @@ async function downloadDatabaseBackup(path, filename) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
+function reauthenticateForSensitiveAction() {
+    return new Promise((resolve) => {
+        const dialog = document.createElement('dialog');
+        const form = document.createElement('form');
+        const title = document.createElement('h2');
+        const label = document.createElement('label');
+        const password = document.createElement('input');
+        const actions = document.createElement('div');
+        const cancel = document.createElement('button');
+        const submit = document.createElement('button');
+
+        form.method = 'dialog';
+        title.textContent = 'Konfirmasi kata sandi';
+        label.textContent = 'Kata sandi Super Admin';
+        password.type = 'password';
+        password.name = 'password';
+        password.autocomplete = 'current-password';
+        password.required = true;
+        cancel.type = 'button';
+        cancel.textContent = 'Batal';
+        submit.type = 'submit';
+        submit.textContent = 'Lanjutkan';
+        actions.append(cancel, submit);
+        label.append(password);
+        form.append(title, label, actions);
+        dialog.append(form);
+        document.body.append(dialog);
+
+        const close = (value) => {
+            dialog.close();
+            dialog.remove();
+            resolve(value);
+        };
+        cancel.addEventListener('click', () => close(null), { once: true });
+        dialog.addEventListener('cancel', (event) => {
+            event.preventDefault();
+            close(null);
+        }, { once: true });
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            submit.disabled = true;
+            try {
+                await api('database-backup/confirm', { method: 'POST', body: { password: password.value } });
+                close(true);
+            } catch (error) {
+                setBackupError(error.message);
+                submit.disabled = false;
+                password.value = '';
+                password.focus();
+            }
+        });
+        dialog.showModal();
+        password.focus();
+    });
 }
 
 function syncSettingsPicker() {
@@ -732,6 +789,8 @@ databaseRestoreForm.addEventListener('submit', async (event) => {
         confirmLabel: 'Mulai restore',
         danger: true,
     })) return;
+
+    if (!await reauthenticateForSensitiveAction()) return;
 
     restoreSubmit.disabled = true;
     setBackupMessage('Restore berjalan. Halaman akan meminta Anda masuk kembali setelah selesai.', true);

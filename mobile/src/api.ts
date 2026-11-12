@@ -167,7 +167,7 @@ export function uuid(): string {
 
 export type Colleague = {
   id: number;
-  code: string;
+  code?: string;
   name: string;
   department?: string | { id?: number; name?: string } | null;
   position?: string | { id?: number; name?: string } | null;

@@ -53,13 +53,17 @@ class UserController extends Controller
         }
 
         $before = $user->attributesToArray();
+        $passwordChanged = ! empty($data['password']);
         $userUpdates = [...$data, 'email' => Str::lower($data['email'])];
         if (! $user->employee) {
             $userUpdates['username'] = Str::lower($data['email']);
         }
         $user->update($userUpdates);
-        if (! $user->is_active) {
+        if (! $user->is_active || $passwordChanged) {
             $user->tokens()->delete();
+        }
+        if ($passwordChanged && $user->is($request->user())) {
+            $request->session()->forget(['auth.reauthenticated_at', 'auth.reauthenticated_user_id']);
         }
         if ($user->employee) {
             $user->employee->update(['email' => $user->email]);

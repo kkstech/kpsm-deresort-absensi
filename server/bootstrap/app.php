@@ -4,7 +4,10 @@ use App\Exceptions\BusinessRuleException;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureAdminAccess;
 use App\Http\Middleware\EnsureRegisteredDevice;
+use App\Http\Middleware\EnsureRecentPasswordConfirmation;
+use App\Http\Middleware\EnsurePrivateMediaAccess;
 use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -38,11 +41,14 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);
+        $middleware->append(SecurityHeaders::class);
         $middleware->trustProxies(at: env('TRUSTED_PROXIES'));
         $middleware->alias([
             'admin' => EnsureAdminAccess::class,
             'active' => EnsureUserIsActive::class,
             'device' => EnsureRegisteredDevice::class,
+            'recent-password' => EnsureRecentPasswordConfirmation::class,
+            'private-media' => EnsurePrivateMediaAccess::class,
         ]);
         $middleware->redirectGuestsTo(fn () => route('login'));
     })

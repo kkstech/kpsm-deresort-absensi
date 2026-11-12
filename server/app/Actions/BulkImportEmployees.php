@@ -88,8 +88,8 @@ class BulkImportEmployees
             'Staff',
             'Resort Utama',
             'aktif',
-            'ya',
-            'password123',
+            'tidak',
+            '',
         ];
 
         $sampleRow2 = [
@@ -113,8 +113,8 @@ class BulkImportEmployees
             'Staff',
             '',
             'aktif',
-            'ya',
-            'password123',
+            'tidak',
+            '',
         ];
 
         $output = fopen('php://temp', 'r+');
@@ -391,11 +391,14 @@ class BulkImportEmployees
             // 12. Make account
             $rawMake = Str::lower(trim((string) ($row['make_account'] ?? '')));
             $makeAccount = in_array($rawMake, ['ya', '1', 'true', 'yes'], true) || (! empty($email) && $rawMake === '');
+            if ($makeAccount && empty($email)) {
+                $errors[] = 'Email wajib diisi untuk membuat akun.';
+            }
 
             // 13. Password
-            $password = trim((string) ($row['password'] ?? '')) ?: 'password123';
-            if ($makeAccount && mb_strlen($password) < 1) {
-                $errors[] = 'Password akun tidak boleh kosong.';
+            $password = trim((string) ($row['password'] ?? ''));
+            if ($makeAccount && mb_strlen($password) < 8) {
+                $errors[] = 'Password akun minimal 8 karakter.';
             }
 
             $isValid = empty($errors);
@@ -449,6 +452,20 @@ class BulkImportEmployees
     public function import(array $rows, ?User $actor = null): array
     {
         $validRows = array_filter($rows, fn ($r) => ! empty($r['_valid']) || ! isset($r['_valid']));
+        $passwordErrors = [];
+        foreach ($validRows as $index => $row) {
+            if (! empty($row['make_account'])) {
+                if (empty($row['email'])) {
+                    $passwordErrors["rows.{$index}.email"] = 'Email wajib diisi untuk membuat akun.';
+                }
+                if (mb_strlen(trim((string) ($row['password'] ?? ''))) < 8) {
+                    $passwordErrors["rows.{$index}.password"] = 'Password akun minimal 8 karakter.';
+                }
+            }
+        }
+        if ($passwordErrors !== []) {
+            throw \Illuminate\Validation\ValidationException::withMessages($passwordErrors);
+        }
 
         return DB::transaction(function () use ($validRows, $actor) {
             $createdEmployees = [];
@@ -513,13 +530,14 @@ class BulkImportEmployees
                         $userId = $existingUser->id;
                         if (! empty($row['password'])) {
                             $existingUser->update(['password' => $row['password']]);
+                            $existingUser->tokens()->delete();
                         }
                     } else {
                         $newUser = User::query()->create([
                             'name' => $row['name'],
                             'email' => $email,
                             'phone' => $phone,
-                            'password' => ! empty($row['password']) ? $row['password'] : 'password123',
+                            'password' => $row['password'],
                             'role' => 'employee',
                         ]);
                         $userId = $newUser->id;

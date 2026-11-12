@@ -19,8 +19,20 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        RateLimiter::for('login', fn (Request $request) => Limit::perMinute(5)
-            ->by(Str::lower((string) $request->input('email')).'|'.$request->ip()));
+        RateLimiter::for('login', function (Request $request): array {
+            $identifier = collect([
+                $request->input('username'),
+                $request->input('email'),
+                $request->input('phone'),
+            ])
+                ->map(fn ($value) => Str::lower(trim((string) $value)))
+                ->first(fn (string $value) => $value !== '') ?? '';
+
+            return [
+                Limit::perMinute(5)->by(hash('sha256', $identifier.'|'.$request->ip())),
+                Limit::perMinute(20)->by('login-ip:'.$request->ip()),
+            ];
+        });
 
         Gate::define('admin', fn (User $user) => $user->isAdmin());
         Gate::define('super-admin', fn (User $user) => $user->isSuperAdmin());

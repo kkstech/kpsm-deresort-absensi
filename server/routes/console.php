@@ -6,23 +6,32 @@ use App\Models\User;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('admin:create {email=admin@deresort.com} {password=Admin123!}', function () {
-    $email = strtolower($this->argument('email'));
-    $password = $this->argument('password');
-    $user = User::updateOrCreate(
-        ['email' => $email],
-        [
-            'name' => 'Administrator',
-            'password' => $password,
-            'role' => 'super_admin',
-            'is_active' => true,
-        ]
-    );
+Artisan::command('admin:create {email} {password}', function () {
+    $data = Validator::make([
+        'email' => $this->argument('email'),
+        'password' => $this->argument('password'),
+    ], [
+        'email' => ['required', 'email', 'max:255'],
+        'password' => ['required', 'string', 'min:8', 'max:255'],
+    ])->validate();
+    $email = Str::lower($data['email']);
+    $user = User::query()->firstOrNew(['email' => $email]);
+    $user->fill([
+        'name' => 'Administrator',
+        'username' => $email,
+        'password' => $data['password'],
+        'role' => 'super_admin',
+        'is_active' => true,
+    ]);
+    $user->save();
+    $user->tokens()->delete();
     $this->info("Super Admin berhasil dibuat/diperbarui: {$user->email}");
 })->purpose('Buat atau perbarui akun Super Admin');
 

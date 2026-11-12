@@ -101,6 +101,33 @@ function reviewReasonLabel(reason) {
     })[reason] ?? (reason || 'Periksa waktu, lokasi, dan bukti absensi.');
 }
 
+function renderAttendanceEvents(events) {
+    if (!events.length) return '<p class="list-empty">Belum ada event yang diterima server untuk sesi ini.</p>';
+
+    return `<ol class="attendance-event-list">${events.map((event) => {
+        const resultClass = event.result === 'REJECTED' ? 'danger' : event.result === 'REVIEW_REQUIRED' ? 'warning' : 'success';
+        const deviceTime = event.device_time
+            ? formatAttendanceDateTime(event.device_time, event.device_timezone || 'Asia/Jakarta')
+            : 'Tidak tersedia';
+        const coordinates = event.latitude != null && event.longitude != null
+            ? `${Number(event.latitude).toFixed(5)}, ${Number(event.longitude).toFixed(5)}`
+            : 'Tidak tersedia';
+        const accuracy = event.accuracy_meters == null ? '' : ` · akurasi ±${esc(event.accuracy_meters)} m`;
+        const distance = event.distance_meters == null ? '' : ` · jarak ${esc(event.distance_meters)} m`;
+        const mockLabel = event.is_mocked ? '<span class="status danger">Mock GPS</span>' : '';
+        const photo = event.photo_url
+            ? `<button type="button" class="photo-badge-btn" data-photo-url="${esc(event.photo_url)}" data-photo-caption="${esc(event.type)} · bukti event" title="Lihat bukti event">${icon('camera', 13)} Foto</button>`
+            : '';
+
+        return `<li class="attendance-event-item">
+            <div class="attendance-event-heading"><strong>${esc(event.type)}</strong><span class="status ${resultClass}">${esc(event.result || 'UNKNOWN')}</span>${mockLabel}</div>
+            <div class="attendance-event-meta"><span>Perangkat: ${esc(deviceTime)}${event.device_timezone ? ` (${esc(event.device_timezone)})` : ''}</span><span>Waktu efektif: ${esc(formatAttendanceDateTime(event.effective_at))} WIB</span><span>Server menerima: ${esc(formatAttendanceDateTime(event.server_received_at))} WIB</span><span>Lokasi: ${esc(coordinates)}${accuracy}${distance}</span><span>Sumber: ${esc(event.source || '—')} · UUID: ${esc(event.event_uuid)}</span></div>
+            ${event.reason_code ? `<p class="attendance-event-reason"><strong>${esc(event.reason_code)}</strong> · ${esc(reviewReasonLabel(event.reason_code))}</p>` : ''}
+            ${photo}
+        </li>`;
+    }).join('')}</ol>`;
+}
+
 function populateFilters({ departments, employees }) {
     [dashboardForm, monitoringForm].forEach((form) => {
         const department = form.elements.department_id;
@@ -409,6 +436,7 @@ function renderMonitoring({ data, meta, summary }) {
                     <b>${formatDate(row.work_date)}</b>
                     <span class="monitoring-session-name" title="${esc(row.shift.name)}">${esc(row.shift.name)}</span>
                     <small>${renderShiftTimingHtml(row.shift)}</small>
+                    ${isAdmin ? `<details class="attendance-event-details" data-attendance-events="${row.id}"><summary>Jejak event</summary><div class="attendance-event-content" aria-live="polite"><span class="attendance-event-loading">Buka untuk memuat jejak event.</span></div></details>` : ''}
                 </td>
                 <td data-label="Karyawan">
                     <div style="display:flex;align-items:center;">
@@ -438,6 +466,31 @@ function renderMonitoring({ data, meta, summary }) {
             </tr>`;
         }).join('')}</tbody></table></div>`;
     }
+
+    container.querySelectorAll('[data-attendance-events]').forEach((details) => {
+        details.addEventListener('toggle', async () => {
+            if (!details.open || details.dataset.loaded || details.dataset.loading) return;
+            details.dataset.loading = 'true';
+            const content = details.querySelector('.attendance-event-content');
+            content.innerHTML = '<span class="attendance-event-loading">Memuat jejak event…</span>';
+            try {
+                const result = await api(`attendance/${details.dataset.attendanceEvents}/events`);
+                content.innerHTML = renderAttendanceEvents(result.data ?? []);
+                details.dataset.loaded = 'true';
+            } catch (failure) {
+                content.innerHTML = `<span class="attendance-event-error">${esc(failure.message)} <button type="button" data-retry-attendance-events>Ulangi</button></span>`;
+            } finally {
+                delete details.dataset.loading;
+            }
+        });
+        details.addEventListener('click', (event) => {
+            if (!event.target.closest('[data-retry-attendance-events]')) return;
+            event.preventDefault();
+            details.dataset.loaded = '';
+            details.open = false;
+            requestAnimationFrame(() => { details.open = true; });
+        });
+    });
 
     const pagination = $('#monitoring-pagination');
     renderPagination(pagination, meta, (newPage) => loadMonitoring(newPage));

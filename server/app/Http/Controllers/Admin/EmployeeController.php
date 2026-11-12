@@ -10,6 +10,7 @@ use App\Models\Employee;
 use App\Models\EmploymentTerm;
 use App\Models\SiteSetting;
 use App\Models\User;
+use App\Services\PrivateImageService;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
@@ -18,7 +19,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -111,15 +111,16 @@ class EmployeeController extends Controller
         $data = $this->validated($request);
         $account = $request->validate([
             'account_email' => ['nullable', 'email', 'max:255'],
-            'account_password' => ['nullable', 'string', 'max:255'],
+            'account_password' => ['nullable', 'string', 'min:8', 'max:255'],
         ]);
 
-        $employee = DB::transaction(function () use ($data, $account, $request) {
+        [$employee, $replacedUserAvatarPath] = DB::transaction(function () use ($data, $account, $request) {
             $accountEmail = ! empty($account['account_email'])
                 ? Str::lower($account['account_email'])
                 : (! empty($data['email']) ? Str::lower($data['email']) : null);
 
             $hasAccountRequest = ! empty($account['account_email']) || ! empty($account['account_password']);
+            $replacedUserAvatarPath = null;
 
             if ($hasAccountRequest) {
                 $targetEmail = $accountEmail ?: Str::lower($data['code']).'@deresort.local';
@@ -137,8 +138,13 @@ class EmployeeController extends Controller
                             'password' => $account['account_password'],
                             'username' => Str::lower($data['code']),
                         ]);
+                        $existingUser->tokens()->delete();
                     } else {
                         $existingUser->update(['username' => Str::lower($data['code'])]);
+                    }
+                    if (array_key_exists('avatar_path', $data)) {
+                        $replacedUserAvatarPath = $existingUser->avatar_path;
+                        $existingUser->update(['avatar_path' => $data['avatar_path']]);
                     }
                     $data['user_id'] = $existingUser->id;
                     $data['email'] = $existingUser->email;
@@ -170,8 +176,12 @@ class EmployeeController extends Controller
             }
             Audit::log('employees.created', $employee);
 
-            return $employee;
+            return [$employee, $replacedUserAvatarPath];
         });
+
+        if ($replacedUserAvatarPath && $replacedUserAvatarPath !== $employee->avatar_path) {
+            app(PrivateImageService::class)->delete($replacedUserAvatarPath);
+        }
 
         $this->enrichRetirementData($employee, WorkTime::today(), SiteSetting::query()->value('retirement_age_years'));
 
@@ -181,6 +191,8 @@ class EmployeeController extends Controller
     public function update(Request $request, Employee $employee): JsonResponse
     {
         Gate::authorize('admin');
+        $oldAvatarPath = $employee->avatar_path;
+        $oldUserAvatarPath = $employee->user?->avatar_path;
         $data = $this->validated($request, $employee);
 
         DB::transaction(function () use ($employee, $data, $request) {
@@ -233,6 +245,13 @@ class EmployeeController extends Controller
             }
             Audit::log('employees.updated', $employee, $before);
         });
+        if (array_key_exists('avatar_path', $data)) {
+            $images = app(PrivateImageService::class);
+            $images->delete($oldAvatarPath);
+            if ($oldUserAvatarPath !== $oldAvatarPath) {
+                $images->delete($oldUserAvatarPath);
+            }
+        }
         app(RefreshOpenPolicySnapshots::class)->forEmployees([$employee->id]);
 
         $updated = $employee->fresh(['department:id,name', 'position:id,name', 'workLocation:id,name', 'level:id,code,name', 'user:id,email,role,is_active']);
@@ -306,8 +325,12 @@ class EmployeeController extends Controller
 
         DB::transaction(function () use ($employee) {
             $before = $employee->attributesToArray();
-            $userId = $employee->user_id;
+            $user = $employee->user;
+            $userId = $user?->id ?? $employee->user_id;
             $employee->update(['user_id' => null]);
+            if ($user) {
+                $this->revokeAll($user);
+            }
 
             Audit::log('employees.user_unlinked', $employee, $before, ['user_id' => $userId]);
         });
@@ -322,7 +345,7 @@ class EmployeeController extends Controller
         $user = $employee->user;
         $data = $request->validate([
             'email' => ['nullable', 'email', 'max:255'],
-            'password' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
         ]);
 
         DB::transaction(function () use ($employee, $user, $data) {
@@ -543,7 +566,7 @@ class EmployeeController extends Controller
             'rows.*.work_location' => ['nullable', 'string'],
             'rows.*.status' => ['required', 'in:active,inactive'],
             'rows.*.make_account' => ['nullable', 'boolean'],
-            'rows.*.password' => ['nullable', 'string'],
+            'rows.*.password' => ['nullable', 'string', 'min:8', 'max:255'],
         ]);
 
         $result = $importer->import($validated['rows'], $request->user());
@@ -612,7 +635,7 @@ class EmployeeController extends Controller
             'marital_status' => ['nullable', Rule::in(['single', 'married', 'divorced', 'widowed'])],
             'permanent_address' => ['nullable', 'string', 'max:2000'],
             'current_address' => ['nullable', 'string', 'max:2000'],
-            'avatar' => ['nullable', 'file', 'image', 'max:5120'],
+            'avatar' => ['nullable', 'file', 'mimetypes:image/jpeg,image/png', 'max:5120'],
             'started_on' => [$employee ? 'nullable' : 'required', 'date_format:Y-m-d'],
         ];
 
@@ -625,13 +648,11 @@ class EmployeeController extends Controller
 
         if ($request->hasFile('avatar')) {
             $file = $request->file('avatar');
-            $ext = $file->getClientOriginalExtension() ?: 'jpg';
-            $filename = 'avatar_'.($employee?->user_id ?? $employee?->id ?? time()).'_'.time().'.'.$ext;
-            $path = $file->storeAs('avatars', $filename, 'public');
-            $validated['avatar_path'] = $path;
-            if ($employee?->avatar_path && Storage::disk('public')->exists($employee->avatar_path)) {
-                Storage::disk('public')->delete($employee->avatar_path);
+            $path = app(PrivateImageService::class)->storeAvatar($file, 'avatars/avatar_'.Str::uuid().'.jpg');
+            if (! $path) {
+                throw new BusinessRuleException('INVALID_IMAGE_TYPE', 'Foto harus berupa JPG atau PNG yang dapat dibaca.', 422);
             }
+            $validated['avatar_path'] = $path;
         }
 
         return $validated;
