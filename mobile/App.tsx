@@ -4294,7 +4294,7 @@ function Main() {
           <View style={styles.avatarWrapper}>
             {avatarUri ? (
               <Image
-                source={{ uri: avatarUri, headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined }}
+                source={{ uri: avatarUri, headers: token ? { Authorization: `Bearer ${token}` } : undefined }}
                 style={styles.avatarLargeImage}
               />
             ) : (
