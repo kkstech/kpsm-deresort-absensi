@@ -9,9 +9,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 
-#[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'overtime_order_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'check_in_photo_path', 'check_out_photo_path', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_overtime_minutes', 'verified_at', 'verified_by'])]
+#[Fillable(['shift_session_id', 'employee_id', 'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'overtime_order_id', 'check_in_at', 'check_out_at', 'provisional_out_at', 'checkout_source', 'auto_checkout_at', 'check_in_photo_path', 'check_out_photo_path', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_overtime_minutes', 'verified_at', 'verified_by'])]
 class AttendanceRecord extends Model
 {
+    public const CHECKOUT_SOURCE_EMPLOYEE = 'EMPLOYEE';
+
+    public const CHECKOUT_SOURCE_SYSTEM_AUTO = 'SYSTEM_AUTO';
+
+    public const CHECKOUT_SOURCE_HR_CORRECTION = 'HR_CORRECTION';
+
     protected $appends = ['check_in_photo_url', 'check_out_photo_url'];
 
     public function session(): BelongsTo
@@ -51,6 +57,18 @@ class AttendanceRecord extends Model
     public function getCheckOutPhotoUrlAttribute(): ?string
     {
         return $this->resolvePhotoUrl($this->check_out_photo_path, 'check-out');
+    }
+
+    public function checkoutSourceLabel(): ?string
+    {
+        $source = $this->checkout_source ?? ($this->provisional_out_at ? self::CHECKOUT_SOURCE_SYSTEM_AUTO : null);
+
+        return match ($source) {
+            self::CHECKOUT_SOURCE_EMPLOYEE => 'Karyawan',
+            self::CHECKOUT_SOURCE_SYSTEM_AUTO => 'Checkout otomatis',
+            self::CHECKOUT_SOURCE_HR_CORRECTION => 'Koreksi HR',
+            default => null,
+        };
     }
 
     /** Menit dibayar = irisan hadir dengan jendela sesi, maksimal panjang sesi dikurangi istirahat. */
@@ -93,6 +111,8 @@ class AttendanceRecord extends Model
             'check_in_at' => WorkTime::iso($this->check_in_at),
             'check_out_at' => WorkTime::iso($this->check_out_at),
             'provisional_out_at' => WorkTime::iso($this->provisional_out_at),
+            'checkout_source' => $this->checkout_source ?? ($this->provisional_out_at ? self::CHECKOUT_SOURCE_SYSTEM_AUTO : null),
+            'auto_checkout_at' => WorkTime::iso($this->auto_checkout_at),
             'check_in_photo_url' => $this->check_in_photo_url,
             'check_out_photo_url' => $this->check_out_photo_url,
             'raw_late_minutes' => $this->raw_late_minutes,
@@ -108,6 +128,7 @@ class AttendanceRecord extends Model
             'check_in_at' => 'immutable_datetime',
             'check_out_at' => 'immutable_datetime',
             'provisional_out_at' => 'immutable_datetime',
+            'auto_checkout_at' => 'immutable_datetime',
             'verified_at' => 'immutable_datetime',
             'needs_review' => 'boolean',
             'is_late' => 'boolean',

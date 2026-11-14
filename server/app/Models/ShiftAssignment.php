@@ -93,6 +93,7 @@ class ShiftAssignment extends Model
                 && $this->sessions->contains(fn (ShiftSession $session) => $session->end_at->gt($now)),
             'attendance_block_message' => $this->employee?->attendanceBlockMessage($this->work_date),
             'sessions' => $this->sessions->map(function (ShiftSession $s) use (&$unrecordedPolicySnapshot) {
+                $rulesVersion = (int) ($s->rules_version ?: $this->rules_version);
                 $snapshot = $s->policy_snapshot;
                 if (! $s->attendanceRecord) {
                     $this->loadMissing('employee.workLocation');
@@ -130,17 +131,22 @@ class ShiftAssignment extends Model
                         'check_in_closes_at' => $checkInEarlyMinutes === 0 ? null : WorkTime::iso($s->end_at),
                         'check_in_unrestricted' => $checkInEarlyMinutes === 0,
                         'max_elapsed_minutes' => match (true) {
-                            (int) $s->rules_version === 3 => null,
-                            (int) $s->rules_version >= 2 => $this->template_type === 'special' ? 24 * 60 : 13 * 60,
+                            $rulesVersion === 3 => null,
+                            $rulesVersion >= 4 => 13 * 60,
+                            $rulesVersion >= 2 => $this->template_type === 'special' ? 24 * 60 : 13 * 60,
                             default => null,
                         },
                         'checkout_grace_minutes' => match (true) {
-                            (int) $s->rules_version === 3 => (int) (SiteSetting::current()->checkout_grace_minutes ?? 60),
-                            (int) $s->rules_version >= 2 && $this->template_type === 'special' => 0,
+                            $rulesVersion >= 3 => (int) (SiteSetting::current()->checkout_grace_minutes ?? 60),
+                            $rulesVersion >= 2 && $this->template_type === 'special' => 0,
                             default => config('attendance.checkout_late_minutes'),
                         },
-                        'effective_work_end_at' => (int) $s->rules_version === 3 ? WorkTime::iso(AttendanceWindow::effectiveWorkEnd($s)) : null,
-                        'checkout_deadline_at' => (int) $s->rules_version === 3 ? WorkTime::iso(AttendanceWindow::checkoutDeadline($s)) : null,
+                        'effective_work_end_at' => $rulesVersion >= 3 ? WorkTime::iso(AttendanceWindow::effectiveWorkEnd($s)) : null,
+                        'checkout_deadline_at' => $rulesVersion === 3
+                            ? WorkTime::iso(AttendanceWindow::checkoutDeadline($s))
+                            : ($rulesVersion >= 4 && $s->attendanceRecord?->check_in_at
+                                ? WorkTime::iso(AttendanceWindow::automaticCheckoutAt($s, $s->attendanceRecord))
+                                : null),
                     ],
                 ];
             })->all(),

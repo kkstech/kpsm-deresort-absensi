@@ -40,12 +40,12 @@ class PublishSchedule
                 'shift_category_id' => $template->shift_category_id,
                 'template_name' => $template->name,
                 'template_type' => $template->type,
-                'rules_version' => 3,
+                'rules_version' => 4,
                 'status' => 'DRAFT',
                 'revision' => 1,
             ])->save();
 
-            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 3, 'schedule_revision' => $assignment->revision], $sessions));
+            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 4, 'schedule_revision' => $assignment->revision], $sessions));
             Audit::log('schedule.created', $assignment, null, $assignment->load('sessions')->toArray());
 
             return $assignment;
@@ -104,6 +104,9 @@ class PublishSchedule
                 if ($retireIds->isNotEmpty()) {
                     $assignment->sessions()->whereIn('id', $retireIds)->update(['retired_at' => $now]);
                 }
+                if ($keptIds !== []) {
+                    $assignment->sessions()->whereIn('id', $keptIds)->update(['rules_version' => 4]);
+                }
                 foreach ($updates as [$session, $endAt]) {
                     $session->update(['end_at' => $endAt]);
                 }
@@ -115,12 +118,12 @@ class PublishSchedule
                 'shift_category_id' => $data['shift_category_id'] ?? $assignment->shift_category_id,
                 'template_name' => $data['name'] ?? 'Shift khusus',
                 'template_type' => count($next) > 1 ? 'special' : 'regular',
-                'rules_version' => 3,
+                'rules_version' => 4,
                 'status' => $assignment->status === 'CANCELLED' ? 'DRAFT' : ($assignment->status ?: 'DRAFT'),
                 'revision' => $revision,
             ])->save();
             if ($create) {
-                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 3, 'schedule_revision' => $revision], $create));
+                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 4, 'schedule_revision' => $revision], $create));
             }
             Audit::log('schedule.custom_updated', $assignment, $before, [
                 'reason' => $reason,
@@ -160,7 +163,8 @@ class PublishSchedule
 
             foreach ($drafts as $assignment) {
                 AttendancePeriod::assertOpen($assignment->work_date);
-                $assignment->update(['status' => 'PUBLISHED', 'published_at' => now()]);
+                $assignment->update(['status' => 'PUBLISHED', 'published_at' => now(), 'rules_version' => 4]);
+                $assignment->sessions()->update(['rules_version' => 4]);
                 Audit::log('schedule.published', $assignment, ['status' => 'DRAFT']);
             }
 

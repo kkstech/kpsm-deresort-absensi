@@ -91,7 +91,7 @@ class ManageOvertime
                         'work_date' => $workDate,
                         'template_name' => 'Lembur Hari Libur',
                         'template_type' => 'special',
-                        'rules_version' => 3,
+                        'rules_version' => 4,
                         'status' => 'PUBLISHED',
                         'published_at' => now(),
                         'created_by' => $actor->id,
@@ -105,7 +105,7 @@ class ManageOvertime
                         'unpaid_break_minutes' => 0,
                         'policy_snapshot' => $policy,
                         'schedule_revision' => 1,
-                        'rules_version' => 3,
+                        'rules_version' => 4,
                     ]);
                 }
 

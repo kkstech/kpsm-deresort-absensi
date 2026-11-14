@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Exceptions\BusinessRuleException;
 use App\Models\AttendanceCorrection;
+use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
 use App\Models\AttendanceRecord;
 use App\Models\Employee;
@@ -11,6 +12,7 @@ use App\Models\LatePermission;
 use App\Models\ShiftSession;
 use App\Models\SiteSetting;
 use App\Models\User;
+use App\Support\AttendanceWindow;
 use App\Support\Audit;
 use App\Support\WorkTime;
 use Carbon\CarbonImmutable;
@@ -279,8 +281,19 @@ class ManageAttendanceWorkflow
             }
 
             $before = $this->recordSnapshot($record);
+            $recordedCheckoutAt = $record->check_out_at ?? $record->provisional_out_at;
+            $checkoutSource = $record->checkout_source
+                ?? ($record->provisional_out_at
+                    ? AttendanceRecord::CHECKOUT_SOURCE_SYSTEM_AUTO
+                    : ($record->check_out_event_id ? AttendanceRecord::CHECKOUT_SOURCE_EMPLOYEE : null));
+            if (! $recordedCheckoutAt?->equalTo($checkOut) || ! $checkoutSource) {
+                $checkoutSource = AttendanceRecord::CHECKOUT_SOURCE_HR_CORRECTION;
+            }
             $record->update([
                 'check_out_at' => $checkOut,
+                'provisional_out_at' => null,
+                'checkout_source' => $checkoutSource,
+                'auto_checkout_at' => $record->auto_checkout_at ?? $record->provisional_out_at,
                 'status' => 'VERIFIED',
                 'needs_review' => false,
                 'review_reason' => null,
@@ -436,6 +449,7 @@ class ManageAttendanceWorkflow
             ? CarbonImmutable::parse($data['requested_check_in_at'])->utc() : $record?->check_in_at;
         $checkOut = array_key_exists('requested_check_out_at', $data) && $data['requested_check_out_at'] !== null
             ? CarbonImmutable::parse($data['requested_check_out_at'])->utc() : $record?->check_out_at;
+        $checkoutWasSetByHr = array_key_exists('requested_check_out_at', $data) && $data['requested_check_out_at'] !== null;
         $this->assertSessionTimes($session, $checkIn, $checkOut);
         if (! $checkIn) {
             throw new BusinessRuleException('CHECK_IN_REQUIRED', 'Koreksi checkout memerlukan waktu check-in.');
@@ -447,9 +461,18 @@ class ManageAttendanceWorkflow
         $permission = LatePermission::query()->where('shift_session_id', $session->id)->where('status', 'APPROVED')
             ->orderByDesc('id')->get()->first(fn (LatePermission $item) => $this->permissionCovers($session, $item, $checkIn));
         $provisionalPending = ! $checkOut && $record->provisional_out_at !== null;
+        $checkoutSource = $checkoutWasSetByHr
+            ? AttendanceRecord::CHECKOUT_SOURCE_HR_CORRECTION
+            : ($record->checkout_source
+                ?? ($record->provisional_out_at
+                    ? AttendanceRecord::CHECKOUT_SOURCE_SYSTEM_AUTO
+                    : ($record->check_out_event_id ? AttendanceRecord::CHECKOUT_SOURCE_EMPLOYEE : null)));
         $record->fill([
             'check_in_at' => $checkIn,
             'check_out_at' => $checkOut,
+            'provisional_out_at' => $checkOut ? null : $record->provisional_out_at,
+            'checkout_source' => $checkoutSource,
+            'auto_checkout_at' => $record->auto_checkout_at ?? $record->provisional_out_at,
             'raw_late_minutes' => $late,
             'is_late' => $late > ($session->policy_snapshot['grace_minutes'] ?? 0),
             'late_permission_id' => $permission?->id,
@@ -472,7 +495,22 @@ class ManageAttendanceWorkflow
         if ($checkIn && $early > 0 && ($checkIn->lt($session->start_at->subMinutes($early)) || $checkIn->gte($session->end_at))) {
             throw new BusinessRuleException('OUTSIDE_WINDOW', 'Waktu check-in berada di luar jendela sesi.', 422);
         }
-        if ($checkOut && (! $checkIn || $checkOut->lte($checkIn) || $checkOut->gt($session->end_at->addMinutes(config('attendance.checkout_late_minutes'))))) {
+        $checkoutLimit = $session->end_at->addMinutes(config('attendance.checkout_late_minutes'));
+        $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+        if ($checkIn && $rulesVersion >= 4) {
+            $record = AttendanceRecord::query()->where('shift_session_id', $session->id)->first();
+            if ($record?->check_in_at) {
+                $checkoutLimit = $checkoutLimit->max(AttendanceWindow::automaticCheckoutAt($session, $record));
+            }
+            if ($record?->check_out_event_id) {
+                $employeeCheckoutAt = AttendanceEvent::query()->whereKey($record->check_out_event_id)->value('effective_at');
+                if ($employeeCheckoutAt) {
+                    $checkoutLimit = $checkoutLimit->max(CarbonImmutable::parse($employeeCheckoutAt, 'UTC'));
+                }
+            }
+        }
+
+        if ($checkOut && (! $checkIn || $checkOut->lte($checkIn) || $checkOut->gt($checkoutLimit))) {
             throw new BusinessRuleException('OUTSIDE_WINDOW', 'Waktu checkout berada di luar jendela sesi.', 422);
         }
     }
@@ -481,8 +519,8 @@ class ManageAttendanceWorkflow
     {
         return $record?->only([
             'check_in_event_id', 'check_out_event_id', 'late_permission_id', 'check_in_at', 'check_out_at',
-            'provisional_out_at', 'status', 'needs_review', 'review_reason', 'raw_late_minutes', 'is_late',
-            'verified_minutes', 'verified_at', 'verified_by',
+            'provisional_out_at', 'checkout_source', 'auto_checkout_at', 'status', 'needs_review', 'review_reason',
+            'raw_late_minutes', 'is_late', 'verified_minutes', 'verified_at', 'verified_by',
         ]);
     }
 

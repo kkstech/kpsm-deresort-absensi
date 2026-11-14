@@ -154,7 +154,7 @@
                 <th>Shift &amp; Sesi</th>
                 <th style="width: 65px;">Jadwal</th>
                 <th style="width: 40px;">Masuk</th>
-                <th style="width: 40px;">Pulang</th>
+                <th style="width: 65px;">Pulang</th>
                 <th style="width: 65px;">Status</th>
                 <th style="width: 45px;">Terlambat</th>
                 <th style="width: 45px;">Jam Valid</th>
@@ -178,7 +178,15 @@
                     <td class="text-left">{{ $sh['name'] }} S{{ $sh['seq'] }}</td>
                     <td class="text-center">{{ $sh['schedule_clock'] }}</td>
                     <td class="text-center">{{ $att['check_in_clock'] }}</td>
-                    <td class="text-center">{{ $att['check_out_clock'] }}</td>
+                    <td class="text-center">
+                        {{ $att['check_out_clock'] }}
+                        @if ($att['checkout_source_label'])
+                            <br><small>{{ $att['checkout_source_label'] }}</small>
+                        @endif
+                        @if ($att['auto_checkout_clock'] !== '-' && $att['checkout_source'] !== 'SYSTEM_AUTO')
+                            <br><small>Checkout otomatis {{ $att['auto_checkout_clock'] }}</small>
+                        @endif
+                    </td>
                     <td class="text-center">{{ $att['state_label'] }}</td>
                     <td class="text-center">
                         @if ($att['is_late'])

@@ -812,6 +812,8 @@ function renderDetailsTable(rows) {
             </td>
             <td data-label="Jam Pulang" class="number-cell" style="text-align: center; white-space: nowrap;">
                 ${att.check_out_clock !== '-' ? `<b>${esc(att.check_out_clock)}</b>` : '<span style="color: var(--muted);">—</span>'}
+                ${att.checkout_source_label ? `<small style="display:block;color:var(--muted);">${esc(att.checkout_source_label)}</small>` : ''}
+                ${att.auto_checkout_clock && att.auto_checkout_clock !== '-' && att.checkout_source !== 'SYSTEM_AUTO' ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${esc(att.auto_checkout_clock)}</small>` : ''}
                 ${att.check_out_latitude != null && att.check_out_longitude != null ? `<small class="gps-coord-meta">${esc(Number(att.check_out_latitude).toFixed(5))}, ${esc(Number(att.check_out_longitude).toFixed(5))}${att.check_out_distance != null ? ` · ${esc(att.check_out_distance)}m` : ''}</small>` : ''}
             </td>
             <td data-label="Status" style="text-align: center;">

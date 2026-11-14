@@ -52,6 +52,11 @@ class RecordAttendance
         $deviceAt = isset($input['device_at']) ? CarbonImmutable::parse($input['device_at'])->utc() : null;
         $effective = $now;
         $record = AttendanceRecord::query()->where('shift_session_id', $session->id)->lockForUpdate()->first();
+        if (! $offline && $input['event_type'] === 'CHECK_OUT' && $record?->check_in_at
+            && ! $record->check_out_at && ! $record->provisional_out_at) {
+            app(AutoCheckoutAttendance::class)->closeIfOverdueBeforeEmployeeCheckout($session, $record, $now);
+            $record->refresh();
+        }
         $distance = null;
         if ($offline) {
             $problem = 'OFFLINE_ATTENDANCE_DISABLED';
@@ -65,7 +70,7 @@ class RecordAttendance
             [$distance, $locationProblem] = $this->checkLocation($session, $input['location'] ?? null);
             $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)
                 ?? $locationProblem;
-            if ($problem === null && $input['event_type'] === 'CHECK_OUT' && $this->rulesVersion($session) === 3
+            if ($problem === null && $input['event_type'] === 'CHECK_OUT' && in_array($this->rulesVersion($session), [3, 4], true)
                 && $effective->gt(AttendanceWindow::effectiveWorkEnd($session)->addMinutes((int) (SiteSetting::current()->checkout_grace_minutes ?? 60)))) {
                 $problem = 'CHECKOUT_LATE';
             }
@@ -134,9 +139,12 @@ class RecordAttendance
         $early = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
         $late = config('attendance.checkout_late_minutes');
         $checkoutDeadline = $session->end_at->addMinutes($late);
+        if ($rulesVersion === 4 && $record?->check_in_at) {
+            $checkoutDeadline = AttendanceWindow::automaticCheckoutAt($session, $record);
+        }
         if ($rulesVersion === 3) {
             $checkoutDeadline = AttendanceWindow::checkoutDeadline($session);
-        } elseif ($rulesVersion >= 2) {
+        } elseif ($rulesVersion >= 2 && $rulesVersion < 3) {
             if ($assignment->template_type === 'regular') {
                 $checkoutDeadline = $record?->check_in_at?->addMinutes(13 * 60);
             } else {
@@ -158,8 +166,11 @@ class RecordAttendance
             $type === 'CHECK_IN' && $early > 0 && ($at->lt($session->start_at->subMinutes($early)) || $at->gte($session->end_at)) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && $record?->check_in_at === null => 'NOT_CHECKED_IN',
             $type === 'CHECK_OUT' && $record?->check_out_at !== null => 'ALREADY_CHECKED_OUT',
+            $type === 'CHECK_OUT' && $at->lte($record->check_in_at) => 'OUTSIDE_WINDOW',
+            $type === 'CHECK_OUT' && ($record->provisional_out_at !== null || $record->auto_checkout_at !== null) => 'CHECKOUT_LATE',
+            $type === 'CHECK_OUT' && $rulesVersion === 4 && $checkoutDeadline && $at->gt($checkoutDeadline) => 'CHECKOUT_LATE',
             $type === 'CHECK_OUT' && $at->lt($session->end_at) && ! $this->hasApprovedEarlyDeparture($session, $at) => $this->earlyCheckoutProblem($session, $at),
-            $type === 'CHECK_OUT' && ($at->lte($record->check_in_at) || ($checkoutDeadline && ($rulesVersion === 3 ? $at->gte($checkoutDeadline) : $at->gt($checkoutDeadline)))) => 'OUTSIDE_WINDOW',
+            $type === 'CHECK_OUT' && ($checkoutDeadline && ($rulesVersion === 3 ? $at->gte($checkoutDeadline) : $at->gt($checkoutDeadline))) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && $rulesVersion >= 2 && $rulesVersion < 3 && $assignment->template_type === 'regular'
                 && $at->gte($record->check_in_at->addMinutes(13 * 60)) => 'AUTO_CHECKOUT_DUE',
             default => null,
@@ -267,23 +278,28 @@ class RecordAttendance
             }
             $record->fill($fill);
         } else {
-            $afterAuto = $record->provisional_out_at !== null;
-            $recoverAuto = $afterAuto && $record->review_reason === 'AUTO_CHECKOUT';
+            $afterAuto = $record->provisional_out_at !== null || $record->auto_checkout_at !== null;
+            $recoverAuto = $afterAuto && ($record->review_reason === 'AUTO_CHECKOUT'
+                || $record->checkout_source === AttendanceRecord::CHECKOUT_SOURCE_SYSTEM_AUTO);
             $needsReview = $needsReview || $afterAuto;
             $fill = [
                 'check_out_event_id' => $event->id, 'check_out_at' => $event->effective_at,
+                'checkout_source' => AttendanceRecord::CHECKOUT_SOURCE_EMPLOYEE,
                 'status' => $afterAuto ? 'PROVISIONAL' : 'COMPLETE',
                 'verified_minutes' => $needsReview ? 0 : AttendanceRecord::paidMinutes($session, $record->check_in_at, $event->effective_at),
             ];
+            if ($afterAuto) {
+                $fill['provisional_out_at'] = null;
+                if (! $record->auto_checkout_at && $record->provisional_out_at) {
+                    $fill['auto_checkout_at'] = $record->provisional_out_at;
+                }
+            }
             if ($event->photo_path) {
                 $fill['check_out_photo_path'] = $event->photo_path;
             }
             $record->fill($fill);
-            if ($recoverAuto) {
-                $record->provisional_out_at = null;
-                $record->review_reason = 'CHECKOUT_LATE';
-            } elseif ($afterAuto) {
-                $record->review_reason = 'CHECKOUT_AFTER_AUTO';
+            if ($afterAuto) {
+                $record->review_reason = $recoverAuto ? 'CHECKOUT_LATE' : 'CHECKOUT_AFTER_AUTO';
             }
         }
         if ($review && ! $record->review_reason) {

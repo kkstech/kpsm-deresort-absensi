@@ -194,6 +194,7 @@ class DemoDataSeeder extends Seeder
                 'shift_template_id' => $template->id,
                 'template_name' => "Demo · {$template->name}",
                 'template_type' => $template->type,
+                'rules_version' => 4,
                 'status' => 'PUBLISHED',
                 'revision' => 1,
                 'published_at' => now(),
@@ -205,6 +206,8 @@ class DemoDataSeeder extends Seeder
                 'end_at' => WorkTime::at($date, substr($source->local_end, 0, 5), $source->day_offset),
                 'unpaid_break_minutes' => $source->unpaid_break_minutes,
                 'policy_snapshot' => $policy,
+                'schedule_revision' => 1,
+                'rules_version' => 4,
             ]);
             Audit::log('schedule.created', $assignment, null, $assignment->load('sessions')->toArray());
 

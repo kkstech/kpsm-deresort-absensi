@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\AttendanceRecord;
 use App\Models\ShiftSession;
 use App\Models\SiteSetting;
 use Carbon\CarbonImmutable;
@@ -19,6 +20,29 @@ class AttendanceWindow
         }
 
         return CarbonImmutable::createFromTimestamp($approvedOvertimeEnd, 'UTC');
+    }
+
+    public static function automaticCheckoutAt(ShiftSession $session, AttendanceRecord $record): CarbonImmutable
+    {
+        $cycleStart = $record->check_in_at;
+        if ($session->assignment->template_type === 'special') {
+            $cycleStart = $session->assignment->sessions()->with('attendanceRecord')->get()
+                ->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
+                ->filter()
+                ->sortBy(fn (CarbonImmutable $checkIn) => $checkIn->getTimestamp())
+                ->first() ?? $record->check_in_at;
+        }
+
+        $deadline = $cycleStart->addHours(13);
+        $approvedOvertimeEnd = $session->overtimeOrders
+            ->filter(fn ($order) => $order->status === 'APPROVED' && $order->consent_status === 'ACCEPTED')
+            ->max(fn ($order) => $order->end_at->getTimestamp());
+
+        if ($approvedOvertimeEnd !== null) {
+            $deadline = $deadline->max(CarbonImmutable::createFromTimestamp($approvedOvertimeEnd, 'UTC'));
+        }
+
+        return $deadline;
     }
 
     public static function checkoutDeadline(ShiftSession $session): CarbonImmutable

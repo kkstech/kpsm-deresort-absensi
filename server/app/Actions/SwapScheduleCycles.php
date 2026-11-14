@@ -80,7 +80,7 @@ class SwapScheduleCycles
                 $oldSessions = $assignment->sessions->values();
                 $revision = $assignment->revision + 1;
                 $assignment->sessions()->update(['retired_at' => WorkTime::now()]);
-                $assignment->update(['employee_id' => $target->id, 'work_date' => $workDate, 'revision' => $revision]);
+                $assignment->update(['employee_id' => $target->id, 'work_date' => $workDate, 'revision' => $revision, 'rules_version' => 4]);
                 $policy = AttendancePolicy::resolveFor($target, $workDate);
                 foreach ($oldSessions as $old) {
                     $location = $old->policy_snapshot['location'] ?? null;
@@ -102,7 +102,7 @@ class SwapScheduleCycles
                         'seq' => $old->seq, 'schedule_revision' => $revision,
                         'start_at' => $old->start_at, 'end_at' => $old->end_at,
                         'unpaid_break_minutes' => $old->unpaid_break_minutes,
-                        'rules_version' => 3,
+                        'rules_version' => 4,
                         'policy_snapshot' => $snapshot,
                     ]);
                 }

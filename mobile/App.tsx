@@ -55,7 +55,7 @@ type Session = {
   approved_permissions?: ApprovedPermission[];
   attendance_window?: { check_in_opens_at: string | null; check_in_closes_at: string | null; check_in_unrestricted?: boolean; max_elapsed_minutes: number | null; effective_work_end_at?: string | null; checkout_deadline_at?: string | null };
   attendance_policy?: { location_required: boolean; max_accuracy_meters: number | null; late_permission_proof_required: boolean; correction_proof_required: boolean };
-  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; review_reason?: string | null; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
+  attendance?: { check_in_at?: string; check_out_at?: string; provisional_out_at?: string; checkout_source?: string | null; auto_checkout_at?: string | null; review_reason?: string | null; verified_minutes: number; verified_overtime_minutes?: number; status: string; needs_review: boolean } | null;
   overtime?: OvertimeItem | null;
 };
 type Assignment = { id: number; employee_id?: number; employee_name?: string; work_date: string; template_name: string; status: string; revision?: number; scheduled_minutes: number; attendance_block_message?: string | null; sessions: Session[] };
@@ -378,8 +378,7 @@ function permissionHistoryTitle(type?: WorkRequest['permission_type']): string {
 
 function canResumeAutoCheckout(session: Session): boolean {
   const record = session.attendance;
-  const deadline = session.attendance_window?.checkout_deadline_at;
-  return Boolean(record?.provisional_out_at && record.review_reason === 'AUTO_CHECKOUT' && deadline && Date.now() < new Date(deadline).getTime());
+  return Boolean(record?.provisional_out_at && record.review_reason === 'AUTO_CHECKOUT');
 }
 
 function attendanceOutboxMessage(row: OutboxRow): string {
@@ -2787,7 +2786,20 @@ function Main() {
       timingNotice = 'Koneksi internet diperlukan untuk melakukan presensi.';
     }
 
-    const label = record?.provisional_out_at ? `Checkout otomatis ${clock(record.provisional_out_at)} · menunggu tinjauan` : record?.check_out_at ? `Keluar ${clock(record.check_out_at)}` : record?.check_in_at ? `Masuk ${clock(record.check_in_at)}` : 'Belum absen';
+    const autoCheckoutAt = record?.auto_checkout_at ?? record?.provisional_out_at;
+    const isSystemCheckout = record?.checkout_source === 'SYSTEM_AUTO' || (!record?.checkout_source && record?.provisional_out_at);
+    const autoCheckoutHistory = autoCheckoutAt && !isSystemCheckout
+      ? `Checkout otomatis sebelumnya ${clock(autoCheckoutAt)}`
+      : null;
+    const checkoutLabel = record?.checkout_source === 'HR_CORRECTION' ? 'Koreksi HR' : 'Keluar';
+    const label = isSystemCheckout && autoCheckoutAt
+      ? `Checkout otomatis ${clock(autoCheckoutAt)}${record?.needs_review ? ' · menunggu tinjauan' : ''}`
+      : record?.check_out_at
+        ? `${checkoutLabel} ${clock(record.check_out_at)}${autoCheckoutHistory ? ` · ${autoCheckoutHistory}` : ''}${record.needs_review ? ' · menunggu tinjauan' : ''}`
+        : record?.check_in_at
+          ? `Masuk ${clock(record.check_in_at)}`
+          : 'Belum absen';
+    const reviewSuffix = record?.needs_review && !label.includes('menunggu tinjauan') ? ' · perlu verifikasi' : '';
     const pillTone = record?.needs_review ? 'warning' : record?.check_out_at ? 'success' : record?.check_in_at ? 'blue' : (!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn ? 'warning' : 'neutral');
     const pillLabel = record?.needs_review ? 'Tinjauan' : record?.check_out_at ? 'Selesai' : record?.check_in_at ? 'Berjalan' : (!unrestrictedCheckIn && now >= closesAt && !hasCheckedIn ? 'Terlewat' : 'Terjadwal');
 
@@ -2796,7 +2808,7 @@ function Main() {
         <View style={styles.sessionTop}>
           <View style={styles.flex}>
             <Text style={styles.sessionTitle}>Sesi {session.seq} · {renderSessionTitleClock(session)}</Text>
-            <Text style={styles.mutedCopy}>{label}{record?.needs_review ? ' · perlu verifikasi' : ''}</Text>
+            <Text style={styles.mutedCopy}>{label}{reviewSuffix}</Text>
           </View>
           <Pill tone={pillTone}>{pillLabel}</Pill>
         </View>

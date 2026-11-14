@@ -160,10 +160,15 @@ function renderRecent(rows, meta) {
     } else {
         container.innerHTML = `<div class="table-scroll"><table class="data-table attendance-data-table"><thead><tr><th scope="col">Karyawan</th><th scope="col">Sesi</th><th scope="col">Masuk</th><th scope="col">Pulang</th><th scope="col">Status</th></tr></thead><tbody>${rows.map((row) => {
             const status = stateLabel(row);
-            const checkout = row.attendance.check_out_at ?? row.attendance.provisional_out_at;
-            const inGps = renderGpsMeta(row.attendance.check_in_latitude, row.attendance.check_in_longitude, row.attendance.check_in_distance, row.attendance.check_in_accuracy);
-            const outGps = renderGpsMeta(row.attendance.check_out_latitude, row.attendance.check_out_longitude, row.attendance.check_out_distance, row.attendance.check_out_accuracy);
-            return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(row.attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${row.attendance.provisional_out_at && !row.attendance.check_out_at ? ' · provisional' : ''}` : '—'}${outGps}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
+            const attendance = row.attendance;
+            const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
+            const checkoutLabel = attendance.checkout_source_label ?? (attendance.provisional_out_at && !attendance.check_out_at ? 'Checkout otomatis' : null);
+            const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
+                ? `<small>Checkout otomatis ${formatClock(attendance.auto_checkout_at)}</small>`
+                : '';
+            const inGps = renderGpsMeta(attendance.check_in_latitude, attendance.check_in_longitude, attendance.check_in_distance, attendance.check_in_accuracy);
+            const outGps = renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy);
+            return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${checkoutLabel ? `<small>${esc(checkoutLabel)}</small>` : ''}${autoCheckoutNote}${outGps}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
         }).join('')}</tbody></table></div>`;
     }
     renderPagination($('#dashboard-activity-pagination'), meta, (page) => loadDashboard(filterValues(dashboardForm), page));
@@ -412,6 +417,11 @@ function renderMonitoring({ data, meta, summary }) {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
+            const checkoutLabel = attendance.checkout_source_label ?? (attendance.provisional_out_at && !attendance.check_out_at ? 'Checkout otomatis' : null);
+            const checkoutLabelTone = attendance.checkout_source === 'SYSTEM_AUTO' || (!attendance.checkout_source && attendance.provisional_out_at) ? 'warning' : 'neutral';
+            const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
+                ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${formatClock(attendance.auto_checkout_at)}</small>`
+                : '';
             const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
@@ -454,10 +464,11 @@ function renderMonitoring({ data, meta, summary }) {
                     </div>
                 </td>
                 <td data-label="Pulang">
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${attendance.provisional_out_at && !attendance.check_out_at ? ' <span class="status warning" style="font-size:10px;padding:1px 5px;margin-left:4px;">Provisional</span>' : ''}` : '<span style="color:var(--muted);">—</span>'}
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${checkoutLabel ? ` <span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;margin-left:4px;">${esc(checkoutLabel)}</span>` : ''}` : '<span style="color:var(--muted);">—</span>'}
                         ${checkOutPhotoBtn}
                     </div>
+                    ${autoCheckoutNote}
                 </td>
                 <td data-label="Status" class="monitoring-status-col"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>

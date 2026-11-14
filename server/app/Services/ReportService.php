@@ -634,7 +634,10 @@ class ReportService
         $checkInClock = $record?->check_in_at ? WorkTime::clock($record->check_in_at, $assignment->work_date) : '-';
         $checkOutClock = $record?->check_out_at
             ? WorkTime::clock($record->check_out_at, $assignment->work_date)
-            : ($record?->provisional_out_at ? WorkTime::clock($record->provisional_out_at, $assignment->work_date).' (Provisional)' : '-');
+            : ($record?->provisional_out_at ? WorkTime::clock($record->provisional_out_at, $assignment->work_date) : '-');
+        $autoCheckoutClock = $record?->auto_checkout_at
+            ? WorkTime::clock($record->auto_checkout_at, $assignment->work_date)
+            : '-';
 
         $scheduleClock = WorkTime::clock($session->start_at, $assignment->work_date).' - '.WorkTime::clock($session->end_at, $assignment->work_date);
         $checkInEvent = ($record?->check_in_event_id ? $events->firstWhere('id', $record->check_in_event_id) : null)
@@ -664,6 +667,9 @@ class ReportService
                 'state_label' => $stateLabel,
                 'check_in_clock' => $checkInClock,
                 'check_out_clock' => $checkOutClock,
+                'checkout_source' => $record?->checkout_source ?? ($record?->provisional_out_at ? 'SYSTEM_AUTO' : null),
+                'checkout_source_label' => $record?->checkoutSourceLabel(),
+                'auto_checkout_clock' => $autoCheckoutClock,
                 'check_in_photo_url' => $record?->check_in_photo_url,
                 'check_out_photo_url' => $record?->check_out_photo_url,
                 'check_in_latitude' => $checkInEvent?->latitude !== null ? (float) $checkInEvent->latitude : null,

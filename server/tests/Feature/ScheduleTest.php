@@ -61,7 +61,7 @@ class ScheduleTest extends TestCase
                 ['seq' => 2, 'start_date' => '2026-10-26', 'start_time' => '04:00', 'end_date' => '2026-10-26', 'end_time' => '08:00'],
             ],
         ])->assertCreated()
-            ->assertJsonPath('data.rules_version', 3)
+            ->assertJsonPath('data.rules_version', 4)
             ->assertJsonPath('data.template_type', 'special')
             ->assertJsonPath('data.sessions.0.local_end', '02.00 (+1)')
             ->assertJsonPath('data.scheduled_minutes', 480);
@@ -221,7 +221,7 @@ class ScheduleTest extends TestCase
         }
         $this->assertDatabaseHas('shift_sessions', [
             'shift_assignment_id' => $first['id'],
-            'rules_version' => 3,
+            'rules_version' => 4,
             'retired_at' => null,
         ]);
         $this->assertDatabaseHas('audit_logs', ['action' => 'schedule.swap_chain_completed']);

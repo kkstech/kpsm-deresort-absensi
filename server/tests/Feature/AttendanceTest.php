@@ -216,7 +216,7 @@ class AttendanceTest extends TestCase
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertNull($record->check_out_at);
-        $this->assertSame('2026-10-25 10:00:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-25 14:10:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
         $this->assertSame(0, $record->verified_minutes);
         $this->assertTrue($record->needs_review);
         $this->assertSame('AUTO_CHECKOUT', $record->review_reason);
@@ -245,8 +245,6 @@ class AttendanceTest extends TestCase
         $this->travelTo('2026-10-25 00:00:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a4444444-4444-4444-8444-444444444444'), $this->device->id);
         $this->travelTo('2026-10-25 16:00:00');
-        $lateOldCheckout = app(RecordAttendance::class)->handle($this->employee, $this->event('a6666666-6666-4666-8666-666666666666', ['event_type' => 'CHECK_OUT']), $this->device->id);
-        $this->assertSame('OUTSIDE_WINDOW', $lateOldCheckout['data']['reason_code']);
         $result = app(RecordAttendance::class)->handle($this->employee, $this->event('a5555555-5555-4555-8555-555555555555', [
             'shift_session_id' => $thirdSession->id,
         ]), $this->device->id);
@@ -254,7 +252,7 @@ class AttendanceTest extends TestCase
         $this->assertSame('ACCEPTED', $result['data']['status']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
-            'provisional_out_at' => '2026-10-25 08:00:00',
+            'provisional_out_at' => '2026-10-25 13:00:00',
         ]);
         $this->assertSame(0, AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->value('verified_minutes'));
         $this->assertNotNull(AttendanceRecord::query()->where('shift_session_id', $thirdSession->id)->value('check_in_at'));
@@ -278,11 +276,40 @@ class AttendanceTest extends TestCase
         $this->assertSame('OFFLINE_ATTENDANCE_DISABLED', $result['data']['reason_code']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
-            'provisional_out_at' => '2026-10-25 10:00:00',
+            'provisional_out_at' => '2026-10-25 14:10:00',
             'check_out_at' => null,
             'verified_minutes' => 0,
             'needs_review' => 1,
             'review_reason' => 'AUTO_CHECKOUT',
+        ]);
+    }
+
+    public function test_next_shift_checkin_is_not_blocked_by_an_open_record_in_a_finalized_period(): void
+    {
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('a7777777-7777-4777-8777-777777777777'), $this->device->id);
+        AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED']);
+
+        $template = ShiftTemplate::query()->with('sessions')->where('name', 'Reguler')->firstOrFail();
+        $admin = User::factory()->role('admin')->create();
+        $assignment = app(PublishSchedule::class)->upsert($this->employee, '2026-11-01', $template, $admin);
+        app(PublishSchedule::class)->publish('2026-11-01', '2026-11-01', [$this->employee->id]);
+        $nextSession = $assignment->sessions()->firstOrFail();
+
+        $this->travelTo('2026-11-01 01:10:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('a8888888-8888-4888-8888-888888888888', [
+            'shift_session_id' => $nextSession->id,
+        ]), $this->device->id);
+
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', [
+            'shift_session_id' => $this->sessionId,
+            'check_out_at' => null,
+            'provisional_out_at' => null,
+        ]);
+        $this->assertDatabaseHas('attendance_records', [
+            'shift_session_id' => $nextSession->id,
+            'check_in_at' => '2026-11-01 01:10:00',
         ]);
     }
 

@@ -427,7 +427,7 @@ class OvertimeTest extends TestCase
             'device_id' => $this->device->device_uuid,
         ])->assertCreated();
 
-        $this->travelTo($overtimeEnd->addMinutes(58));
+        $this->travelTo($overtimeEnd);
         $this->withToken($this->token)->postJson('/api/v1/attendance/events', [
             'event_uuid' => (string) Str::uuid(),
             'shift_session_id' => $session->id,
@@ -437,7 +437,7 @@ class OvertimeTest extends TestCase
 
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $session->id,
-            'check_out_at' => $overtimeEnd->addMinutes(58)->format('Y-m-d H:i:s'),
+            'check_out_at' => $overtimeEnd->format('Y-m-d H:i:s'),
             'verified_overtime_minutes' => 360,
         ]);
     }

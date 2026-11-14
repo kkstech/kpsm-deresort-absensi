@@ -48,7 +48,9 @@ class AutoCheckoutAttendance
                 }
 
                 [$closeAt, $deadline] = $this->closeAt($session, $record);
-                if ($deadline === null || ((int) ($session->rules_version ?: $session->assignment->rules_version) === 3 ? $deadline->gt($now) : $deadline->gte($now))) {
+                $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+                $notDue = $rulesVersion >= 4 ? $deadline?->gte($now) : ($rulesVersion === 3 ? $deadline?->gt($now) : $deadline?->gte($now));
+                if ($deadline === null || $notDue) {
                     return 0;
                 }
 
@@ -58,17 +60,7 @@ class AutoCheckoutAttendance
                     return 0;
                 }
 
-                $record->update([
-                    'provisional_out_at' => $closeAt,
-                    'status' => 'PROVISIONAL',
-                    'needs_review' => true,
-                    'review_reason' => 'AUTO_CHECKOUT',
-                    'verified_minutes' => 0,
-                ]);
-                AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.auto_checkout');
-                $session->assignment->syncAttendanceStatus();
-                app(CalculateCycleAllowance::class)->refresh($session->assignment);
-                Audit::log('attendance.auto_checkout', $record);
+                $this->markAutomaticCheckout($session, $record, $closeAt);
 
                 return 1;
             });
@@ -111,13 +103,20 @@ class AutoCheckoutAttendance
                 continue;
             }
             $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
-            $effectiveEnd = $rulesVersion === 3 ? AttendanceWindow::effectiveWorkEnd($session) : $session->end_at;
+            $effectiveEnd = $rulesVersion >= 3 ? AttendanceWindow::effectiveWorkEnd($session) : $session->end_at;
+            if ($rulesVersion >= 4) {
+                $effectiveEnd = $effectiveEnd->min(AttendanceWindow::automaticCheckoutAt($session, $record));
+            }
             if ($effectiveEnd->gt($receivedAt)) {
                 return 'OPEN_SESSION_EXISTS';
             }
             try {
                 AttendancePeriod::assertOpen($session->assignment->work_date);
-            } catch (BusinessRuleException) {
+            } catch (BusinessRuleException $exception) {
+                if ($exception->errorCode === 'PERIOD_LOCKED') {
+                    continue;
+                }
+
                 return 'PREVIOUS_PERIOD_LOCKED';
             }
 
@@ -126,26 +125,47 @@ class AutoCheckoutAttendance
             if (! $session || ! $record || $record->check_out_at || $record->provisional_out_at) {
                 continue;
             }
-            $record->update([
-                'provisional_out_at' => $effectiveEnd,
-                'status' => 'PROVISIONAL',
-                'needs_review' => true,
-                'review_reason' => 'AUTO_CHECKOUT',
-                'verified_minutes' => 0,
-            ]);
-            AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.auto_checkout');
-            $session->assignment->syncAttendanceStatus();
-            app(CalculateCycleAllowance::class)->refresh($session->assignment);
-            Audit::log('attendance.auto_checkout', $record);
+            $closeAt = $rulesVersion >= 4
+                ? AttendanceWindow::automaticCheckoutAt($session, $record)->min($receivedAt)
+                : $effectiveEnd;
+            $this->markAutomaticCheckout($session, $record, $closeAt);
         }
 
         return null;
+    }
+
+    public function closeIfOverdueBeforeEmployeeCheckout(ShiftSession $session, AttendanceRecord $record, CarbonImmutable $receivedAt): void
+    {
+        $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+        if ($rulesVersion < 4 || $record->check_in_at === null || $record->check_out_at !== null || $record->provisional_out_at !== null
+            || ! in_array($session->assignment->status, ['PUBLISHED', 'IN_PROGRESS'], true)) {
+            return;
+        }
+
+        $deadline = AttendanceWindow::automaticCheckoutAt($session, $record);
+        if ($deadline->gte($receivedAt)) {
+            return;
+        }
+
+        try {
+            AttendancePeriod::assertOpen($session->assignment->work_date);
+        } catch (BusinessRuleException) {
+            return;
+        }
+
+        $this->markAutomaticCheckout($session, $record, $deadline);
     }
 
     /** @return array{0: CarbonImmutable, 1: CarbonImmutable} */
     private function closeAt(ShiftSession $session, AttendanceRecord $record): array
     {
         $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
+        if ($rulesVersion === 4) {
+            $deadline = AttendanceWindow::automaticCheckoutAt($session, $record);
+
+            return [$deadline, $deadline];
+        }
+
         if ($rulesVersion === 3) {
             $workEnd = AttendanceWindow::effectiveWorkEnd($session);
 
@@ -171,5 +191,22 @@ class AutoCheckoutAttendance
         $deadline = $session->end_at->lt($cycleDeadline) ? $session->end_at : $cycleDeadline;
 
         return [$deadline, $deadline];
+    }
+
+    private function markAutomaticCheckout(ShiftSession $session, AttendanceRecord $record, CarbonImmutable $closeAt): void
+    {
+        $record->update([
+            'provisional_out_at' => $closeAt,
+            'checkout_source' => AttendanceRecord::CHECKOUT_SOURCE_SYSTEM_AUTO,
+            'auto_checkout_at' => $record->auto_checkout_at ?? $closeAt,
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+            'review_reason' => 'AUTO_CHECKOUT',
+            'verified_minutes' => 0,
+        ]);
+        AttendancePeriod::invalidateFinalization($session->assignment->work_date, 'attendance.auto_checkout');
+        $session->assignment->syncAttendanceStatus();
+        app(CalculateCycleAllowance::class)->refresh($session->assignment);
+        Audit::log('attendance.auto_checkout', $record);
     }
 }
