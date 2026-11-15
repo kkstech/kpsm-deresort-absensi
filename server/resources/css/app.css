@@ -1665,6 +1665,8 @@ main:focus { outline: none; }
     color: var(--ink);
 }
 .data-table td small { line-height: 1.45; }
+.session-range { display: block; margin-top: 2px; color: var(--ink); font-size: 11px; font-weight: 600; line-height: 1.4; white-space: normal; }
+.session-overnight-pill { margin-left: 4px; font-size: 10px; padding: 1px 5px; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; }
 .number-cell { font-variant-numeric: tabular-nums; text-align: right; }
 .table-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 12px 20px 16px; color: var(--muted); font-size: 12px; }
 .table-pagination:empty { display: none; }

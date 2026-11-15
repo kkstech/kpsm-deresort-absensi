@@ -13,6 +13,26 @@ let monitoringRows = new Map();
 const formatClock = (value) => value ? new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value)) : '—';
 const formatDate = (value) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T00:00:00+07:00`));
 const formatMinutes = (minutes) => `${Math.floor(minutes / 60)}j ${minutes % 60}m`;
+const localDateKey = (value) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : null;
+const formatShortDate = (value) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'short' }).format(new Date(value));
+const formatDayDate = (value) => new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Jakarta', weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(value)).replace(',', '');
+
+/** Jam lokal; ditambah tanggal bila jatuh di hari kalender lain dari tanggal kerja, mis. "03.34 · 14 Nov". */
+function formatClockOnWorkDate(value, workDate) {
+    if (!value) return '—';
+    const clock = formatClock(value);
+    return workDate && localDateKey(value) !== workDate ? `${clock} · ${formatShortDate(value)}` : clock;
+}
+
+function crossesMidnight(shift) {
+    return Boolean(shift?.start_at && shift?.end_at && localDateKey(shift.start_at) !== localDateKey(shift.end_at));
+}
+
+/** Rentang sesi lengkap untuk shift lintas tengah malam, mis. "Jum 13 Nov 18.00 – Sab 14 Nov 02.00". */
+function formatSessionRange(shift) {
+    if (!crossesMidnight(shift)) return null;
+    return `${formatDayDate(shift.start_at)} ${formatClock(shift.start_at)} – ${formatDayDate(shift.end_at)} ${formatClock(shift.end_at)}`;
+}
 
 function formatAttendanceDateTime(value, timeZone = 'Asia/Jakarta') {
     if (!value) return '—';
@@ -164,11 +184,12 @@ function renderRecent(rows, meta) {
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
             const checkoutLabel = attendance.checkout_source_label ?? (attendance.provisional_out_at && !attendance.check_out_at ? 'Checkout otomatis' : null);
             const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
-                ? `<small>Checkout otomatis ${formatClock(attendance.auto_checkout_at)}</small>`
+                ? `<small>Checkout otomatis ${formatClockOnWorkDate(attendance.auto_checkout_at, row.work_date)}</small>`
                 : '';
             const inGps = renderGpsMeta(attendance.check_in_latitude, attendance.check_in_longitude, attendance.check_in_distance, attendance.check_in_accuracy);
             const outGps = renderGpsMeta(attendance.check_out_latitude, attendance.check_out_longitude, attendance.check_out_distance, attendance.check_out_accuracy);
-            return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}</td><td data-label="Masuk">${formatClock(attendance.check_in_at)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClock(checkout)}${checkoutLabel ? `<small>${esc(checkoutLabel)}</small>` : ''}${autoCheckoutNote}${outGps}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
+            const sessionRange = formatSessionRange(row.shift);
+            return `<tr><td data-label="Karyawan"><b>${esc(row.employee.name)}</b><small>${esc(row.employee.department ?? 'Tanpa departemen')}</small></td><td data-label="Sesi">${esc(row.shift.name)} · ${formatDate(row.work_date)}${sessionRange ? `<small class="session-range" title="Shift lintas tengah malam">${esc(sessionRange)}</small>` : ''}</td><td data-label="Masuk">${formatClockOnWorkDate(attendance.check_in_at, row.work_date)}${inGps}</td><td data-label="Pulang">${checkout ? `${formatClockOnWorkDate(checkout, row.work_date)}${checkoutLabel ? `<small>${esc(checkoutLabel)}</small>` : ''}${autoCheckoutNote}${outGps}` : '—'}</td><td data-label="Status"><span class="status ${status.className}">${status.label}</span></td></tr>`;
         }).join('')}</tbody></table></div>`;
     }
     renderPagination($('#dashboard-activity-pagination'), meta, (page) => loadDashboard(filterValues(dashboardForm), page));
@@ -363,6 +384,10 @@ function renderShiftTimingHtml(shift) {
     }
 
     let clockLine = `${startHtml}–${endHtml}`;
+    const sessionRange = formatSessionRange(shift);
+    if (sessionRange) {
+        clockLine += ` <span class="meta-pill session-overnight-pill" title="Shift lintas tengah malam">+1 hari</span><span class="session-range">${esc(sessionRange)}</span>`;
+    }
     const perms = shift.approved_permissions || [];
     let badgesHtml = '';
     if (perms.length) {
@@ -420,7 +445,7 @@ function renderMonitoring({ data, meta, summary }) {
             const checkoutLabel = attendance.checkout_source_label ?? (attendance.provisional_out_at && !attendance.check_out_at ? 'Checkout otomatis' : null);
             const checkoutLabelTone = attendance.checkout_source === 'SYSTEM_AUTO' || (!attendance.checkout_source && attendance.provisional_out_at) ? 'warning' : 'neutral';
             const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
-                ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${formatClock(attendance.auto_checkout_at)}</small>`
+                ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${formatClockOnWorkDate(attendance.auto_checkout_at, row.work_date)}</small>`
                 : '';
             const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
@@ -459,13 +484,13 @@ function renderMonitoring({ data, meta, summary }) {
                 </td>
                 <td data-label="Masuk">
                     <div style="display:flex;align-items:center;gap:6px;">
-                        ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClock(attendance.check_in_at)}</b>` : '<span style="color:var(--muted);">—</span>'}
+                        ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClockOnWorkDate(attendance.check_in_at, row.work_date)}</b>` : '<span style="color:var(--muted);">—</span>'}
                         ${checkInPhotoBtn}
                     </div>
                 </td>
                 <td data-label="Pulang">
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                        ${checkout ? `<b style="color:var(--ink);">${formatClock(checkout)}</b>${checkoutLabel ? ` <span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;margin-left:4px;">${esc(checkoutLabel)}</span>` : ''}` : '<span style="color:var(--muted);">—</span>'}
+                        ${checkout ? `<b style="color:var(--ink);">${formatClockOnWorkDate(checkout, row.work_date)}</b>${checkoutLabel ? ` <span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;margin-left:4px;">${esc(checkoutLabel)}</span>` : ''}` : '<span style="color:var(--muted);">—</span>'}
                         ${checkOutPhotoBtn}
                     </div>
                     ${autoCheckoutNote}
