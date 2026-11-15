@@ -1271,7 +1271,7 @@
                                                 </div>
                                                 <div class="version-info-card">
                                                     <span class="version-info-label">Mobile APK Rekomendasi</span>
-                                                    <strong class="version-info-val">v0.1.8 (Build 12)</strong>
+                                                    <strong class="version-info-val">v0.1.10 (Build 14)</strong>
                                                 </div>
                                             </div>
                                             <p class="field-hint">Gunakan informasi versi ini saat mencocokkan keluhan atau pelaporan kendala (bug) dari pengguna aplikasi.</p>
