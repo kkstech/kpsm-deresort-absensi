@@ -32,6 +32,13 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist --no-progress
 COPY . .
+# Build id untuk FORCE_RELOGIN_ON_UPDATE: pakai build arg APP_BUILD_ID bila ada,
+# kalau tidak, hash isi kode server sehingga berubah setiap ada kode baru.
+ARG APP_BUILD_ID=""
+RUN if [ -n "$APP_BUILD_ID" ]; then printf '%s' "$APP_BUILD_ID"; else \
+        find app bootstrap/app.php bootstrap/providers.php config database resources routes composer.json composer.lock package.json package-lock.json -type f -print0 2>/dev/null \
+        | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16; fi > .build-id \
+    && echo "Build id: $(cat .build-id)"
 RUN composer dump-autoload --no-dev --classmap-authoritative --no-scripts \
     && php artisan package:discover --ansi
 

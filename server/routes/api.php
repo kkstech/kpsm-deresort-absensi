@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
-    Route::middleware(['auth:sanctum', 'active', 'device'])->group(function () {
+    Route::middleware(['auth:sanctum', 'active', 'current-build', 'device'])->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
         Route::patch('me', [AuthController::class, 'updateProfile']);

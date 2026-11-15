@@ -18,6 +18,22 @@ return [
     'version' => env('APP_VERSION', 'v0.1.8'),
 
     /*
+    | Identitas build server. Berubah setiap kode baru di-deploy: diisi dari env
+    | APP_BUILD_ID, atau dari file .build-id yang ditulis saat docker build.
+    | Bila kosong (lokal/dev), fitur login ulang otomatis tidak aktif.
+    */
+    'build_id' => (static function (): ?string {
+        $id = trim((string) env('APP_BUILD_ID', ''));
+        if ($id === '' && is_readable($file = dirname(__DIR__).'/.build-id')) {
+            $id = trim((string) file_get_contents($file));
+        }
+
+        return $id === '' ? null : substr($id, 0, 64);
+    })(),
+
+    'force_relogin_on_update' => (bool) env('FORCE_RELOGIN_ON_UPDATE', true),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------

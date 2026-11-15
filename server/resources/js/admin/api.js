@@ -33,8 +33,10 @@ export async function api(path, { method = 'GET', body, query } = {}) {
     }
 
     if (response.status === 401 || response.status === 419) {
+        const body = response.headers.get('content-type')?.includes('json') ? await response.json().catch(() => null) : null;
+        // APP_UPDATED_RELOGIN: server baru di-deploy; pesan tampil di halaman login lewat flash session.
         location.assign('/login');
-        throw new ApiError(response.status, { message: 'Sesi habis. Silakan login lagi.' });
+        throw new ApiError(response.status, body?.code === 'APP_UPDATED_RELOGIN' ? body : { message: 'Sesi habis. Silakan login lagi.' });
     }
 
     const data = response.headers.get('content-type')?.includes('json') ? await response.json() : null;

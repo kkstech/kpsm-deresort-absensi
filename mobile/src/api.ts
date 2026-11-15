@@ -8,6 +8,10 @@ export class ApiError extends Error {
   }
 }
 
+/** Kode dari server bila token diterbitkan sebelum versi server yang sedang berjalan. */
+export const APP_UPDATED_RELOGIN = 'APP_UPDATED_RELOGIN';
+export const RELOGIN_AFTER_UPDATE_MESSAGE = 'Sistem telah diperbarui. Silakan login ulang untuk memuat data dan fitur terbaru.';
+
 type UnauthorizedCallback = (message?: string, token?: string | null) => void;
 let unauthorizedHandler: UnauthorizedCallback | null = null;
 
@@ -69,7 +73,9 @@ export async function request<T>(baseUrl: string, path: string, token?: string |
       if (detailsStr) msg = msg === 'Data belum valid.' ? detailsStr : `${msg} (${detailsStr})`;
     }
     if (response.status === 401 && path !== 'auth/login') {
-      const sessionMsg = 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.';
+      const sessionMsg = data?.code === APP_UPDATED_RELOGIN
+        ? (data?.message || RELOGIN_AFTER_UPDATE_MESSAGE)
+        : 'Sesi login Anda telah berakhir atau perangkat telah dikeluarkan. Silakan masuk kembali.';
       unauthorizedHandler?.(sessionMsg, token);
     }
     throw new ApiError(response.status, data?.code, msg);

@@ -15,6 +15,9 @@
         @if ($errors->any())
             <p class="form-error" role="alert">{{ $errors->first() }}</p>
         @endif
+        @if (session('status') && ! $errors->any())
+            <p class="form-notice" role="status">{{ session('status') }}</p>
+        @endif
         <label>Username (Kode Karyawan)
             <input name="username" type="text" value="{{ old('username') }}" autocomplete="username" placeholder="Username, kode karyawan, atau email" required autofocus autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="email">
         </label>
