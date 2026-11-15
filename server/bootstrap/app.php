@@ -3,6 +3,8 @@
 use App\Exceptions\BusinessRuleException;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureAdminAccess;
+use App\Http\Middleware\EnsureCurrentApiBuild;
+use App\Http\Middleware\EnsureCurrentWebBuild;
 use App\Http\Middleware\EnsureRegisteredDevice;
 use App\Http\Middleware\EnsureRecentPasswordConfirmation;
 use App\Http\Middleware\EnsurePrivateMediaAccess;
@@ -43,7 +45,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(AssignRequestId::class);
         $middleware->append(SecurityHeaders::class);
         $middleware->trustProxies(at: env('TRUSTED_PROXIES'));
+        $middleware->web(append: [EnsureCurrentWebBuild::class]);
         $middleware->alias([
+            'current-build' => EnsureCurrentApiBuild::class,
             'admin' => EnsureAdminAccess::class,
             'active' => EnsureUserIsActive::class,
             'device' => EnsureRegisteredDevice::class,

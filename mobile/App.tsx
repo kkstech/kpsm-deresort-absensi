@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 import {
-  ApiError, authStore, clearCache, enqueueUncertainEvent, migrateOutbox, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
+  ApiError, RELOGIN_AFTER_UPDATE_MESSAGE, authStore, clearCache, enqueueUncertainEvent, migrateOutbox, normalizeBaseUrl, onUnauthorized, outboxRows, readCache, request, saveCache, updateOutbox, uuid,
   fetchOvertimes, submitOvertimeRequest, submitOvertimeConsent, cancelOvertime,
   type OutboxRow, type Colleague, type ShiftExchangeItem, type ShiftExchangeSchedule, type SwapPreviewResult,
   type OvertimeItem
@@ -1293,7 +1293,7 @@ function Main() {
         setToken(storedToken);
         setOutbox(migratedOutbox);
         if (persistedToken && previousBuild !== String(APP_BUILD)) {
-          setError('Pembaruan aplikasi selesai. Silakan masuk kembali.');
+          setError(RELOGIN_AFTER_UPDATE_MESSAGE);
         }
       } catch (failure) {
         if (alive) setError(failure instanceof Error ? failure.message : 'Penyimpanan perangkat tidak tersedia.');

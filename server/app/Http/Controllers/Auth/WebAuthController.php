@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\SiteSetting;
 use App\Models\User;
+use App\Support\AppBuild;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -71,6 +72,10 @@ class WebAuthController extends Controller
         Auth::login($user, $remember);
         $request->session()->regenerate();
         $request->session()->forget(['auth.reauthenticated_at', 'auth.reauthenticated_user_id']);
+        $request->session()->put(AppBuild::SESSION_KEY, AppBuild::id());
+        if (AppBuild::id() !== null && $user->web_login_build_id !== AppBuild::id()) {
+            $user->forceFill(['web_login_build_id' => AppBuild::id()])->saveQuietly();
+        }
 
         return redirect()->intended(route('admin.dashboard'));
     }

@@ -8,6 +8,7 @@ use App\Models\DeviceRegistration;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\PrivateImageService;
+use App\Support\AppBuild;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -94,7 +95,10 @@ class AuthController extends Controller
             );
             $user->tokens()->where('name', "device:{$device->id}")->delete();
 
-            return $user->createToken("device:{$device->id}")->plainTextToken;
+            $newToken = $user->createToken("device:{$device->id}");
+            $newToken->accessToken->forceFill(['build_id' => AppBuild::id()])->save();
+
+            return $newToken->plainTextToken;
         });
 
         return response()->json([
