@@ -10,10 +10,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('attendance_records', function (Blueprint $table) {
-            $table->string('checkout_source', 32)->nullable()->after('provisional_out_at');
-            $table->dateTime('auto_checkout_at')->nullable()->after('checkout_source');
-        });
+        // Idempotent: a previous failed run may already have added these columns.
+        if (! Schema::hasColumn('attendance_records', 'checkout_source')) {
+            Schema::table('attendance_records', function (Blueprint $table) {
+                $table->string('checkout_source', 32)->nullable()->after('provisional_out_at');
+            });
+        }
+        if (! Schema::hasColumn('attendance_records', 'auto_checkout_at')) {
+            Schema::table('attendance_records', function (Blueprint $table) {
+                $table->dateTime('auto_checkout_at')->nullable()->after('checkout_source');
+            });
+        }
 
         DB::table('attendance_records')->whereNotNull('provisional_out_at')->update([
             'checkout_source' => 'SYSTEM_AUTO',
@@ -50,7 +57,7 @@ return new class extends Migration
                 'attendance.correction.direct',
                 'attendance.checkout.verified',
             ])
-                ->whereNotNull('subject_id')->select(['id', 'subject_id', 'before', 'after'])->orderBy('id')->chunkById(500, function ($logs): void {
+                ->whereNotNull('subject_id')->select(['id', 'action', 'subject_id', 'before', 'after'])->orderBy('id')->chunkById(500, function ($logs): void {
                     foreach ($logs as $log) {
                         $before = $this->decodeSnapshot($log->before);
                         $after = $this->decodeSnapshot($log->after);
