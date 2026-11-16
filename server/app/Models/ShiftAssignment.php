@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['employee_id', 'work_date', 'shift_template_id', 'shift_category_id', 'template_name', 'template_type', 'allow_under_eight_hours', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
 class ShiftAssignment extends Model
 {
-    public const CURRENT_RULES_VERSION = 5;
+    public const CURRENT_RULES_VERSION = 4;
 
     public const ACTIVE = ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'COMPLETED'];
 

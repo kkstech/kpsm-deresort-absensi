@@ -24,11 +24,6 @@ class AttendanceWindow
 
     public static function automaticCheckoutAt(ShiftSession $session, AttendanceRecord $record): CarbonImmutable
     {
-        $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
-        if ($rulesVersion >= 5) {
-            return $session->start_at->addHours(13);
-        }
-
         $cycleStart = $record->check_in_at;
         if ($session->assignment->template_type === 'special') {
             $cycleStart = $session->assignment->sessions()->with('attendanceRecord')->get()

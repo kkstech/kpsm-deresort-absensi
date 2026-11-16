@@ -127,6 +127,23 @@ class ScheduleTest extends TestCase
             ->assertJsonPath('message', 'Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini 6 jam). Silakan atur ulang jam kerja.');
     }
 
+    public function test_custom_cycle_allows_under_eight_hours_when_override_is_enabled(): void
+    {
+        $this->postJson('/admin/api/schedule', [
+            'employee_id' => $this->employee->id,
+            'work_date' => '2026-10-25',
+            'name' => 'Split diizinkan kurang dari 8 jam',
+            'shift_category_id' => $this->shiftCategoryId,
+            'allow_under_eight_hours' => true,
+            'sessions' => [
+                ['seq' => 1, 'start_date' => '2026-10-25', 'start_time' => '08:00', 'end_date' => '2026-10-25', 'end_time' => '11:00'],
+                ['seq' => 2, 'start_date' => '2026-10-25', 'start_time' => '13:00', 'end_date' => '2026-10-25', 'end_time' => '16:00'],
+            ],
+        ])->assertCreated()
+            ->assertJsonPath('data.allow_under_eight_hours', true)
+            ->assertJsonPath('data.scheduled_minutes', 360);
+    }
+
     public function test_schedule_calendar_can_request_one_employee_page_and_caps_ids_at_one_hundred(): void
     {
         $other = $this->makeEmployee('FO-2', 'Front Office');

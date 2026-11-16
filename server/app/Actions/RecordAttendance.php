@@ -70,7 +70,7 @@ class RecordAttendance
             [$distance, $locationProblem] = $this->checkLocation($session, $input['location'] ?? null);
             $problem = $this->scheduleProblem($session, $input['event_type'], $effective, $record)
                 ?? $locationProblem;
-            if ($problem === null && $input['event_type'] === 'CHECK_OUT' && in_array($this->rulesVersion($session), [3, 4], true)
+            if ($problem === null && $input['event_type'] === 'CHECK_OUT' && $this->rulesVersion($session) >= 3
                 && $effective->gt(AttendanceWindow::effectiveWorkEnd($session)->addMinutes((int) (SiteSetting::current()->checkout_grace_minutes ?? 60)))) {
                 $problem = 'CHECKOUT_LATE';
             }

@@ -478,11 +478,11 @@ class PublishSchedule
         if ($scheduled > 960) {
             throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 16 jam.');
         }
-        if (! $allowUnderEightHours && $scheduled < 480) {
+        if (count($sessions) > 1 && ! $allowUnderEightHours && $scheduled < 480) {
             $hours = floor($scheduled / 60);
             $mins = $scheduled % 60;
             $durText = $hours.' jam'.($mins > 0 ? ' '.$mins.' menit' : '');
-            throw new BusinessRuleException('CYCLE_WORK_MINIMUM', "Total durasi kerja jadwal wajib minimal 8 jam (saat ini {$durText}). Centang izin tanpa minimum 8 jam bila jadwal ini memerlukannya.", 422);
+            throw new BusinessRuleException('CYCLE_WORK_MINIMUM', "Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini {$durText}). Silakan atur ulang jam kerja.", 422);
         }
     }
 
