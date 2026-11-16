@@ -371,23 +371,48 @@ function getMonitoringRange(preset) {
     return { from: today, to: today };
 }
 
-function renderShiftTimingHtml(shift) {
-    const rawStart = formatClock(shift.start_at);
-    const rawEnd = formatClock(shift.end_at);
-    let startHtml = rawStart;
-    if (shift.effective_start && shift.effective_start !== rawStart) {
-        startHtml = `<s>${rawStart}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_start}</strong>`;
-    }
-    let endHtml = rawEnd;
-    if (shift.effective_end && shift.effective_end !== rawEnd) {
-        endHtml = `<s>${rawEnd}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_end}</strong>`;
-    }
+function sessionDateTimeParts(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return {
+        dateLabel: formatDayDate(value),
+        clockLabel: formatClock(value).replace(':', '.'),
+        dateKey: localDateKey(value),
+    };
+}
 
-    let clockLine = `${startHtml}–${endHtml}`;
-    const sessionRange = formatSessionRange(shift);
-    if (sessionRange) {
-        clockLine += ` <span class="meta-pill session-overnight-pill" title="Shift lintas tengah malam">+1 hari</span><span class="session-range">${esc(sessionRange)}</span>`;
-    }
+function sessionDayOffset(startAt, endAt) {
+    const start = sessionDateTimeParts(startAt);
+    const end = sessionDateTimeParts(endAt);
+    if (!start || !end) return 0;
+    const [startYear, startMonth, startDay] = start.dateKey.split('-').map(Number);
+    const [endYear, endMonth, endDay] = end.dateKey.split('-').map(Number);
+    const startDayNumber = Date.UTC(startYear, startMonth - 1, startDay);
+    const endDayNumber = Date.UTC(endYear, endMonth - 1, endDay);
+
+    return Math.max(0, Math.round((endDayNumber - startDayNumber) / 86400000));
+}
+
+function renderSessionPointHtml(shift, endpoint) {
+    const value = endpoint === 'start' ? shift.start_at : shift.end_at;
+    const parts = sessionDateTimeParts(value);
+    if (!parts) return '';
+
+    const effectiveClock = endpoint === 'start' ? shift.effective_start : shift.effective_end;
+    const normalizedEffectiveClock = effectiveClock?.replace(':', '.');
+    const clockHtml = normalizedEffectiveClock && normalizedEffectiveClock !== parts.clockLabel
+        ? `<s>${parts.clockLabel}</s> <strong>${esc(normalizedEffectiveClock)}</strong>`
+        : parts.clockLabel;
+    const overnightDays = endpoint === 'end' ? sessionDayOffset(shift.start_at, shift.end_at) : 0;
+    const overnightBadge = overnightDays
+        ? `<span class="meta-pill session-overnight-pill" title="Shift lintas tengah malam">+${overnightDays} hari</span>`
+        : '';
+
+    return `<div class="session-schedule-point"><span class="session-range">${parts.dateLabel} ${clockHtml}</span>${overnightBadge}</div>`;
+}
+
+function renderShiftTimingHtml(shift) {
     const perms = shift.approved_permissions || [];
     let badgesHtml = '';
     if (perms.length) {
@@ -396,7 +421,50 @@ function renderShiftTimingHtml(shift) {
         ).join('') + `</div>`;
     }
 
-    return `Sesi ${shift.seq} · ${clockLine}${badgesHtml}`;
+    return `Sesi ${esc(shift.seq)}${badgesHtml}`;
+}
+
+async function loadAttendanceEvents(dialog) {
+    const sessionId = dialog.dataset.sessionId;
+    const content = $('#attendance-events-content');
+    if (!sessionId || dialog.dataset.loadingSessionId === sessionId) return;
+
+    const requestId = String(Number(dialog.dataset.requestId || 0) + 1);
+    dialog.dataset.requestId = requestId;
+    dialog.dataset.loadingSessionId = sessionId;
+    content.setAttribute('aria-busy', 'true');
+    content.innerHTML = '<p class="attendance-event-loading" role="status">Memuat jejak event…</p>';
+    try {
+        const result = await api(`attendance/${sessionId}/events`);
+        if (dialog.dataset.requestId !== requestId || dialog.dataset.sessionId !== sessionId) return;
+        content.innerHTML = renderAttendanceEvents(result.data ?? []);
+    } catch (failure) {
+        if (dialog.dataset.requestId !== requestId || dialog.dataset.sessionId !== sessionId) return;
+        content.innerHTML = `<div class="attendance-event-error" role="alert"><span>${esc(failure.message)}</span><button type="button" class="text-button" data-retry-attendance-events>Ulangi</button></div>`;
+        content.querySelector('[data-retry-attendance-events]').addEventListener('click', () => {
+            loadAttendanceEvents(dialog);
+        });
+    } finally {
+        if (dialog.dataset.requestId === requestId) {
+            delete dialog.dataset.loadingSessionId;
+            content.setAttribute('aria-busy', 'false');
+        }
+    }
+}
+
+function openAttendanceEventsDialog(sessionId, employeeName) {
+    const dialog = $('#attendance-events-modal');
+    const content = $('#attendance-events-content');
+    const requestInProgress = dialog.dataset.loadingSessionId === sessionId;
+
+    dialog.dataset.sessionId = sessionId;
+    $('#attendance-events-hint').textContent = employeeName;
+    if (!requestInProgress) {
+        content.innerHTML = '<p class="attendance-event-loading" role="status">Memuat jejak event…</p>';
+    }
+    if (!dialog.open) dialog.showModal();
+
+    if (!requestInProgress) loadAttendanceEvents(dialog);
 }
 
 function renderMonitoring({ data, meta, summary }) {
@@ -438,7 +506,7 @@ function renderMonitoring({ data, meta, summary }) {
             </div>
         `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:90px;">Masuk</th><th scope="col" style="min-width:110px;">Pulang</th><th scope="col" class="monitoring-status-col">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" class="monitoring-actions-col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:160px;">Masuk</th><th scope="col" style="min-width:180px;">Pulang</th><th scope="col" class="monitoring-status-col">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" class="monitoring-actions-col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
@@ -447,7 +515,7 @@ function renderMonitoring({ data, meta, summary }) {
             const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
                 ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${formatClockOnWorkDate(attendance.auto_checkout_at, row.work_date)}</small>`
                 : '';
-            const actions = isAdmin ? `<td data-label="Aksi" class="workflow-actions monitoring-actions-col">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></td>` : '';
+            const actions = isAdmin ? `<td data-label="Aksi" class="monitoring-actions-col"><div class="monitoring-action-group">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></div></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
 
@@ -470,8 +538,8 @@ function renderMonitoring({ data, meta, summary }) {
                 <td data-label="Tanggal / sesi" class="monitoring-date-session-col">
                     <b>${formatDate(row.work_date)}</b>
                     <span class="monitoring-session-name" title="${esc(row.shift.name)}">${esc(row.shift.name)}</span>
-                    <small>${renderShiftTimingHtml(row.shift)}</small>
-                    ${isAdmin ? `<details class="attendance-event-details" data-attendance-events="${row.id}"><summary>Jejak event</summary><div class="attendance-event-content" aria-live="polite"><span class="attendance-event-loading">Buka untuk memuat jejak event.</span></div></details>` : ''}
+                    <div class="monitoring-session-meta">${renderShiftTimingHtml(row.shift)}</div>
+                    ${isAdmin ? `<button type="button" class="attendance-event-trigger" data-attendance-events="${row.id}" data-employee-name="${esc(row.employee.name)}" aria-label="Jejak event absensi ${esc(row.employee.name)}" aria-haspopup="dialog" aria-controls="attendance-events-modal">Jejak event</button>` : ''}
                 </td>
                 <td data-label="Karyawan">
                     <div style="display:flex;align-items:center;">
@@ -482,18 +550,20 @@ function renderMonitoring({ data, meta, summary }) {
                         </div>
                     </div>
                 </td>
-                <td data-label="Masuk">
-                    <div style="display:flex;align-items:center;gap:6px;">
+                <td data-label="Masuk" class="monitoring-time-cell">
+                    <div class="monitoring-clock-line">
                         ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClockOnWorkDate(attendance.check_in_at, row.work_date)}</b>` : '<span style="color:var(--muted);">—</span>'}
-                        ${checkInPhotoBtn}
                     </div>
+                    ${checkInPhotoBtn ? `<div class="monitoring-photo-line">${checkInPhotoBtn}</div>` : ''}
+                    ${renderSessionPointHtml(row.shift, 'start')}
                 </td>
-                <td data-label="Pulang">
-                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <td data-label="Pulang" class="monitoring-time-cell">
+                    <div class="monitoring-clock-line">
                         ${checkout ? `<b style="color:var(--ink);">${formatClockOnWorkDate(checkout, row.work_date)}</b>${checkoutLabel ? ` <span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;margin-left:4px;">${esc(checkoutLabel)}</span>` : ''}` : '<span style="color:var(--muted);">—</span>'}
-                        ${checkOutPhotoBtn}
                     </div>
+                    ${checkOutPhotoBtn ? `<div class="monitoring-photo-line">${checkOutPhotoBtn}</div>` : ''}
                     ${autoCheckoutNote}
+                    ${renderSessionPointHtml(row.shift, 'end')}
                 </td>
                 <td data-label="Status" class="monitoring-status-col"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>
@@ -503,29 +573,8 @@ function renderMonitoring({ data, meta, summary }) {
         }).join('')}</tbody></table></div>`;
     }
 
-    container.querySelectorAll('[data-attendance-events]').forEach((details) => {
-        details.addEventListener('toggle', async () => {
-            if (!details.open || details.dataset.loaded || details.dataset.loading) return;
-            details.dataset.loading = 'true';
-            const content = details.querySelector('.attendance-event-content');
-            content.innerHTML = '<span class="attendance-event-loading">Memuat jejak event…</span>';
-            try {
-                const result = await api(`attendance/${details.dataset.attendanceEvents}/events`);
-                content.innerHTML = renderAttendanceEvents(result.data ?? []);
-                details.dataset.loaded = 'true';
-            } catch (failure) {
-                content.innerHTML = `<span class="attendance-event-error">${esc(failure.message)} <button type="button" data-retry-attendance-events>Ulangi</button></span>`;
-            } finally {
-                delete details.dataset.loading;
-            }
-        });
-        details.addEventListener('click', (event) => {
-            if (!event.target.closest('[data-retry-attendance-events]')) return;
-            event.preventDefault();
-            details.dataset.loaded = '';
-            details.open = false;
-            requestAnimationFrame(() => { details.open = true; });
-        });
+    container.querySelectorAll('[data-attendance-events]').forEach((button) => {
+        button.addEventListener('click', () => openAttendanceEventsDialog(button.dataset.attendanceEvents, button.dataset.employeeName));
     });
 
     const pagination = $('#monitoring-pagination');

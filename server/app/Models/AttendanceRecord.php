@@ -71,11 +71,12 @@ class AttendanceRecord extends Model
         };
     }
 
-    /** Menit dibayar = irisan hadir dengan jendela sesi, maksimal panjang sesi dikurangi istirahat. */
+    /** Menit valid dihitung dari awal sesi yang dijadwalkan hingga checkout di dalam sesi, dikurangi istirahat. */
     public static function paidMinutes(ShiftSession $session, $in, $out): int
     {
+        $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
         $checkinEarlyMinutes = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
-        $from = $checkinEarlyMinutes === 0
+        $from = $rulesVersion >= 5 || $checkinEarlyMinutes === 0
             ? $session->start_at->getTimestamp()
             : max($session->start_at->getTimestamp(), $in->getTimestamp());
         $to = min($session->end_at->getTimestamp(), $out->getTimestamp());

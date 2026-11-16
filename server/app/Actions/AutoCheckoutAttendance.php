@@ -160,7 +160,7 @@ class AutoCheckoutAttendance
     private function closeAt(ShiftSession $session, AttendanceRecord $record): array
     {
         $rulesVersion = (int) ($session->rules_version ?: $session->assignment->rules_version);
-        if ($rulesVersion === 4) {
+        if ($rulesVersion >= 4) {
             $deadline = AttendanceWindow::automaticCheckoutAt($session, $record);
 
             return [$deadline, $deadline];

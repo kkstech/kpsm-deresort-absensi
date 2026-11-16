@@ -9,9 +9,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'shift_category_id', 'template_name', 'template_type', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
+#[Fillable(['employee_id', 'work_date', 'shift_template_id', 'shift_category_id', 'template_name', 'template_type', 'allow_under_eight_hours', 'status', 'revision', 'rules_version', 'published_at', 'created_by'])]
 class ShiftAssignment extends Model
 {
+    public const CURRENT_RULES_VERSION = 5;
+
     public const ACTIVE = ['DRAFT', 'PUBLISHED', 'IN_PROGRESS', 'COMPLETED'];
 
     public function employee(): BelongsTo
@@ -82,6 +84,7 @@ class ShiftAssignment extends Model
             'shift_template_id' => $this->shift_template_id,
             'template_name' => $this->template_name,
             'template_type' => $this->template_type,
+            'allow_under_eight_hours' => (bool) $this->allow_under_eight_hours,
             'shift_category_id' => $this->shift_category_id,
             'shift_category_name' => $this->category?->name ?? 'Belum dikategorikan',
             'status' => $this->status,
@@ -159,6 +162,7 @@ class ShiftAssignment extends Model
             'published_at' => 'datetime',
             'revision' => 'integer',
             'rules_version' => 'integer',
+            'allow_under_eight_hours' => 'boolean',
         ];
     }
 }

@@ -95,6 +95,7 @@ class ScheduleController extends Controller
             'shift_category_id' => ['required_with:sessions', 'integer', Rule::exists('shift_categories', 'id')->where('is_active', true)],
             'name' => ['nullable', 'string', 'max:100'],
             'reason' => ['nullable', 'string', 'max:500'],
+            'allow_under_eight_hours' => ['sometimes', 'boolean'],
             'sessions' => ['required_without:shift_template_id', 'array', 'min:2', 'max:4'],
             'sessions.*.id' => ['nullable', 'integer', 'exists:shift_sessions,id'],
             'sessions.*.seq' => ['required_with:sessions', 'integer', 'between:1,4'],
@@ -121,6 +122,7 @@ class ScheduleController extends Controller
             $data['work_date'],
             ShiftTemplate::query()->with('sessions')->findOrFail($data['shift_template_id']),
             $request->user(),
+            (bool) ($data['allow_under_eight_hours'] ?? false),
         );
 
         return response()->json(['data' => $assignment->load('sessions')->toApi()], 201);
@@ -134,6 +136,7 @@ class ScheduleController extends Controller
             'expected_revision' => ['required', 'integer', 'min:1'],
             'reason' => [$isDraft ? 'nullable' : 'required', 'string', 'min:3', 'max:500'],
             'sessions' => ['required', 'array', 'min:1', 'max:4'],
+            'allow_under_eight_hours' => ['sometimes', 'boolean'],
             'sessions.*.id' => ['nullable', 'integer'],
             'sessions.*.seq' => ['required', 'integer', 'between:1,4'],
             'sessions.*.start_date' => ['required', 'date_format:Y-m-d'],

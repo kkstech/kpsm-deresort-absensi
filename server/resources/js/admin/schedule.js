@@ -341,15 +341,11 @@ function updateScheduleDurationNotice() {
         return;
     }
 
-    const { totalMinutes, completeCount, totalRows } = calculateSessionsWorkMinutes();
-    if (totalRows <= 1 && editingSchedule) {
-        notice.hidden = true;
-        return;
-    }
+    const { totalMinutes, completeCount } = calculateSessionsWorkMinutes();
     if (completeCount === 0) {
         notice.hidden = false;
         notice.className = 'schedule-duration-notice warning';
-        notice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Shift split khusus <strong>wajib minimal 8 jam total</strong> waktu kerja. Silakan tentukan jam mulai dan jam selesai untuk setiap sesi.</span>`;
+        notice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Lengkapi jam mulai dan selesai setiap sesi. Total kerja minimal 8 jam kecuali opsi tanpa minimum dipilih.</span>`;
         return;
     }
 
@@ -359,8 +355,13 @@ function updateScheduleDurationNotice() {
 
     notice.hidden = false;
     if (totalMinutes < 480) {
-        notice.className = 'schedule-duration-notice warning';
-        notice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Total durasi kerja saat ini: <strong>${durStr}</strong>. Shift split khusus <strong>wajib minimal 8 jam total</strong>. Durasi belum memenuhi syarat, silakan atur ulang jam kerja sebelum disimpan.</span>`;
+        if ($('#schedule-allow-under-eight-hours').checked) {
+            notice.className = 'schedule-duration-notice success';
+            notice.innerHTML = `<span style="font-size:15px;line-height:1;">✓</span> <span>Total durasi kerja: <strong>${durStr}</strong>. Pengecualian minimum 8 jam aktif; durasi tetap dihitung dari jam sesi yang diatur admin.</span>`;
+        } else {
+            notice.className = 'schedule-duration-notice warning';
+            notice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Total durasi kerja saat ini: <strong>${durStr}</strong>. Minimal 8 jam. Centang opsi tanpa minimum jika jadwal ini memerlukannya.</span>`;
+        }
     } else if (totalMinutes > 960) {
         notice.className = 'schedule-duration-notice danger';
         notice.innerHTML = `<span style="font-size:15px;line-height:1;">⚠️</span> <span>Total durasi kerja saat ini: <strong>${durStr}</strong>. Melebihi batas maksimal 16 jam kerja per siklus. Silakan atur ulang jam kerja.</span>`;
@@ -453,6 +454,7 @@ function openScheduleModal() {
     $('#schedule-category').required = true;
     $('#schedule-reason-wrap').hidden = true;
     $('#schedule-reason').value = '';
+    $('#schedule-allow-under-eight-hours').checked = false;
     fillScheduleSessions();
     setScheduleMode('template');
     errorBox.hidden = true;
@@ -477,6 +479,7 @@ function openScheduleEdit(assignment) {
     $('#schedule-date').disabled = true;
     $('#schedule-mode').value = 'custom';
     $('#schedule-name').value = assignment.template_name;
+    $('#schedule-allow-under-eight-hours').checked = Boolean(assignment.allow_under_eight_hours);
     renderScheduleCategories(assignment.shift_category_id ?? null, Boolean(assignment.shift_category_id || !assignment.shift_template_id));
     $('#schedule-reason-wrap').hidden = isDraft;
     $('#schedule-reason').required = !isDraft;
@@ -510,6 +513,7 @@ async function saveSchedule() {
     const body = {
         employee_id: Number($('#schedule-employee').value) || null,
         work_date: $('#schedule-date').value || null,
+        allow_under_eight_hours: $('#schedule-allow-under-eight-hours').checked,
         ...(custom ? {
             name: $('#schedule-name').value.trim() || 'Shift khusus',
             shift_category_id: editingSchedule?.shift_category_id ?? (Number($('#schedule-category').value) || null),
@@ -555,11 +559,11 @@ async function saveSchedule() {
             }
         }
         const { totalMinutes } = calculateSessionsWorkMinutes();
-        if ((body.sessions.length > 1 || !editingSchedule) && totalMinutes < 480) {
+        if (!body.allow_under_eight_hours && totalMinutes < 480) {
             const h = Math.floor(totalMinutes / 60);
             const m = totalMinutes % 60;
             const durText = `${h} jam${m > 0 ? ` ${m} menit` : ''}`;
-            const msg = `Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini ${durText}). Silakan atur ulang jam kerja.`;
+            const msg = `Total durasi kerja jadwal wajib minimal 8 jam (saat ini ${durText}). Centang opsi tanpa minimum jika jadwal ini memerlukannya.`;
             errorBox.textContent = msg;
             errorBox.hidden = false;
             toast(msg, 'error');
@@ -1209,6 +1213,7 @@ $('#schedule-add-session').addEventListener('click', () => {
 });
 $('#schedule-session-rows').addEventListener('input', updateScheduleDurationNotice);
 $('#schedule-session-rows').addEventListener('change', updateScheduleDurationNotice);
+$('#schedule-allow-under-eight-hours').addEventListener('change', updateScheduleDurationNotice);
 $('#schedule-session-rows').addEventListener('click', (event) => {
     const remove = event.target.closest('[data-remove-session]');
     if (!remove) return;

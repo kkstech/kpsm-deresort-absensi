@@ -1366,6 +1366,10 @@
                     <label>Jenis shift<select id="schedule-mode"><option value="template">Shift reguler</option><option value="custom">Split khusus</option></select></label>
                     <label id="schedule-template-wrap">Shift reguler<select id="schedule-template" required></select></label>
                 </div>
+                <label class="schedule-minimum-override">
+                    <input type="checkbox" id="schedule-allow-under-eight-hours">
+                    <span><strong>Boleh tanpa minimum 8 jam</strong><small>Gunakan untuk kondisi khusus. Durasi tetap dihitung mulai jam sesi yang diatur admin.</small></span>
+                </label>
                 <div id="schedule-custom-wrap" class="schedule-custom-wrap" hidden>
                     <label>Kategori untuk laporan
                         <select id="schedule-category" required></select>
@@ -1375,7 +1379,7 @@
                     <div class="schedule-sessions-section">
                         <div class="schedule-sessions-heading">
                             <strong>Daftar Sesi Shift Khusus</strong>
-                            <span class="field-hint">Maksimal 4 sesi per siklus. Total waktu kerja di luar istirahat wajib minimal 8 jam dan maksimal 16 jam; rentang dari awal sesi pertama sampai akhir sesi terakhir maksimal 24 jam.</span>
+                            <span class="field-hint">Maksimal 4 sesi per siklus. Total kerja di luar istirahat minimal 8 jam (kecuali jika opsi di atas dipilih) dan maksimal 16 jam; rentang siklus maksimal 24 jam.</span>
                         </div>
                         <div id="schedule-duration-notice" class="schedule-duration-notice warning" hidden></div>
                         <div id="schedule-session-rows" class="schedule-session-cards"></div>
@@ -1835,6 +1839,22 @@
         </div>
         <div class="modal-actions" style="justify-content: flex-end;">
             <button type="button" class="secondary-button" onclick="document.getElementById('photo-preview-modal').close()">Tutup</button>
+        </div>
+    </dialog>
+    <dialog class="app-dialog attendance-events-dialog" id="attendance-events-modal" aria-labelledby="attendance-events-title" aria-describedby="attendance-events-hint">
+        <div class="modal-heading">
+            <div>
+                <h2 id="attendance-events-title">Jejak event absensi</h2>
+                <p id="attendance-events-hint"></p>
+            </div>
+            <button type="button" class="icon-button" data-close-modal aria-label="Tutup dialog jejak event">
+                <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="attendance-event-dialog-content" id="attendance-events-content" aria-live="polite" aria-busy="false">
+                <p class="attendance-event-loading" role="status">Pilih sesi untuk memuat jejak event.</p>
+            </div>
         </div>
     </dialog>
     <dialog class="app-dialog confirm-dialog" id="confirm-modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">

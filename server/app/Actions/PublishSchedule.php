@@ -20,14 +20,15 @@ use Illuminate\Support\Facades\DB;
 class PublishSchedule
 {
     /** Buat satu penugasan shift baru untuk karyawan dan tanggal kerja. */
-    public function upsert(Employee $employee, string $workDate, ShiftTemplate $template, User $actor): ShiftAssignment
+    public function upsert(Employee $employee, string $workDate, ShiftTemplate $template, User $actor, bool $allowUnderEightHours = false): ShiftAssignment
     {
-        return DB::transaction(function () use ($employee, $workDate, $template, $actor) {
+        return DB::transaction(function () use ($employee, $workDate, $template, $actor, $allowUnderEightHours) {
             $employee = Employee::query()->lockForUpdate()->findOrFail($employee->id);
             AttendancePeriod::assertOpen($workDate);
             $this->assertEmployed($employee, $workDate);
 
             $sessions = $this->buildSessions($employee, $workDate, $template);
+            $this->assertCycleLimits($sessions, $allowUnderEightHours);
             if (CarbonImmutable::parse($sessions[0]['start_at'])->lte(WorkTime::now())) {
                 throw new BusinessRuleException('SESSION_STARTED', 'Jadwal yang sudah mulai tidak bisa dibuat atau diubah. Pakai koreksi.');
             }
@@ -40,12 +41,13 @@ class PublishSchedule
                 'shift_category_id' => $template->shift_category_id,
                 'template_name' => $template->name,
                 'template_type' => $template->type,
-                'rules_version' => 4,
+                'allow_under_eight_hours' => $allowUnderEightHours,
+                'rules_version' => ShiftAssignment::CURRENT_RULES_VERSION,
                 'status' => 'DRAFT',
                 'revision' => 1,
             ])->save();
 
-            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 4, 'schedule_revision' => $assignment->revision], $sessions));
+            $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => ShiftAssignment::CURRENT_RULES_VERSION, 'schedule_revision' => $assignment->revision], $sessions));
             Audit::log('schedule.created', $assignment, null, $assignment->load('sessions')->toArray());
 
             return $assignment;
@@ -62,6 +64,9 @@ class PublishSchedule
             $assignment = $target
                 ? ShiftAssignment::query()->with('sessions.attendanceRecord')->where('employee_id', $employee->id)->where('work_date', $workDate)->findOrFail($target->id)
                 : null;
+            $allowUnderEightHours = array_key_exists('allow_under_eight_hours', $data)
+                ? (bool) $data['allow_under_eight_hours']
+                : (bool) ($assignment?->allow_under_eight_hours ?? false);
             if ($assignment && $expectedRevision !== null && $assignment->revision !== $expectedRevision) {
                 throw new BusinessRuleException('SCHEDULE_REVISION_CONFLICT', 'Jadwal berubah sejak dibuka. Muat ulang sebelum menyimpan.', 409);
             }
@@ -91,7 +96,7 @@ class PublishSchedule
             }
 
             $next = collect([...$kept, ...$create])->sortBy('seq')->values()->all();
-            $this->assertCycleLimits($next);
+            $this->assertCycleLimits($next, $allowUnderEightHours);
             $this->assertDailyLimits($employee, $workDate, $next, count($next) > 1 ? 'special' : 'regular', $assignment?->id);
             $this->assertNoOverlap($employee, $workDate, $next, $assignment?->id);
 
@@ -105,7 +110,7 @@ class PublishSchedule
                     $assignment->sessions()->whereIn('id', $retireIds)->update(['retired_at' => $now]);
                 }
                 if ($keptIds !== []) {
-                    $assignment->sessions()->whereIn('id', $keptIds)->update(['rules_version' => 4]);
+                    $assignment->sessions()->whereIn('id', $keptIds)->update(['rules_version' => ShiftAssignment::CURRENT_RULES_VERSION]);
                 }
                 foreach ($updates as [$session, $endAt]) {
                     $session->update(['end_at' => $endAt]);
@@ -118,12 +123,13 @@ class PublishSchedule
                 'shift_category_id' => $data['shift_category_id'] ?? $assignment->shift_category_id,
                 'template_name' => $data['name'] ?? 'Shift khusus',
                 'template_type' => count($next) > 1 ? 'special' : 'regular',
-                'rules_version' => 4,
+                'allow_under_eight_hours' => $allowUnderEightHours,
+                'rules_version' => ShiftAssignment::CURRENT_RULES_VERSION,
                 'status' => $assignment->status === 'CANCELLED' ? 'DRAFT' : ($assignment->status ?: 'DRAFT'),
                 'revision' => $revision,
             ])->save();
             if ($create) {
-                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => 4, 'schedule_revision' => $revision], $create));
+                $assignment->sessions()->createMany(array_map(fn (array $session) => [...$session, 'rules_version' => ShiftAssignment::CURRENT_RULES_VERSION, 'schedule_revision' => $revision], $create));
             }
             Audit::log('schedule.custom_updated', $assignment, $before, [
                 'reason' => $reason,
@@ -163,8 +169,8 @@ class PublishSchedule
 
             foreach ($drafts as $assignment) {
                 AttendancePeriod::assertOpen($assignment->work_date);
-                $assignment->update(['status' => 'PUBLISHED', 'published_at' => now(), 'rules_version' => 4]);
-                $assignment->sessions()->update(['rules_version' => 4]);
+                $assignment->update(['status' => 'PUBLISHED', 'published_at' => now(), 'rules_version' => ShiftAssignment::CURRENT_RULES_VERSION]);
+                $assignment->sessions()->update(['rules_version' => ShiftAssignment::CURRENT_RULES_VERSION]);
                 Audit::log('schedule.published', $assignment, ['status' => 'DRAFT']);
             }
 
@@ -369,7 +375,7 @@ class PublishSchedule
     private function copyAssignmentToDate(ShiftAssignment $source, string $target, User $actor): ShiftAssignment
     {
         if ($source->shift_template_id && $source->template) {
-            return $this->upsert($source->employee, $target, $source->template, $actor);
+            return $this->upsert($source->employee, $target, $source->template, $actor, $source->allow_under_eight_hours);
         }
         if (! $source->shift_category_id || ! ShiftCategory::query()->whereKey($source->shift_category_id)->where('is_active', true)->exists()) {
             throw new BusinessRuleException('SHIFT_CATEGORY_REQUIRED', 'Jadwal khusus tanpa kategori aktif perlu diperbarui sebelum disalin.', 422);
@@ -393,6 +399,7 @@ class PublishSchedule
         return $this->upsertCustom($source->employee, $target, [
             'name' => $source->template_name,
             'shift_category_id' => $source->shift_category_id,
+            'allow_under_eight_hours' => $source->allow_under_eight_hours,
             'sessions' => $sessionsData,
         ], $actor);
     }
@@ -408,8 +415,6 @@ class PublishSchedule
             'unpaid_break_minutes' => $s->unpaid_break_minutes,
             'policy_snapshot' => $policy,
         ])->all();
-
-        $this->assertCycleLimits($sessions);
 
         return $sessions;
     }
@@ -446,12 +451,10 @@ class PublishSchedule
             throw new BusinessRuleException('WORK_DATE_MISMATCH', 'Tanggal kerja harus tanggal mulai sesi pertama.');
         }
 
-        $this->assertCycleLimits($sessions);
-
         return $sessions;
     }
 
-    private function assertCycleLimits(array $sessions): void
+    private function assertCycleLimits(array $sessions, bool $allowUnderEightHours = false): void
     {
         if ($sessions === []) {
             throw new BusinessRuleException('SESSION_INVALID', 'Siklus harus memiliki setidaknya satu sesi.', 422);
@@ -475,11 +478,11 @@ class PublishSchedule
         if ($scheduled > 960) {
             throw new BusinessRuleException('CYCLE_WORK_LIMIT', 'Total kerja satu siklus maksimal 16 jam.');
         }
-        if (count($sessions) > 1 && $scheduled < 480) {
+        if (! $allowUnderEightHours && $scheduled < 480) {
             $hours = floor($scheduled / 60);
             $mins = $scheduled % 60;
             $durText = $hours.' jam'.($mins > 0 ? ' '.$mins.' menit' : '');
-            throw new BusinessRuleException('CYCLE_WORK_MINIMUM', "Total durasi kerja shift split khusus wajib minimal 8 jam (saat ini {$durText}). Silakan atur ulang jam kerja.", 422);
+            throw new BusinessRuleException('CYCLE_WORK_MINIMUM', "Total durasi kerja jadwal wajib minimal 8 jam (saat ini {$durText}). Centang izin tanpa minimum 8 jam bila jadwal ini memerlukannya.", 422);
         }
     }
 

@@ -139,7 +139,7 @@ class RecordAttendance
         $early = (int) ($session->policy_snapshot['checkin_early_minutes'] ?? SiteSetting::checkInEarlyMinutes());
         $late = config('attendance.checkout_late_minutes');
         $checkoutDeadline = $session->end_at->addMinutes($late);
-        if ($rulesVersion === 4 && $record?->check_in_at) {
+        if ($rulesVersion >= 4 && $record?->check_in_at) {
             $checkoutDeadline = AttendanceWindow::automaticCheckoutAt($session, $record);
         }
         if ($rulesVersion === 3) {
@@ -168,7 +168,7 @@ class RecordAttendance
             $type === 'CHECK_OUT' && $record?->check_out_at !== null => 'ALREADY_CHECKED_OUT',
             $type === 'CHECK_OUT' && $at->lte($record->check_in_at) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && ($record->provisional_out_at !== null || $record->auto_checkout_at !== null) => 'CHECKOUT_LATE',
-            $type === 'CHECK_OUT' && $rulesVersion === 4 && $checkoutDeadline && $at->gt($checkoutDeadline) => 'CHECKOUT_LATE',
+            $type === 'CHECK_OUT' && $rulesVersion >= 4 && $checkoutDeadline && $at->gt($checkoutDeadline) => 'CHECKOUT_LATE',
             $type === 'CHECK_OUT' && $at->lt($session->end_at) && ! $this->hasApprovedEarlyDeparture($session, $at) => $this->earlyCheckoutProblem($session, $at),
             $type === 'CHECK_OUT' && ($checkoutDeadline && ($rulesVersion === 3 ? $at->gte($checkoutDeadline) : $at->gt($checkoutDeadline))) => 'OUTSIDE_WINDOW',
             $type === 'CHECK_OUT' && $rulesVersion >= 2 && $rulesVersion < 3 && $assignment->template_type === 'regular'
