@@ -22,18 +22,29 @@ class AttendanceWindow
         return CarbonImmutable::createFromTimestamp($approvedOvertimeEnd, 'UTC');
     }
 
-    public static function automaticCheckoutAt(ShiftSession $session, AttendanceRecord $record): CarbonImmutable
+    /**
+     * Scheduled start of the attendance cycle the session belongs to.
+     * Regular cycles have one session, so this is the session's own start_at.
+     * Split/special cycles use the scheduled start of the first active (non-retired) session in the assignment,
+     * never the time the employee actually pressed check-in.
+     */
+    public static function scheduledCycleStart(ShiftSession $session): CarbonImmutable
     {
-        $cycleStart = $record->check_in_at;
-        if ($session->assignment->template_type === 'special') {
-            $cycleStart = $session->assignment->sessions()->with('attendanceRecord')->get()
-                ->map(fn (ShiftSession $candidate) => $candidate->attendanceRecord?->check_in_at)
-                ->filter()
-                ->sortBy(fn (CarbonImmutable $checkIn) => $checkIn->getTimestamp())
-                ->first() ?? $record->check_in_at;
-        }
+        $first = $session->assignment->sessions()->orderBy('start_at')->value('start_at');
+        $first = $first ? CarbonImmutable::parse($first, 'UTC') : null;
 
-        $deadline = $cycleStart->addHours(13);
+        return $first && $first->lt($session->start_at) ? $first : $session->start_at;
+    }
+
+    /**
+     * Rules v4: the system closes the session automatically 13 hours after the scheduled cycle start.
+     * The deadline is never earlier than the session's scheduled end (cycles may legally exceed 13 hours)
+     * and is extended to the end of an approved overtime order the employee accepted.
+     * The record argument is kept for caller compatibility; actual check-in time no longer matters.
+     */
+    public static function automaticCheckoutAt(ShiftSession $session, ?AttendanceRecord $record = null): CarbonImmutable
+    {
+        $deadline = static::scheduledCycleStart($session)->addHours(13)->max($session->end_at);
         $approvedOvertimeEnd = $session->overtimeOrders
             ->filter(fn ($order) => $order->status === 'APPROVED' && $order->consent_status === 'ACCEPTED')
             ->max(fn ($order) => $order->end_at->getTimestamp());

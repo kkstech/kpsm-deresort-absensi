@@ -140,14 +140,15 @@ class ShiftAssignment extends Model
                             default => null,
                         },
                         'checkout_grace_minutes' => match (true) {
-                            $rulesVersion >= 3 => (int) (SiteSetting::current()->checkout_grace_minutes ?? 60),
+                            $rulesVersion >= 4 => null,
+                            $rulesVersion === 3 => (int) (SiteSetting::current()->checkout_grace_minutes ?? 60),
                             $rulesVersion >= 2 && $this->template_type === 'special' => 0,
                             default => config('attendance.checkout_late_minutes'),
                         },
                         'effective_work_end_at' => $rulesVersion >= 3 ? WorkTime::iso(AttendanceWindow::effectiveWorkEnd($s)) : null,
                         'checkout_deadline_at' => $rulesVersion === 3
                             ? WorkTime::iso(AttendanceWindow::checkoutDeadline($s))
-                            : ($rulesVersion >= 4 && $s->attendanceRecord?->check_in_at
+                            : ($rulesVersion >= 4
                                 ? WorkTime::iso(AttendanceWindow::automaticCheckoutAt($s, $s->attendanceRecord))
                                 : null),
                     ],
