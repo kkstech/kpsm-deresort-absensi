@@ -145,8 +145,9 @@ class AttendanceTest extends TestCase
         $this->assertDatabaseMissing('attendance_records', ['shift_session_id' => $this->sessionId]);
     }
 
-    public function test_late_checkout_is_recorded_with_original_time_and_requires_review(): void
+    public function test_legacy_v3_late_checkout_is_recorded_with_original_time_and_requires_review(): void
     {
+        $this->useLegacyRulesV3();
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('a7777777-7777-4777-8777-777777777777'), $this->device->id);
         $this->travelTo('2026-10-25 11:01:00');
@@ -167,8 +168,9 @@ class AttendanceTest extends TestCase
         $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 10:50:00', 'needs_review' => 0]);
     }
 
-    public function test_checkout_three_hours_after_shift_is_recorded_for_review(): void
+    public function test_legacy_v3_checkout_three_hours_after_shift_is_recorded_for_review(): void
     {
+        $this->useLegacyRulesV3();
         $this->travelTo('2026-10-25 01:10:00');
         app(RecordAttendance::class)->handle($this->employee, $this->event('c7777777-7777-4777-8777-777777777777'), $this->device->id);
         $this->travelTo('2026-10-25 13:00:00');
@@ -216,7 +218,7 @@ class AttendanceTest extends TestCase
 
         $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
         $this->assertNull($record->check_out_at);
-        $this->assertSame('2026-10-25 14:10:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-25 14:00:00', $record->provisional_out_at->format('Y-m-d H:i:s'));
         $this->assertSame(0, $record->verified_minutes);
         $this->assertTrue($record->needs_review);
         $this->assertSame('AUTO_CHECKOUT', $record->review_reason);
@@ -276,7 +278,7 @@ class AttendanceTest extends TestCase
         $this->assertSame('OFFLINE_ATTENDANCE_DISABLED', $result['data']['reason_code']);
         $this->assertDatabaseHas('attendance_records', [
             'shift_session_id' => $this->sessionId,
-            'provisional_out_at' => '2026-10-25 14:10:00',
+            'provisional_out_at' => '2026-10-25 14:00:00',
             'check_out_at' => null,
             'verified_minutes' => 0,
             'needs_review' => 1,
@@ -724,6 +726,131 @@ class AttendanceTest extends TestCase
             ->assertJsonPath('results.0.message', 'Absen belum bisa dicatat. Lengkapi lokasi penempatan kerja. Hubungi HRD.');
 
         $this->assertDatabaseCount('attendance_events', 0);
+    }
+
+    /** Yoga's example: session 08.00-16.00 WIB, check-in 07.20 WIB, checkout 20.00 WIB is accepted without review. */
+    public function test_v4_self_checkout_within_thirteen_hours_of_scheduled_start_is_accepted(): void
+    {
+        $session = $this->useEightToFourSession();
+        $this->travelTo('2026-10-25 00:20:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('d1111111-1111-4111-8111-111111111111'), $this->device->id);
+        $this->travelTo('2026-10-25 13:00:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('d2222222-2222-4222-8222-222222222222', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertNull($result['data']['reason_code']);
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $this->assertSame('2026-10-25 13:00:00', $record->check_out_at->format('Y-m-d H:i:s'));
+        $this->assertFalse($record->needs_review);
+        $this->assertNull($record->review_reason);
+        $this->assertSame('COMPLETE', $record->status);
+        $this->assertSame(AttendanceRecord::CHECKOUT_SOURCE_EMPLOYEE, $record->checkout_source);
+        $this->assertNull($record->auto_checkout_at);
+        $this->assertSame($session->scheduledMinutes(), $record->verified_minutes);
+    }
+
+    /** 20.40 WIB is past check-in + 13h (20.20) but before scheduled start + 13h (21.00), so it is still accepted. */
+    public function test_v4_deadline_uses_scheduled_start_not_actual_check_in(): void
+    {
+        $session = $this->useEightToFourSession();
+        $this->travelTo('2026-10-25 00:20:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('d3333333-3333-4333-8333-333333333333'), $this->device->id);
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $this->assertSame('2026-10-25 14:00:00', AttendanceWindow::automaticCheckoutAt($session->fresh(), $record)->format('Y-m-d H:i:s'));
+
+        $this->travelTo('2026-10-25 13:40:00');
+        $this->artisan('attendance:auto-checkout')->assertExitCode(0);
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('d4444444-4444-4444-8444-444444444444', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 13:40:00', 'needs_review' => 0, 'auto_checkout_at' => null, 'checkout_source' => 'EMPLOYEE']);
+    }
+
+    /** Checkout at 21.30 WIB: the session was already due at 21.00, so it is auto-closed at 21.00 and needs review. */
+    public function test_v4_checkout_after_scheduled_start_plus_thirteen_hours_is_auto_closed_for_review(): void
+    {
+        $this->useEightToFourSession();
+        $this->travelTo('2026-10-25 00:20:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('d5555555-5555-4555-8555-555555555555'), $this->device->id);
+        $this->travelTo('2026-10-25 14:30:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('d6666666-6666-4666-8666-666666666666', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->assertSame('REVIEW_REQUIRED', $result['data']['status']);
+        $this->assertSame('CHECKOUT_LATE', $result['data']['reason_code']);
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $this->assertSame('2026-10-25 14:00:00', $record->auto_checkout_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-25 14:30:00', $record->check_out_at->format('Y-m-d H:i:s'));
+        $this->assertTrue($record->needs_review);
+        $this->assertSame(0, $record->verified_minutes);
+    }
+
+    public function test_v4_scheduler_auto_checkout_closes_at_scheduled_start_plus_thirteen_hours(): void
+    {
+        $this->useEightToFourSession();
+        $this->travelTo('2026-10-25 00:20:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('d7777777-7777-4777-8777-777777777777'), $this->device->id);
+        $this->travelTo('2026-10-25 14:00:00');
+        $this->artisan('attendance:auto-checkout')->assertExitCode(0);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'provisional_out_at' => null]);
+
+        $this->travelTo('2026-10-25 14:01:00');
+        $this->artisan('attendance:auto-checkout')->assertExitCode(0);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'provisional_out_at' => '2026-10-25 14:00:00', 'needs_review' => 1, 'review_reason' => 'AUTO_CHECKOUT']);
+    }
+
+    /** Karaoke shift II 18.00-02.00 WIB, checkout 03.40 WIB is accepted (deadline 07.00 WIB). */
+    public function test_v4_overnight_shift_checkout_after_grace_is_accepted(): void
+    {
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $session->update(['start_at' => '2026-10-25 11:00:00', 'end_at' => '2026-10-25 19:00:00', 'unpaid_break_minutes' => 0]);
+        $this->travelTo('2026-10-25 10:50:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('d8888888-8888-4888-8888-888888888888'), $this->device->id);
+        $this->travelTo('2026-10-25 20:40:00');
+        $result = app(RecordAttendance::class)->handle($this->employee, $this->event('d9999999-9999-4999-8999-999999999999', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->assertSame('ACCEPTED', $result['data']['status']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 20:40:00', 'needs_review' => 0, 'verified_minutes' => 480, 'checkout_source' => 'EMPLOYEE']);
+        $this->assertSame('2026-10-26 00:00:00', AttendanceWindow::automaticCheckoutAt($session->fresh())->format('Y-m-d H:i:s'));
+    }
+
+    /** Split cycles count 13 hours from the scheduled start of the first session, never earlier than the session end. */
+    public function test_v4_split_cycle_deadline_uses_first_scheduled_session_start(): void
+    {
+        $template = ShiftTemplate::query()->where('name', 'Khusus 2 sesi')->firstOrFail();
+        $assignment = app(PublishSchedule::class)->upsert($this->employee, '2026-10-26', $template, User::factory()->role('admin')->create());
+        app(PublishSchedule::class)->publish('2026-10-26', '2026-10-26', [$this->employee->id]);
+        [$first, $second] = $assignment->fresh()->sessions->all();
+
+        $this->assertSame('2026-10-25 23:00:00', AttendanceWindow::scheduledCycleStart($second)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-26 12:00:00', AttendanceWindow::automaticCheckoutAt($first)->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-26 12:00:00', AttendanceWindow::automaticCheckoutAt($second)->format('Y-m-d H:i:s'));
+
+        $second->update(['end_at' => '2026-10-26 13:00:00']);
+        $this->assertSame('2026-10-26 13:00:00', AttendanceWindow::automaticCheckoutAt($second->fresh())->format('Y-m-d H:i:s'));
+    }
+
+    public function test_mobile_schedule_exposes_v4_auto_checkout_deadline_without_grace(): void
+    {
+        $this->withToken($this->token)
+            ->getJson('/api/v1/me/schedule?from=2026-10-25&to=2026-10-25')
+            ->assertOk()
+            ->assertJsonPath('data.0.sessions.0.attendance_window.checkout_deadline_at', '2026-10-25T14:00:00Z')
+            ->assertJsonPath('data.0.sessions.0.attendance_window.checkout_grace_minutes', null);
+    }
+
+    private function useEightToFourSession(): ShiftSession
+    {
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $session->update(['start_at' => '2026-10-25 01:00:00', 'end_at' => '2026-10-25 09:00:00']);
+
+        return $session->fresh();
+    }
+
+    private function useLegacyRulesV3(): void
+    {
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $session->update(['rules_version' => 3]);
+        $session->assignment->update(['rules_version' => 3]);
     }
 
     private function event(string $uuid, array $overrides = []): array
