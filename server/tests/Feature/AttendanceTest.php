@@ -838,6 +838,102 @@ class AttendanceTest extends TestCase
             ->assertJsonPath('data.0.sessions.0.attendance_window.checkout_grace_minutes', null);
     }
 
+    public function test_clear_late_checkout_reviews_dry_run_apply_and_rerun(): void
+    {
+        $this->useLegacyRulesV3();
+        $autoSession = $this->legacyReguler('2026-10-26');
+        $recoveredSession = $this->legacyReguler('2026-10-27');
+        $overSession = $this->legacyReguler('2026-10-28');
+
+        // 1. v3 self checkout 18.01 WIB flagged CHECKOUT_LATE, within 08.00 + 13h -> eligible.
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e1111111-1111-4111-8111-111111111111'), $this->device->id);
+        $this->travelTo('2026-10-25 11:01:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e1111111-1111-4111-8111-222222222222', ['event_type' => 'CHECK_OUT']), $this->device->id);
+        // 2. Never checked out -> AUTO_CHECKOUT, must stay.
+        $this->travelTo('2026-10-26 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e2222222-2222-4222-8222-111111111111', ['shift_session_id' => $autoSession->id]), $this->device->id);
+        $this->travelTo('2026-10-26 17:00:00');
+        $this->artisan('attendance:auto-checkout')->assertExitCode(0);
+        // 3. Checkout after an auto checkout (review_reason CHECKOUT_LATE + auto_checkout_at) -> must stay.
+        $this->travelTo('2026-10-27 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e3333333-3333-4333-8333-111111111111', ['shift_session_id' => $recoveredSession->id]), $this->device->id);
+        AttendanceRecord::query()->where('shift_session_id', $recoveredSession->id)->update(['provisional_out_at' => '2026-10-27 10:00:00', 'status' => 'PROVISIONAL', 'needs_review' => true, 'review_reason' => 'AUTO_CHECKOUT', 'checkout_source' => 'SYSTEM_AUTO']);
+        $this->travelTo('2026-10-27 11:01:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e3333333-3333-4333-8333-222222222222', ['event_type' => 'CHECK_OUT', 'shift_session_id' => $recoveredSession->id]), $this->device->id);
+        // 4. Self checkout 22.00 WIB, past 08.00 + 13h -> must stay.
+        $this->travelTo('2026-10-28 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e4444444-4444-4444-8444-111111111111', ['shift_session_id' => $overSession->id]), $this->device->id);
+        $this->travelTo('2026-10-28 15:00:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e4444444-4444-4444-8444-222222222222', ['event_type' => 'CHECK_OUT', 'shift_session_id' => $overSession->id]), $this->device->id);
+
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE', 'verified_minutes' => 0]);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $autoSession->id, 'needs_review' => 1, 'review_reason' => 'AUTO_CHECKOUT']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $recoveredSession->id, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $overSession->id, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE']);
+        $snapshot = AttendanceRecord::query()->orderBy('id')->get()->map->attributesToArray()->all();
+
+        $this->artisan('attendance:clear-late-checkout-reviews')
+            ->expectsOutputToContain('DRY-RUN')
+            ->expectsOutputToContain('Akan dibersihkan: 1 record')
+            ->expectsOutputToContain('Dilewati: 2 record')
+            ->assertExitCode(0);
+        $this->assertSame($snapshot, AttendanceRecord::query()->orderBy('id')->get()->map->attributesToArray()->all());
+        $this->assertSame(0, AuditLog::query()->where('action', 'attendance.late_checkout_review_cleared')->count());
+
+        $this->artisan('attendance:clear-late-checkout-reviews', ['--from' => '2026-10-01', '--to' => '2026-10-31', '--apply' => true])
+            ->expectsOutputToContain('Dibersihkan: 1 record')
+            ->expectsOutputToContain('Selesai: 1 record diperbarui.')
+            ->assertExitCode(0);
+
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $this->assertDatabaseHas('attendance_records', [
+            'shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 11:01:00', 'needs_review' => 0, 'review_reason' => null,
+            'status' => 'COMPLETE', 'checkout_source' => 'EMPLOYEE', 'verified_minutes' => $session->scheduledMinutes(), 'verified_at' => null,
+        ]);
+        $this->assertDatabaseHas('attendance_events', ['event_uuid' => 'e1111111-1111-4111-8111-222222222222', 'result' => 'REVIEW_REQUIRED', 'reason_code' => 'CHECKOUT_LATE']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $autoSession->id, 'needs_review' => 1, 'review_reason' => 'AUTO_CHECKOUT']);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $recoveredSession->id, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE', 'verified_minutes' => 0]);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $overSession->id, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE', 'verified_minutes' => 0]);
+        $this->assertSame(1, AuditLog::query()->where('action', 'attendance.late_checkout_review_cleared')->count());
+
+        $this->artisan('attendance:clear-late-checkout-reviews', ['--apply' => true])
+            ->expectsOutputToContain('Dibersihkan: 0 record')
+            ->assertExitCode(0);
+        $this->assertSame(1, AuditLog::query()->where('action', 'attendance.late_checkout_review_cleared')->count());
+    }
+
+    public function test_clear_late_checkout_reviews_skips_locked_periods_and_respects_date_filter(): void
+    {
+        $this->useLegacyRulesV3();
+        $this->travelTo('2026-10-25 01:10:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e5555555-5555-4555-8555-111111111111'), $this->device->id);
+        $this->travelTo('2026-10-25 11:01:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e5555555-5555-4555-8555-222222222222', ['event_type' => 'CHECK_OUT']), $this->device->id);
+
+        $this->artisan('attendance:clear-late-checkout-reviews', ['--from' => '2026-10-26', '--apply' => true])
+            ->expectsOutputToContain('Dibersihkan: 0 record')->assertExitCode(0);
+
+        AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED', 'revision' => 1, 'finalized_at' => now()]);
+        $this->artisan('attendance:clear-late-checkout-reviews', ['--apply' => true])
+            ->expectsOutputToContain('PERIOD_LOCKED')->assertExitCode(0);
+        $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'needs_review' => 1, 'review_reason' => 'CHECKOUT_LATE']);
+
+        $this->artisan('attendance:clear-late-checkout-reviews', ['--from' => 'kemarin'])->assertExitCode(1);
+    }
+
+    private function legacyReguler(string $workDate): ShiftSession
+    {
+        $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
+        $assignment = app(PublishSchedule::class)->upsert($this->employee, $workDate, $template, User::factory()->role('admin')->create());
+        app(PublishSchedule::class)->publish($workDate, $workDate, [$this->employee->id]);
+        $assignment->update(['rules_version' => 3]);
+        $session = $assignment->fresh()->sessions->firstOrFail();
+        $session->update(['rules_version' => 3]);
+
+        return $session->fresh();
+    }
+
     private function useEightToFourSession(): ShiftSession
     {
         $session = ShiftSession::query()->findOrFail($this->sessionId);
