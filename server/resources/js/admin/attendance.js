@@ -394,25 +394,39 @@ function sessionDayOffset(startAt, endAt) {
     return Math.max(0, Math.round((endDayNumber - startDayNumber) / 86400000));
 }
 
-function renderSessionPointHtml(shift, endpoint) {
+function sessionPointTooltip(shift, endpoint) {
     const value = endpoint === 'start' ? shift.start_at : shift.end_at;
     const parts = sessionDateTimeParts(value);
     if (!parts) return '';
 
-    const effectiveClock = endpoint === 'start' ? shift.effective_start : shift.effective_end;
-    const normalizedEffectiveClock = effectiveClock?.replace(':', '.');
-    const clockHtml = normalizedEffectiveClock && normalizedEffectiveClock !== parts.clockLabel
-        ? `<s>${parts.clockLabel}</s> <strong>${esc(normalizedEffectiveClock)}</strong>`
-        : parts.clockLabel;
-    const overnightDays = endpoint === 'end' ? sessionDayOffset(shift.start_at, shift.end_at) : 0;
-    const overnightBadge = overnightDays
-        ? `<span class="meta-pill session-overnight-pill" title="Shift lintas tengah malam">+${overnightDays} hari</span>`
+    const label = endpoint === 'start' ? 'Jadwal masuk' : 'Jadwal pulang';
+    const effective = endpoint === 'start' ? shift.effective_start : shift.effective_end;
+    const normalizedEffective = effective?.replace(':', '.');
+    const effectiveText = normalizedEffective && normalizedEffective !== parts.clockLabel
+        ? ` (efektif: ${normalizedEffective})`
         : '';
+    const overnightDays = endpoint === 'end' ? sessionDayOffset(shift.start_at, shift.end_at) : 0;
+    const overnightText = overnightDays ? ` (+${overnightDays} hari)` : '';
 
-    return `<div class="session-schedule-point"><span class="session-range">${parts.dateLabel} ${clockHtml}</span>${overnightBadge}</div>`;
+    return `${label}: ${parts.dateLabel} ${parts.clockLabel}${effectiveText}${overnightText}`;
 }
 
 function renderShiftTimingHtml(shift) {
+    const rawStart = formatClock(shift.start_at).replace(':', '.');
+    const rawEnd = formatClock(shift.end_at).replace(':', '.');
+    let startHtml = rawStart;
+    if (shift.effective_start && shift.effective_start.replace(':', '.') !== rawStart) {
+        startHtml = `<s>${rawStart}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_start.replace(':', '.')}</strong>`;
+    }
+    let endHtml = rawEnd;
+    if (shift.effective_end && shift.effective_end.replace(':', '.') !== rawEnd) {
+        endHtml = `<s>${rawEnd}</s> <strong style="color:var(--primary,#173d2b);">${shift.effective_end.replace(':', '.')}</strong>`;
+    }
+    const overnightDays = sessionDayOffset(shift.start_at, shift.end_at);
+    const overnightBadge = overnightDays
+        ? ` <span class="meta-pill session-overnight-pill" title="Shift lintas tengah malam">+${overnightDays} hari</span>`
+        : '';
+
     const perms = shift.approved_permissions || [];
     let badgesHtml = '';
     if (perms.length) {
@@ -421,7 +435,7 @@ function renderShiftTimingHtml(shift) {
         ).join('') + `</div>`;
     }
 
-    return `Sesi ${esc(shift.seq)}${badgesHtml}`;
+    return `Sesi ${esc(shift.seq)} · ${startHtml}–${endHtml}${overnightBadge}${badgesHtml}`;
 }
 
 async function loadAttendanceEvents(dialog) {
@@ -506,18 +520,21 @@ function renderMonitoring({ data, meta, summary }) {
             </div>
         `;
     } else {
-        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:160px;">Masuk</th><th scope="col" style="min-width:180px;">Pulang</th><th scope="col" class="monitoring-status-col">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" class="monitoring-actions-col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
+        container.innerHTML = `<div class="table-scroll"><table class="data-table monitoring-data-table"><thead><tr><th scope="col" class="monitoring-date-session-col">Tanggal / sesi</th><th scope="col" style="min-width:210px;">Karyawan</th><th scope="col" style="min-width:130px;">Masuk</th><th scope="col" style="min-width:150px;">Pulang</th><th scope="col" class="monitoring-status-col">Status</th><th scope="col" class="number-cell" style="min-width:100px;">Menit valid</th><th scope="col" class="number-cell" style="min-width:90px;">Lembur</th>${isAdmin ? '<th scope="col" class="monitoring-actions-col">Aksi</th>' : ''}</tr></thead><tbody>${data.map((row) => {
             const status = stateLabel(row);
             const attendance = row.attendance;
             const checkout = attendance.check_out_at ?? attendance.provisional_out_at;
             const checkoutLabel = attendance.checkout_source_label ?? (attendance.provisional_out_at && !attendance.check_out_at ? 'Checkout otomatis' : null);
             const checkoutLabelTone = attendance.checkout_source === 'SYSTEM_AUTO' || (!attendance.checkout_source && attendance.provisional_out_at) ? 'warning' : 'neutral';
-            const autoCheckoutNote = attendance.auto_checkout_at && attendance.checkout_source !== 'SYSTEM_AUTO'
-                ? `<small style="display:block;color:var(--muted);">Checkout otomatis ${formatClockOnWorkDate(attendance.auto_checkout_at, row.work_date)}</small>`
-                : '';
+            const autoCheckoutTooltip = attendance.auto_checkout_at
+                ? `Checkout otomatis ${formatClockOnWorkDate(attendance.auto_checkout_at, row.work_date)}`
+                : (checkoutLabel || '');
             const actions = isAdmin ? `<td data-label="Aksi" class="monitoring-actions-col"><div class="monitoring-action-group">${attendance.needs_review && attendance.check_in_at ? `<button type="button" class="action-btn success monitoring-action-btn" data-session-action="verify" data-session-id="${row.id}" title="Verifikasi absensi" aria-label="Verifikasi absensi ${esc(row.employee.name)}">${icon('shield-check')}<span>Verifikasi</span></button>` : ''}<button type="button" class="action-btn monitoring-action-btn" data-session-action="correction" data-session-id="${row.id}" title="Koreksi absensi" aria-label="Koreksi absensi ${esc(row.employee.name)}">${icon('edit')}<span>Koreksi</span></button></div></td>` : '';
             const otMinutes = attendance.verified_overtime_minutes || 0;
             const otCell = `<td data-label="Lembur" class="number-cell">${otMinutes > 0 ? `<span class="meta-pill" style="color:var(--primary);font-weight:700;">+${otMinutes} m</span>` : '—'}</td>`;
+
+            const startTooltip = sessionPointTooltip(row.shift, 'start');
+            const endTooltip = sessionPointTooltip(row.shift, 'end');
 
             const checkInPhotoBtn = attendance.check_in_photo_url
                 ? `<button type="button" class="photo-badge-btn" data-photo-url="${esc(attendance.check_in_photo_url)}" data-photo-caption="Check-In · ${esc(row.employee.name)} · ${formatClock(attendance.check_in_at)}" title="Lihat Foto Check-In">${icon('camera', 13)}</button>`
@@ -551,19 +568,17 @@ function renderMonitoring({ data, meta, summary }) {
                     </div>
                 </td>
                 <td data-label="Masuk" class="monitoring-time-cell">
-                    <div class="monitoring-clock-line">
-                        ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClockOnWorkDate(attendance.check_in_at, row.work_date)}</b>` : '<span style="color:var(--muted);">—</span>'}
+                    <div class="monitoring-clock-line" title="${esc(startTooltip)}">
+                        ${attendance.check_in_at ? `<b style="color:var(--ink);">${formatClockOnWorkDate(attendance.check_in_at, row.work_date)}</b>` : `<span style="color:var(--muted);" title="${esc(startTooltip)}">—</span>`}
+                        ${checkInPhotoBtn}
                     </div>
-                    ${checkInPhotoBtn ? `<div class="monitoring-photo-line">${checkInPhotoBtn}</div>` : ''}
-                    ${renderSessionPointHtml(row.shift, 'start')}
                 </td>
                 <td data-label="Pulang" class="monitoring-time-cell">
-                    <div class="monitoring-clock-line">
-                        ${checkout ? `<b style="color:var(--ink);">${formatClockOnWorkDate(checkout, row.work_date)}</b>${checkoutLabel ? ` <span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;margin-left:4px;">${esc(checkoutLabel)}</span>` : ''}` : '<span style="color:var(--muted);">—</span>'}
+                    <div class="monitoring-clock-line" title="${esc(endTooltip)}">
+                        ${checkout ? `<b style="color:var(--ink);">${formatClockOnWorkDate(checkout, row.work_date)}</b>` : `<span style="color:var(--muted);" title="${esc(endTooltip)}">—</span>`}
+                        ${checkOutPhotoBtn}
+                        ${checkoutLabel ? `<span class="status ${checkoutLabelTone}" style="font-size:10px;padding:1px 5px;" title="${esc(autoCheckoutTooltip)}">${esc(checkoutLabel)}</span>` : ''}
                     </div>
-                    ${checkOutPhotoBtn ? `<div class="monitoring-photo-line">${checkOutPhotoBtn}</div>` : ''}
-                    ${autoCheckoutNote}
-                    ${renderSessionPointHtml(row.shift, 'end')}
                 </td>
                 <td data-label="Status" class="monitoring-status-col"><span class="status ${status.className}">${esc(status.label)}</span>${mockBadge}${attendance.review_reason ? `<small style="display:block;margin-top:2px;color:var(--danger);">${esc(reviewReasonLabel(attendance.review_reason))}</small>` : ''}</td>
                 <td data-label="Menit valid" class="number-cell" style="font-weight:600;">${attendance.verified_minutes} m</td>

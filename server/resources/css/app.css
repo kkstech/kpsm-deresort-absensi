@@ -1617,8 +1617,8 @@ main:focus { outline: none; }
 .attendance-data-table { min-width: 680px; }
 .monitoring-data-table { min-width: 1000px; }
 .monitoring-data-table .monitoring-date-session-col {
-    width: 10rem;
-    max-width: 10rem;
+    width: 11rem;
+    min-width: 11rem;
 }
 .monitoring-data-table .monitoring-status-col {
     width: 132px;
@@ -1660,9 +1660,20 @@ main:focus { outline: none; }
     font-weight: 700;
     white-space: nowrap;
 }
-.monitoring-clock-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.monitoring-photo-line { display: flex; align-items: center; margin-top: 3px; }
-.session-schedule-point { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
+.monitoring-time-cell {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.monitoring-clock-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+.monitoring-clock-line b {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
 .session-range { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: nowrap; }
 .session-range strong { color: var(--primary); }
 .meta-pill.session-overnight-pill { display: inline-flex; align-items: center; padding: 2px 6px; color: var(--primary); background: var(--primary-soft); font-size: 10px; line-height: 1.3; white-space: nowrap; }
