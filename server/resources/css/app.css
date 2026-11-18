@@ -1593,9 +1593,10 @@ main:focus { outline: none; }
         max-width: none;
     }
     .monitoring-session-name {
-        white-space: normal;
-        overflow: visible;
-        text-overflow: unset;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 }
 
@@ -1619,6 +1620,7 @@ main:focus { outline: none; }
 .monitoring-data-table .monitoring-date-session-col {
     width: 11rem;
     min-width: 11rem;
+    max-width: 11rem;
 }
 .monitoring-data-table .monitoring-status-col {
     width: 132px;
@@ -1694,6 +1696,7 @@ main:focus { outline: none; }
 .attendance-events-dialog .modal-body { display: block; max-height: calc(100dvh - 150px); }
 .monitoring-session-name {
     display: block;
+    max-width: 10rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
