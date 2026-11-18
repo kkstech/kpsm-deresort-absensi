@@ -922,6 +922,114 @@ class AttendanceTest extends TestCase
         $this->artisan('attendance:clear-late-checkout-reviews', ['--from' => 'kemarin'])->assertExitCode(1);
     }
 
+    public function test_batch_verify_auto_checkout_verifies_records(): void
+    {
+        $admin = User::factory()->role('admin')->create();
+        $this->travelTo('2026-10-25 01:00:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e8888888-8888-4888-8888-111111111111'), $this->device->id);
+
+        $session = ShiftSession::query()->findOrFail($this->sessionId);
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $record->update([
+            'provisional_out_at' => '2026-10-25 14:00:00',
+            'checkout_source' => 'SYSTEM_AUTO',
+            'auto_checkout_at' => '2026-10-25 14:00:00',
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+            'review_reason' => 'AUTO_CHECKOUT',
+            'verified_minutes' => 0,
+        ]);
+
+        // Dry run
+        $this->artisan('attendance:batch-verify-auto-checkout')
+            ->expectsOutputToContain('DRY-RUN')
+            ->expectsOutputToContain('Akan diverifikasi: 1 record')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('attendance_records', [
+            'id' => $record->id,
+            'status' => 'PROVISIONAL',
+            'needs_review' => 1,
+            'verified_minutes' => 0,
+        ]);
+
+        // Apply
+        $this->artisan('attendance:batch-verify-auto-checkout', [
+            '--apply' => true,
+            '--by' => $admin->email,
+        ])
+            ->expectsOutputToContain('Diverifikasi: 1 record')
+            ->expectsOutputToContain('Selesai: 1 record berhasil diverifikasi.')
+            ->assertExitCode(0);
+
+        $record->refresh();
+        $this->assertSame('VERIFIED', $record->status);
+        $this->assertFalse($record->needs_review);
+        $this->assertNull($record->review_reason);
+        $this->assertNull($record->provisional_out_at);
+        $this->assertSame('2026-10-25 10:00:00', $record->check_out_at->toDateTimeString());
+        $this->assertSame($session->scheduledMinutes(), $record->verified_minutes);
+        $this->assertSame($admin->id, $record->verified_by);
+        $this->assertNotNull($record->verified_at);
+        $this->assertSame(1, AuditLog::query()->where('action', 'attendance.checkout.batch_verified')->count());
+    }
+
+    public function test_batch_verify_auto_checkout_skips_locked_period_and_respects_filter(): void
+    {
+        $this->travelTo('2026-10-25 01:00:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e9999999-9999-4999-8999-111111111111'), $this->device->id);
+
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $record->update([
+            'provisional_out_at' => '2026-10-25 14:00:00',
+            'checkout_source' => 'SYSTEM_AUTO',
+            'auto_checkout_at' => '2026-10-25 14:00:00',
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+            'review_reason' => 'AUTO_CHECKOUT',
+        ]);
+
+        $this->artisan('attendance:batch-verify-auto-checkout', ['--from' => '2026-10-26', '--apply' => true])
+            ->expectsOutputToContain('Diverifikasi: 0 record')
+            ->assertExitCode(0);
+
+        AttendancePeriod::query()->create(['month' => '2026-10', 'status' => 'FINALIZED', 'revision' => 1, 'finalized_at' => now()]);
+        $this->artisan('attendance:batch-verify-auto-checkout', ['--apply' => true])
+            ->expectsOutputToContain('PERIOD_LOCKED')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('attendance_records', ['id' => $record->id, 'needs_review' => 1]);
+
+        $this->artisan('attendance:batch-verify-auto-checkout', ['--from' => 'kemarin'])->assertExitCode(1);
+    }
+
+    public function test_batch_verify_auto_checkout_supports_auto_timestamp_mode(): void
+    {
+        $this->travelTo('2026-10-25 01:00:00');
+        app(RecordAttendance::class)->handle($this->employee, $this->event('e7777777-7777-4777-8777-111111111111'), $this->device->id);
+
+        $record = AttendanceRecord::query()->where('shift_session_id', $this->sessionId)->firstOrFail();
+        $record->update([
+            'provisional_out_at' => '2026-10-25 14:00:00',
+            'checkout_source' => 'SYSTEM_AUTO',
+            'auto_checkout_at' => '2026-10-25 14:00:00',
+            'status' => 'PROVISIONAL',
+            'needs_review' => true,
+            'review_reason' => 'AUTO_CHECKOUT',
+        ]);
+
+        $this->artisan('attendance:batch-verify-auto-checkout', [
+            '--apply' => true,
+            '--checkout-time' => 'auto',
+        ])
+            ->expectsOutputToContain('Diverifikasi: 1 record')
+            ->assertExitCode(0);
+
+        $record->refresh();
+        $this->assertSame('VERIFIED', $record->status);
+        $this->assertSame('2026-10-25 14:00:00', $record->check_out_at->toDateTimeString());
+    }
+
     private function legacyReguler(string $workDate): ShiftSession
     {
         $template = ShiftTemplate::query()->where('name', 'Reguler')->firstOrFail();
