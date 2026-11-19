@@ -179,13 +179,18 @@ class AttendanceTest extends TestCase
         $this->assertDatabaseHas('attendance_records', ['shift_session_id' => $this->sessionId, 'check_out_at' => '2026-10-25 13:00:00', 'review_reason' => 'CHECKOUT_LATE']);
     }
 
-    public function test_admin_can_configure_checkout_cutoff_and_grace(): void
+    public function test_attendance_settings_no_longer_expose_or_accept_legacy_checkout_grace(): void
     {
         $this->actingAs(User::factory()->role('admin')->create())
             ->putJson('/admin/api/attendance-settings', ['checkin_early_minutes' => 180, 'checkout_grace_minutes' => 45, 'checkout_cutoff_time' => '20:00'])
-            ->assertOk()->assertJsonPath('data.checkout_grace_minutes', 45)->assertJsonPath('data.checkout_cutoff_time', '20:00');
+            ->assertOk()
+            ->assertJsonPath('data.checkin_early_minutes', 180)
+            ->assertJsonMissingPath('data.checkout_grace_minutes')
+            ->assertJsonMissingPath('data.checkout_cutoff_time');
+        $this->assertDatabaseMissing('site_settings', ['id' => 1, 'checkout_cutoff_time' => '20:00']);
         $session = ShiftSession::query()->findOrFail($this->sessionId);
-        $this->assertSame('2026-10-25 13:00:00', AttendanceWindow::checkoutDeadline($session)->format('Y-m-d H:i:s'));
+        // Legacy v3 deadline stays on the frozen 23:59 WIB day end, whatever was sent.
+        $this->assertSame('2026-10-25 16:59:00', AttendanceWindow::checkoutDeadline($session)->format('Y-m-d H:i:s'));
     }
 
     public function test_old_auto_checkout_can_be_replaced_before_the_new_deadline(): void

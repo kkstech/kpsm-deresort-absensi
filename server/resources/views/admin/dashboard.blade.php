@@ -1304,9 +1304,7 @@
                                             </label>
                                         </section>
                                         <section class="site-settings-section"><h3>Check-out</h3>
-                                            <label>Grace setelah akhir shift (menit)<input name="checkout_grace_minutes" type="number" min="0" max="720" required></label>
-                                            <label>Batas akhir hari (WIB)<input name="checkout_cutoff_time" type="time" required></label>
-                                            <small>Berlaku untuk jadwal lama (aturan v3): check-out tersedia sampai shift berikutnya atau batas akhir hari, mana yang lebih dulu. Jadwal baru (aturan v4) tidak memakai grace: check-out mandiri sampai 13 jam setelah jam mulai sesi terjadwal langsung diterima, lewat dari itu sistem checkout otomatis dan perlu verifikasi.</small>
+                                            <small>Tidak ada pengaturan grace. Check-out mandiri diterima sampai 13 jam setelah jam mulai sesi terjadwal; lewat dari itu sistem melakukan checkout otomatis dan perlu verifikasi.</small>
                                         </section>
                                     </div>
                                 </div>

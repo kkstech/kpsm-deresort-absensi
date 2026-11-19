@@ -141,7 +141,7 @@ class ShiftAssignment extends Model
                         },
                         'checkout_grace_minutes' => match (true) {
                             $rulesVersion >= 4 => null,
-                            $rulesVersion === 3 => (int) (SiteSetting::current()->checkout_grace_minutes ?? 60),
+                            $rulesVersion === 3 => AttendanceWindow::LEGACY_V3_CHECKOUT_GRACE_MINUTES,
                             $rulesVersion >= 2 && $this->template_type === 'special' => 0,
                             default => config('attendance.checkout_late_minutes'),
                         },

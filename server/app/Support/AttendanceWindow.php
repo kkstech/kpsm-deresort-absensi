@@ -4,11 +4,19 @@ namespace App\Support;
 
 use App\Models\AttendanceRecord;
 use App\Models\ShiftSession;
-use App\Models\SiteSetting;
 use Carbon\CarbonImmutable;
 
 class AttendanceWindow
 {
+    /**
+     * Legacy rules v3 only (schedules published before rules v4). These used to be admin settings
+     * ("Grace setelah akhir shift" / "Batas akhir hari"); they are now frozen at the values production used,
+     * so historical v3 sessions keep their original checkout behaviour. Rules v4 does not use them.
+     */
+    public const LEGACY_V3_CHECKOUT_GRACE_MINUTES = 60;
+
+    public const LEGACY_V3_DAY_END_TIME = '23:59';
+
     public static function effectiveWorkEnd(ShiftSession $session): CarbonImmutable
     {
         $approvedOvertimeEnd = $session->overtimeOrders
@@ -58,8 +66,7 @@ class AttendanceWindow
 
     public static function checkoutDeadline(ShiftSession $session): CarbonImmutable
     {
-        $setting = SiteSetting::current();
-        $cutoff = WorkTime::at(WorkTime::local($session->end_at)->toDateString(), $setting->checkout_cutoff_time ?? '23:59');
+        $cutoff = WorkTime::at(WorkTime::local($session->end_at)->toDateString(), static::LEGACY_V3_DAY_END_TIME);
         $nextStart = ShiftSession::query()->whereNull('retired_at')->where('id', '!=', $session->id)
             ->where('start_at', '>=', $session->end_at)
             ->whereHas('assignment', fn ($query) => $query->where('employee_id', $session->assignment->employee_id)->whereNotIn('status', ['DRAFT', 'CANCELLED']))
