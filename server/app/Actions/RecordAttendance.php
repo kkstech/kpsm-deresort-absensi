@@ -72,7 +72,7 @@ class RecordAttendance
                 ?? $locationProblem;
             // Legacy rules v3 only: v4 sends a self checkout to review only after the automatic checkout deadline.
             if ($problem === null && $input['event_type'] === 'CHECK_OUT' && $this->rulesVersion($session) === 3
-                && $effective->gt(AttendanceWindow::effectiveWorkEnd($session)->addMinutes((int) (SiteSetting::current()->checkout_grace_minutes ?? 60)))) {
+                && $effective->gt(AttendanceWindow::effectiveWorkEnd($session)->addMinutes(AttendanceWindow::LEGACY_V3_CHECKOUT_GRACE_MINUTES))) {
                 $problem = 'CHECKOUT_LATE';
             }
         }
