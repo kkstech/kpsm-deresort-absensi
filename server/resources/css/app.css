@@ -267,7 +267,15 @@ main:focus { outline: none; }
 @media (max-width: 420px) {
     .schedule-heading-grid,
     .heading-actions.schedule-heading-grid {
-        grid-template-columns: 1fr !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+    .schedule-heading-grid > button,
+    .heading-actions.schedule-heading-grid > button {
+        height: auto !important;
+        min-height: 44px !important;
+        padding: 6px 8px !important;
+        white-space: normal !important;
+        line-height: 1.2;
     }
 }
 

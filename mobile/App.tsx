@@ -3803,11 +3803,11 @@ function Main() {
                 <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Kategori / Alasan:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickChipsScroll}>
                   {[
-                    { label: '🚗 Terlambat Hadir', prefix: '[Terlambat Hadir] ' },
-                    { label: '🚶 Keperluan mendadak', prefix: '[Keperluan Mendadak] ' },
-                    { label: '👨‍👩‍👧 Keperluan Keluarga', prefix: '[Urusan Keluarga] ' },
-                    { label: '🏥 Sakit / Medis', prefix: '[Kondisi Sakit] ' },
-                    { label: '💼 Tugas Dinas Luar', prefix: '[Tugas Dinas] ' },
+                    { label: '🚗 Terlambat Hadir', prefix: 'Terlambat Hadir: ' },
+                    { label: '🚶 Keperluan mendadak', prefix: 'Keperluan Mendadak: ' },
+                    { label: '👨‍👩‍👧 Keperluan Keluarga', prefix: 'Urusan Keluarga: ' },
+                    { label: '🏥 Sakit / Medis', prefix: 'Kondisi Sakit: ' },
+                    { label: '💼 Tugas Dinas Luar', prefix: 'Tugas Dinas: ' },
                   ].map((cat) => {
                     const isSelected = permissionCategory === cat.label;
                     return (
@@ -3815,9 +3815,10 @@ function Main() {
                         key={cat.label}
                         onPress={() => {
                           setPermissionCategory(cat.label);
-                          if (!reason.includes(cat.prefix)) {
-                            setReason(cat.prefix + (reason ? reason.replace(/^\[.*?\]\s*/, '') : ''));
-                          }
+                          const reasonText = reason
+                            .replace(/^\[(?:Terlambat Hadir|Keperluan Mendadak|Urusan Keluarga|Kondisi Sakit|Tugas Dinas)\]\s*/, '')
+                            .replace(/^(?:Terlambat Hadir|Keperluan Mendadak|Urusan Keluarga|Kondisi Sakit|Tugas Dinas):\s*/, '');
+                          setReason(cat.prefix + reasonText);
                         }}
                         style={[styles.quickChip, isSelected && styles.quickChipActive]}
                       >
