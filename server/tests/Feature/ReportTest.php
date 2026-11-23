@@ -766,6 +766,14 @@ class ReportTest extends TestCase
         $this->assertSame('Januari 2026 s.d. Desember 2026', $report['period_label']);
         $this->assertSame('Finance', $report['groups'][0]['department']);
 
+        $html = view('reports.leave-outstanding-pdf', ['site' => null, 'report' => $report, 'filters' => []])->render();
+        $this->assertStringContainsString('<th rowspan="2" style="width: 46px;">Departemen</th>', $html);
+        foreach (['Januari', 'Februari', 'September', 'Desember', '>Cuti</th>', '>Deposit Off</th>'] as $label) {
+            $this->assertStringContainsString($label, $html);
+        }
+        $this->assertStringNotContainsString('>DO</th>', $html);
+        $this->assertStringNotContainsString('>C</th>', $html);
+
         $pdf = $this->actingAs($admin)->get('/admin/api/reports/export/pdf?type=leave-outstanding&year=2026');
         $pdf->assertOk();
         $this->assertStringContainsString('outstanding_cuti_2026.pdf', $pdf->headers->get('content-disposition'));

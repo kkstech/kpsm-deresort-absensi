@@ -820,7 +820,6 @@ class ReportService
             'year' => $year,
             'period_label' => self::MONTHS_ID[1]." {$year} s.d. ".self::MONTHS_ID[12]." {$year}",
             'month_names' => self::MONTHS_ID,
-            'month_short_names' => array_map(fn (string $name) => mb_substr($name, 0, 3), self::MONTHS_ID),
             'rows' => $rows,
             'groups' => $this->groupRowsByDepartment($rows),
             'totals' => $totals,

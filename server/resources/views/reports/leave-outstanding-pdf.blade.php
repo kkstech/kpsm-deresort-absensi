@@ -125,7 +125,7 @@
         .data-table tr:nth-child(even) td {
             background-color: #fafafa;
         }
-        .data-table th.sub { font-size: 5.5pt; padding: 3px 2px; }
+        .data-table th.sub { font-size: 5pt; padding: 2px 1px; text-transform: none; line-height: 1.1; }
         .dept-row td {
             background-color: #0f172a !important;
             color: #ffffff;
@@ -191,7 +191,7 @@
                 </td>
                 <td style="width: 30%; text-align: right; vertical-align: top;">
                     <div class="meta-text">Dicetak: {{ $report['generated_at_local'] }}</div>
-                    <div class="meta-text">C = Cuti, DO = Deposit Off (hari)</div>
+                    <div class="meta-text">Satuan: hari</div>
                 </td>
             </tr>
         </table>
@@ -204,19 +204,20 @@
         <thead>
             <tr>
                 <th rowspan="2" style="width: 14px;">No</th>
-                <th rowspan="2">Nama</th>
+                <th rowspan="2" style="width: 78px;">Nama</th>
                 <th rowspan="2" style="width: 40px;">Tanggal Mulai Bekerja</th>
-                <th rowspan="2" style="width: 52px;">Jabatan</th>
+                <th rowspan="2" style="width: 46px;">Departemen</th>
+                <th rowspan="2" style="width: 46px;">Jabatan</th>
                 <th colspan="2">Saldo Awal</th>
-                @foreach ($report['month_short_names'] as $month => $monthName)
-                    <th colspan="2" title="{{ $report['month_names'][$month] }}">{{ $monthName }}</th>
+                @foreach ($report['month_names'] as $monthName)
+                    <th colspan="2">{{ $monthName }}</th>
                 @endforeach
                 <th colspan="2">Saldo Akhir</th>
             </tr>
             <tr>
                 @for ($i = 0; $i < 14; $i++)
-                    <th class="sub" style="width: 13px;">C</th>
-                    <th class="sub" style="width: 13px;">DO</th>
+                    <th class="sub">Cuti</th>
+                    <th class="sub">Deposit Off</th>
                 @endfor
             </tr>
         </thead>
@@ -224,7 +225,7 @@
             @php $no = 0; @endphp
             @forelse ($report['groups'] as $group)
                 <tr class="dept-row">
-                    <td colspan="32">Departemen : {{ $group['department'] }}</td>
+                    <td colspan="33">Departemen : {{ $group['department'] }}</td>
                 </tr>
                 @foreach ($group['rows'] as $row)
                     @php $emp = $row['employee']; @endphp
@@ -232,6 +233,7 @@
                         <td class="text-center">{{ ++$no }}</td>
                         <td class="text-left"><strong>{{ $emp['name'] }}</strong></td>
                         <td class="text-center nowrap">{{ $emp['started_on_formatted'] ?? '-' }}</td>
+                        <td class="text-left">{{ $group['department'] }}</td>
                         <td class="text-left">{{ $emp['position'] }}</td>
                         <td class="text-center">{{ $row['opening_cuti'] }}</td>
                         <td class="text-center">{{ $row['opening_deposit_off'] }}</td>
@@ -245,7 +247,7 @@
                 @endforeach
             @empty
                 <tr>
-                    <td colspan="32" class="text-center" style="padding: 15px; color: #64748b;">
+                    <td colspan="33" class="text-center" style="padding: 15px; color: #64748b;">
                         Tidak ada karyawan aktif untuk filter ini.
                     </td>
                 </tr>
@@ -253,7 +255,7 @@
             @if (! empty($report['rows']))
                 @php $t = $report['totals']; @endphp
                 <tr class="total-row">
-                    <td colspan="4" class="text-center">TOTAL KESELURUHAN</td>
+                    <td colspan="5" class="text-center">TOTAL KESELURUHAN</td>
                     <td class="text-center">{{ $t['opening_cuti'] }}</td>
                     <td class="text-center">{{ $t['opening_deposit_off'] }}</td>
                     @foreach ($t['months'] as $used)
