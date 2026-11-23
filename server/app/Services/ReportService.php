@@ -2,10 +2,15 @@
 
 namespace App\Services;
 
+use App\Actions\CalculateLeaveBalance;
 use App\Exceptions\BusinessRuleException;
 use App\Http\Controllers\Admin\EmployeeController;
+use App\Models\AllowancePolicy;
 use App\Models\AllowanceResult;
 use App\Models\AttendancePeriod;
+use App\Models\Employee;
+use App\Models\EmployeeAllowanceOverride;
+use App\Models\EmployeeLevelAssignment;
 use App\Models\LeaveRequest;
 use App\Models\OvertimeOrder;
 use App\Models\ShiftAssignment;
@@ -23,6 +28,13 @@ use Illuminate\Support\Facades\DB;
 
 class ReportService
 {
+    public const NO_DEPARTMENT_LABEL = 'Tanpa Departemen';
+
+    private const MONTHS_ID = [
+        1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April', 5 => 'Mei', 6 => 'Juni',
+        7 => 'Juli', 8 => 'Agustus', 9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+    ];
+
     public function visibleActiveEmployees(User $user): Builder
     {
         return EmployeeController::visibleTo($user)->where('employees.status', 'active');
@@ -153,10 +165,14 @@ class ReportService
                 'period_status' => $this->determinePeriodStatus($filters['from'], $filters['to']),
                 'kpi' => $this->emptyKpi(),
                 'rows' => [],
+                'groups' => [],
+                'period_label' => $this->formatPeriodLabel($filters['from'], $filters['to']),
+                'generated_at_local' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
             ];
         }
 
         $employeeIds = $employees->pluck('id')->all();
+        $transportRates = $this->transportRatesFor($employees, $filters['to']);
 
         $assignments = ShiftAssignment::query()
             ->whereIn('employee_id', $employeeIds)
@@ -222,6 +238,9 @@ class ReportService
         $totalLateMinutes = 0;
         $totalReviewCount = 0;
         $totalLeaveDays = 0;
+        $totalCutiDays = 0;
+        $totalDepositOffDays = 0;
+        $totalMiddle = 0;
         $totalShift1 = 0;
         $totalShift2 = 0;
         $totalShift3 = 0;
@@ -279,6 +298,7 @@ class ReportService
                 'shift_1' => 0,
                 'shift_2' => 0,
                 'shift_3' => 0,
+                'middle' => 0,
                 'split' => 0,
                 'exchange' => 0,
                 'total_shifts' => 0,
@@ -314,6 +334,7 @@ class ReportService
             $totalShift1 += $shiftCounts['shift_1'];
             $totalShift2 += $shiftCounts['shift_2'];
             $totalShift3 += $shiftCounts['shift_3'];
+            $totalMiddle += $shiftCounts['middle'];
             $totalSplit += $shiftCounts['split'];
             $totalExchange += $shiftCounts['exchange'];
 
@@ -323,10 +344,15 @@ class ReportService
             $empOvertimeMinutes = (int) $empOvertimes->sum('verified_minutes');
 
             $empLeaveDays = 0;
+            $empDepositOffDays = 0;
             foreach ($empLeaves as $leave) {
-                $days = (int) ($leave->days_count ?: 1);
-                $empLeaveDays += max(1, $days);
+                $days = max(1, (int) ($leave->days_count ?: 1));
+                $empLeaveDays += $days;
+                if ($leave->type === 'day_off') {
+                    $empDepositOffDays += $days;
+                }
             }
+            $empCutiDays = $empLeaveDays - $empDepositOffDays;
 
             $mealAmount = (int) $empAllowances->where('status', 'ELIGIBLE')->sum('meal_amount');
             $transportAmount = (int) $empAllowances->where('status', 'ELIGIBLE')->sum('transport_amount');
@@ -345,16 +371,13 @@ class ReportService
             $totalLateMinutes += $lateMinutes;
             $totalReviewCount += $reviewCount;
             $totalLeaveDays += $empLeaveDays;
+            $totalCutiDays += $empCutiDays;
+            $totalDepositOffDays += $empDepositOffDays;
 
             $rows[] = [
                 'employee' => [
-                    'id' => $employee->id,
-                    'code' => $employee->code,
-                    'name' => $employee->name,
-                    'department' => $employee->department?->name ?? '-',
-                    'position' => $employee->position?->name ?? '-',
-                    'level' => $employee->level?->name ?? '-',
-                    'avatar_url' => $employee->avatar_url,
+                    ...$this->reportEmployee($employee),
+                    'transport_rate' => $transportRates[$employee->id] ?? 0,
                 ],
                 'scheduled_days' => $scheduledDays,
                 'attended_days' => $attendedDays,
@@ -373,6 +396,8 @@ class ReportService
                 'overtime_minutes' => $empOvertimeMinutes,
                 'overtime_hours_formatted' => $this->formatHoursMinutes($empOvertimeMinutes),
                 'leave_days' => $empLeaveDays,
+                'cuti_days' => $empCutiDays,
+                'deposit_off_days' => $empDepositOffDays,
                 'meal_allowance' => $mealAmount,
                 'transport_allowance' => $transportAmount,
                 'total_allowance' => $totalAllowance,
@@ -381,6 +406,7 @@ class ReportService
         }
 
         $periodStatus = $this->determinePeriodStatus($filters['from'], $filters['to']);
+        $rows = $this->sortRowsByDepartmentAndRank($rows);
 
         $kpi = [
             'total_employees' => count($rows),
@@ -401,6 +427,9 @@ class ReportService
             'total_late_minutes' => $totalLateMinutes,
             'total_review_count' => $totalReviewCount,
             'total_leave_days' => $totalLeaveDays,
+            'total_cuti_days' => $totalCutiDays,
+            'total_deposit_off_days' => $totalDepositOffDays,
+            'total_middle' => $totalMiddle,
             'total_shift_1' => $totalShift1,
             'total_shift_2' => $totalShift2,
             'total_shift_3' => $totalShift3,
@@ -416,6 +445,8 @@ class ReportService
             'period_status' => $periodStatus,
             'kpi' => $kpi,
             'rows' => $rows,
+            'groups' => $this->groupRowsByDepartment($rows),
+            'period_label' => $this->formatPeriodLabel($filters['from'], $filters['to']),
             'generated_at' => WorkTime::now()->toISOString(),
             'generated_at_local' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
         ];
@@ -709,6 +740,221 @@ class ReportService
         return "{$hours}j {$remMinutes}m";
     }
 
+    /**
+     * Outstanding cuti & deposit off per karyawan untuk satu tahun saldo.
+     * Saldo awal = hak tahunan (kuota prorata + penyesuaian), pemakaian = cuti APPROVED
+     * dipecah per bulan kalender, saldo akhir = saldo awal - pemakaian.
+     */
+    public function getLeaveOutstanding(User $user, int $year, array $filters = []): array
+    {
+        $employees = $this->visibleActiveEmployees($user)
+            ->with(['department:id,name', 'position:id,name', 'level:id,code,name'])
+            ->when(! empty($filters['department_id']), fn (Builder $q) => $q->where('department_id', $filters['department_id']))
+            ->when(! empty($filters['employee_id']), fn (Builder $q) => $q->where('id', $filters['employee_id']))
+            ->when(! empty($filters['q']), function (Builder $q) use ($filters) {
+                $term = trim($filters['q']);
+                $q->where(fn (Builder $sub) => $sub->where('name', 'like', "%{$term}%")->orWhere('code', 'like', "%{$term}%"));
+            })
+            ->orderBy('name')
+            ->get();
+
+        $transportRates = $this->transportRatesFor($employees, "{$year}-12-31");
+        $leaves = LeaveRequest::query()
+            ->whereIn('employee_id', $employees->pluck('id'))
+            ->where('status', 'APPROVED')
+            ->whereYear('work_date', $year)
+            ->get()
+            ->groupBy('employee_id');
+
+        $calculator = app(CalculateLeaveBalance::class);
+        $emptyMonths = array_fill_keys(range(1, 12), ['cuti' => 0, 'deposit_off' => 0]);
+        $totals = [
+            'opening_cuti' => 0, 'opening_deposit_off' => 0,
+            'months' => $emptyMonths,
+            'closing_cuti' => 0, 'closing_deposit_off' => 0,
+        ];
+        $rows = [];
+
+        foreach ($employees as $employee) {
+            $balance = $calculator->for($employee, $year);
+            $months = $emptyMonths;
+            foreach ($leaves->get($employee->id, collect()) as $leave) {
+                $bucket = $leave->type === 'day_off' ? 'deposit_off' : 'cuti';
+                foreach ($this->leaveDaysPerMonth($leave, $year) as $month => $days) {
+                    $months[$month][$bucket] += $days;
+                }
+            }
+
+            $usedCuti = array_sum(array_column($months, 'cuti'));
+            $usedDepositOff = array_sum(array_column($months, 'deposit_off'));
+            $openingCuti = (int) ($balance['regular']['entitled'] ?? 0);
+            $openingDepositOff = (int) ($balance['day_off']['entitled'] ?? 0);
+            $row = [
+                'employee' => [
+                    ...$this->reportEmployee($employee),
+                    'transport_rate' => $transportRates[$employee->id] ?? 0,
+                ],
+                'opening_cuti' => $openingCuti,
+                'opening_deposit_off' => $openingDepositOff,
+                'months' => $months,
+                'used_cuti' => $usedCuti,
+                'used_deposit_off' => $usedDepositOff,
+                'closing_cuti' => $openingCuti - $usedCuti,
+                'closing_deposit_off' => $openingDepositOff - $usedDepositOff,
+            ];
+            $rows[] = $row;
+
+            $totals['opening_cuti'] += $openingCuti;
+            $totals['opening_deposit_off'] += $openingDepositOff;
+            $totals['closing_cuti'] += $row['closing_cuti'];
+            $totals['closing_deposit_off'] += $row['closing_deposit_off'];
+            foreach ($months as $month => $used) {
+                $totals['months'][$month]['cuti'] += $used['cuti'];
+                $totals['months'][$month]['deposit_off'] += $used['deposit_off'];
+            }
+        }
+
+        $rows = $this->sortRowsByDepartmentAndRank($rows);
+
+        return [
+            'year' => $year,
+            'period_label' => self::MONTHS_ID[1]." {$year} s.d. ".self::MONTHS_ID[12]." {$year}",
+            'month_names' => self::MONTHS_ID,
+            'month_short_names' => array_map(fn (string $name) => mb_substr($name, 0, 3), self::MONTHS_ID),
+            'rows' => $rows,
+            'groups' => $this->groupRowsByDepartment($rows),
+            'totals' => $totals,
+            'total_employees' => count($rows),
+            'generated_at_local' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
+        ];
+    }
+
+    /** @return array<int, int> bulan => jumlah hari cuti di tahun tsb. */
+    private function leaveDaysPerMonth(LeaveRequest $leave, int $year): array
+    {
+        $start = CarbonImmutable::parse($leave->work_date)->startOfDay();
+        $end = CarbonImmutable::parse($leave->effectiveEndDate())->startOfDay();
+        $total = max(1, (int) ($leave->days_count ?: ($start->diffInDays($end) + 1)));
+        $perMonth = [];
+        $counted = 0;
+        for ($day = $start; $day->lte($end) && $counted < $total; $day = $day->addDay()) {
+            // Sisa hari yang melewati akhir tahun tetap dihitung di Desember agar total = saldo terpakai.
+            $month = $day->year === $year ? $day->month : 12;
+            $perMonth[$month] = ($perMonth[$month] ?? 0) + 1;
+            $counted++;
+        }
+        if ($counted < $total) {
+            $month = $start->month;
+            $perMonth[$month] = ($perMonth[$month] ?? 0) + ($total - $counted);
+        }
+
+        return $perMonth;
+    }
+
+    public function formatPeriodLabel(string $from, string $to): string
+    {
+        return $this->formatDateId($from).' s.d. '.$this->formatDateId($to);
+    }
+
+    public function formatDateId(?string $date): string
+    {
+        if (! $date) {
+            return '-';
+        }
+        $carbon = CarbonImmutable::parse($date);
+
+        return $carbon->day.' '.self::MONTHS_ID[$carbon->month].' '.$carbon->year;
+    }
+
+    private function reportEmployee(Employee $employee): array
+    {
+        $startedOn = $employee->started_on ? substr((string) $employee->started_on, 0, 10) : null;
+
+        return [
+            'id' => $employee->id,
+            'code' => $employee->code,
+            'name' => $employee->name,
+            'department_id' => $employee->department_id,
+            'department' => $employee->department?->name ?? '-',
+            'position' => $employee->position?->name ?? '-',
+            'level' => $employee->level?->name ?? '-',
+            'started_on' => $startedOn,
+            'started_on_formatted' => $startedOn ? CarbonImmutable::parse($startedOn)->format('d/m/Y') : '-',
+            'avatar_url' => $employee->avatar_url,
+        ];
+    }
+
+    /**
+     * Tarif tunjangan transport per hari yang berlaku pada $date (override karyawan > kebijakan level),
+     * sama dengan aturan CalculateCycleAllowance. Dipakai sebagai urutan "level" di laporan.
+     *
+     * @return array<int, int>
+     */
+    private function transportRatesFor(Collection $employees, string $date): array
+    {
+        $ids = $employees->pluck('id')->all();
+        if ($ids === []) {
+            return [];
+        }
+        $active = fn ($query) => $query->where('effective_from', '<=', $date)
+            ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $date));
+
+        $levelAssignments = EmployeeLevelAssignment::query()->whereIn('employee_id', $ids)->where($active)
+            ->orderByDesc('effective_from')->get()->unique('employee_id')->keyBy('employee_id');
+        $overrides = EmployeeAllowanceOverride::query()->whereIn('employee_id', $ids)->where($active)
+            ->orderByDesc('effective_from')->get()->unique('employee_id')->keyBy('employee_id');
+
+        $levelIds = $employees->map(fn (Employee $e) => $levelAssignments->get($e->id)?->level_id ?? $e->level_id)->filter()->unique()->all();
+        $policies = AllowancePolicy::query()->whereIn('level_id', $levelIds)->where($active)
+            ->orderByDesc('effective_from')->get()->unique('level_id')->keyBy('level_id');
+
+        $rates = [];
+        foreach ($employees as $employee) {
+            $levelId = $levelAssignments->get($employee->id)?->level_id ?? $employee->level_id;
+            $transport = $overrides->get($employee->id)?->transport_amount
+                ?? ($levelId ? $policies->get($levelId)?->transport_amount : null);
+            $rates[$employee->id] = (int) ($transport ?? 0);
+        }
+
+        return $rates;
+    }
+
+    /**
+     * Urutkan per departemen (abjad, "Tanpa Departemen" terakhir), lalu level tertinggi:
+     * tarif tunjangan transport terbesar, tanggal mulai bekerja paling awal, lalu nama.
+     */
+    public function sortRowsByDepartmentAndRank(array $rows): array
+    {
+        usort($rows, function (array $a, array $b) {
+            $ea = $a['employee'];
+            $eb = $b['employee'];
+            $deptA = $ea['department_id'] ? 0 : 1;
+            $deptB = $eb['department_id'] ? 0 : 1;
+
+            return [$deptA, mb_strtolower((string) $ea['department']), -($ea['transport_rate'] ?? 0), $ea['started_on'] ?? '9999-12-31', mb_strtolower($ea['name']), $ea['id']]
+                <=> [$deptB, mb_strtolower((string) $eb['department']), -($eb['transport_rate'] ?? 0), $eb['started_on'] ?? '9999-12-31', mb_strtolower($eb['name']), $eb['id']];
+        });
+
+        return $rows;
+    }
+
+    /** @return array<int, array{department_id: ?int, department: string, rows: array}> */
+    public function groupRowsByDepartment(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $key = $row['employee']['department_id'] ?? 0;
+            $groups[$key] ??= [
+                'department_id' => $row['employee']['department_id'] ?? null,
+                'department' => $row['employee']['department_id'] ? $row['employee']['department'] : self::NO_DEPARTMENT_LABEL,
+                'rows' => [],
+            ];
+            $groups[$key]['rows'][] = $row;
+        }
+
+        return array_values($groups);
+    }
+
     private function emptyKpi(): array
     {
         return [
@@ -730,6 +976,9 @@ class ReportService
             'total_late_minutes' => 0,
             'total_review_count' => 0,
             'total_leave_days' => 0,
+            'total_cuti_days' => 0,
+            'total_deposit_off_days' => 0,
+            'total_middle' => 0,
             'total_shift_1' => 0,
             'total_shift_2' => 0,
             'total_shift_3' => 0,
@@ -757,7 +1006,12 @@ class ReportService
             return 'split';
         }
 
-        // 2. Keyword matching for Shift 1, 2, 3
+        // 2. Middle shift has its own column in the rekap template.
+        if (str_contains($categoryName, 'middle') || str_contains($templateName, 'middle')) {
+            return 'middle';
+        }
+
+        // 3. Keyword matching for Shift 1, 2, 3
         if (
             str_contains($categoryName, 'shift 1')
             || str_contains($templateName, 'shift 1')
@@ -780,8 +1034,6 @@ class ReportService
             || str_contains($templateName, 'siang')
             || str_contains($categoryName, 'sore')
             || str_contains($templateName, 'sore')
-            || str_contains($categoryName, 'middle')
-            || str_contains($templateName, 'middle')
             || str_contains($categoryName, 'afternoon')
             || str_contains($templateName, 'afternoon')
             || str_contains($categoryName, 'evening')
@@ -803,7 +1055,7 @@ class ReportService
             return 'shift_3';
         }
 
-        // 3. Fallback based on start hour of first session (local time)
+        // 4. Fallback based on start hour of first session (local time)
         $firstSession = $sessions->first();
         if ($firstSession && $firstSession->start_at) {
             $localTime = WorkTime::local($firstSession->start_at);

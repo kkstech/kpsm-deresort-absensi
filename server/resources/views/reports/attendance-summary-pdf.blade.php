@@ -109,22 +109,32 @@
         .data-table th {
             background-color: #f1f5f9;
             color: #0f172a;
-            font-size: 7pt;
+            font-size: 6pt;
             font-weight: bold;
             text-transform: uppercase;
-            padding: 5px 4px;
+            padding: 4px 2px;
             border: 1px solid #cbd5e1;
             text-align: center;
         }
         .data-table td {
-            font-size: 7pt;
-            padding: 4px 4px;
+            font-size: 6.5pt;
+            padding: 3px 3px;
             border: 1px solid #e2e8f0;
             vertical-align: middle;
         }
         .data-table tr:nth-child(even) td {
             background-color: #fafafa;
         }
+        .data-table th.sub { font-size: 5.5pt; padding: 3px 2px; }
+        .dept-row td {
+            background-color: #0f172a !important;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 7pt;
+            text-align: left;
+            padding: 4px 6px;
+        }
+        .nowrap { white-space: nowrap; }
         .text-left { text-align: left; }
         .text-center { text-align: center; }
         .text-right { text-align: right; }
@@ -174,9 +184,9 @@
             <tr>
                 <td style="width: 70%;">
                     <div class="resort-name">{{ $site->site_name ?? 'SISTEM ABSENSI RESORT' }}</div>
-                    <div class="report-title">REKAPITULASI KEHADIRAN KARYAWAN</div>
+                    <div class="report-title">LAPORAN REKAPITULASI KEHADIRAN KARYAWAN</div>
                     <div class="meta-text">
-                        Periode: <strong>{{ $summary['filters']['from'] }}</strong> s.d. <strong>{{ $summary['filters']['to'] }}</strong>
+                        Periode: <strong>{{ $summary['period_label'] ?? ($summary['filters']['from'].' s.d. '.$summary['filters']['to']) }}</strong>
                         @if (! empty($summary['filters']['department_name']))
                             | Departemen: <strong>{{ $summary['filters']['department_name'] }}</strong>
                         @endif
@@ -198,7 +208,7 @@
         </table>
     </div>
 
-    @php($kpi = $summary['kpi'])
+    @php $kpi = $summary['kpi']; @endphp
     <table class="kpi-table">
         <tr>
             <td>
@@ -236,84 +246,115 @@
         </tr>
     </table>
 
+    @php
+        $rp = fn ($v) => number_format((int) $v, 0, ',', '.');
+        $dash = fn ($v) => (int) $v > 0 ? $v : '-';
+    @endphp
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 20px;">No</th>
-                <th style="width: 55px;">NIK</th>
-                <th>Nama Karyawan</th>
-                <th>Departemen</th>
-                <th style="width: 35px;">Jadwal</th>
-                <th style="width: 35px;">Hadir</th>
-                <th style="width: 65px;">Rincian Shift</th>
-                <th style="width: 55px;">Jam Reguler</th>
-                <th style="width: 45px;">Terlambat</th>
-                <th style="width: 50px;">Lembur Aktual</th>
-                <th style="width: 50px;">Lembur Diakui</th>
-                <th style="width: 30px;">Cuti</th>
-                <th style="width: 35px;">Review</th>
-                <th style="width: 60px;">Uang Makan</th>
-                <th style="width: 60px;">Uang Transport</th>
-                <th style="width: 70px;">Total Tunjangan</th>
+                <th rowspan="2" style="width: 16px;">No</th>
+                <th rowspan="2">Nama</th>
+                <th rowspan="2" style="width: 44px;">Tanggal Mulai Bekerja</th>
+                <th rowspan="2" style="width: 60px;">Jabatan</th>
+                <th colspan="2">Total Hari</th>
+                <th colspan="2">Total Sesi</th>
+                <th colspan="5">Shift</th>
+                <th rowspan="2" style="width: 26px;">Tukar Shift</th>
+                <th colspan="4">Keterlambatan</th>
+                <th colspan="2">Lembur</th>
+                <th rowspan="2" style="width: 22px;">Cuti</th>
+                <th rowspan="2" style="width: 26px;">Deposit Off</th>
+                <th rowspan="2" style="width: 48px;">Tunjangan Makan</th>
+                <th rowspan="2" style="width: 48px;">Tunjangan Transport</th>
+                <th rowspan="2" style="width: 52px;">Total Tunjangan</th>
+            </tr>
+            <tr>
+                <th class="sub" style="width: 22px;">Jadwal</th>
+                <th class="sub" style="width: 22px;">Hadir</th>
+                <th class="sub" style="width: 22px;">Jadwal</th>
+                <th class="sub" style="width: 22px;">Hadir</th>
+                <th class="sub" style="width: 16px;">I</th>
+                <th class="sub" style="width: 16px;">II</th>
+                <th class="sub" style="width: 16px;">III</th>
+                <th class="sub" style="width: 24px;">Middle</th>
+                <th class="sub" style="width: 20px;">Split</th>
+                <th class="sub" style="width: 20px;">Jml</th>
+                <th class="sub" style="width: 30px;">Durasi Aktual</th>
+                <th class="sub" style="width: 24px;">Berizin</th>
+                <th class="sub" style="width: 26px;">Tanpa Izin</th>
+                <th class="sub" style="width: 32px;">Aktual</th>
+                <th class="sub" style="width: 32px;">SPL</th>
             </tr>
         </thead>
         <tbody>
-            @forelse ($summary['rows'] as $idx => $row)
-                @php($emp = $row['employee'])
-                <tr>
-                    <td class="text-center">{{ $idx + 1 }}</td>
-                    <td class="text-center"><code>{{ $emp['code'] }}</code></td>
-                    <td class="text-left"><strong>{{ $emp['name'] }}</strong></td>
-                    <td class="text-left">{{ $emp['department'] }}</td>
-                    <td class="text-center">{{ $row['scheduled_days'] }} h</td>
-                    <td class="text-center"><strong>{{ $row['attended_days'] }} h</strong></td>
-                    <td class="text-center" style="font-size: 6pt; line-height: 1.1;">
-                        @php($sc = $row['shift_counts'] ?? [])
-                        S1:{{ $sc['shift_1'] ?? 0 }} S2:{{ $sc['shift_2'] ?? 0 }}<br>
-                        S3:{{ $sc['shift_3'] ?? 0 }} Sp:{{ $sc['split'] ?? 0 }} Tk:{{ $sc['exchange'] ?? 0 }}
-                    </td>
-                    <td class="text-center">{{ $row['verified_hours_formatted'] }}</td>
-                    <td class="text-center">
-                        @if ($row['late_count'] > 0)
-                            <span style="color: #b45309; font-weight: bold;">{{ $row['late_count'] }}x</span>
-                            <span style="font-size: 6pt; color: #64748b;">({{ $row['late_minutes'] }}m)</span>
-                        @else
-                            <span style="color: #15803d;">-</span>
-                        @endif
-                    </td>
-                    <td class="text-center">{{ $row['overtime_actual_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $row['overtime_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $row['leave_days'] > 0 ? $row['leave_days'].' h' : '-' }}</td>
-                    <td class="text-center">{{ $row['review_count'] > 0 ? $row['review_count'] : '-' }}</td>
-                    <td class="text-right">Rp {{ number_format($row['meal_allowance'], 0, ',', '.') }}</td>
-                    <td class="text-right">Rp {{ number_format($row['transport_allowance'], 0, ',', '.') }}</td>
-                    <td class="text-right" style="font-weight: bold;">Rp {{ number_format($row['total_allowance'], 0, ',', '.') }}</td>
+            @php $no = 0; @endphp
+            @forelse ($summary['groups'] ?? [] as $group)
+                <tr class="dept-row">
+                    <td colspan="25">Departemen : {{ $group['department'] }}</td>
                 </tr>
+                @foreach ($group['rows'] as $row)
+                    @php $emp = $row['employee']; @endphp
+                    @php $sc = $row['shift_counts'] ?? []; @endphp
+                    <tr>
+                        <td class="text-center">{{ ++$no }}</td>
+                        <td class="text-left"><strong>{{ $emp['name'] }}</strong></td>
+                        <td class="text-center nowrap">{{ $emp['started_on_formatted'] ?? '-' }}</td>
+                        <td class="text-left">{{ $emp['position'] }}</td>
+                        <td class="text-center">{{ $row['scheduled_days'] }}</td>
+                        <td class="text-center"><strong>{{ $row['attended_days'] }}</strong></td>
+                        <td class="text-center">{{ $row['scheduled_sessions'] }}</td>
+                        <td class="text-center"><strong>{{ $row['attended_sessions'] }}</strong></td>
+                        <td class="text-center">{{ $dash($sc['shift_1'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($sc['shift_2'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($sc['shift_3'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($sc['middle'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($sc['split'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($sc['exchange'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($row['late_count']) }}</td>
+                        <td class="text-center nowrap">{{ $row['late_minutes'] > 0 ? $row['late_minutes'].' m' : '-' }}</td>
+                        <td class="text-center">{{ $dash($row['late_permitted_count']) }}</td>
+                        <td class="text-center">{{ $dash($row['late_unpermitted_count']) }}</td>
+                        <td class="text-center nowrap">{{ $row['overtime_actual_minutes'] > 0 ? $row['overtime_actual_hours_formatted'] : '-' }}</td>
+                        <td class="text-center nowrap">{{ $row['overtime_minutes'] > 0 ? $row['overtime_hours_formatted'] : '-' }}</td>
+                        <td class="text-center">{{ $dash($row['cuti_days'] ?? 0) }}</td>
+                        <td class="text-center">{{ $dash($row['deposit_off_days'] ?? 0) }}</td>
+                        <td class="text-right nowrap">{{ $rp($row['meal_allowance']) }}</td>
+                        <td class="text-right nowrap">{{ $rp($row['transport_allowance']) }}</td>
+                        <td class="text-right nowrap" style="font-weight: bold;">{{ $rp($row['total_allowance']) }}</td>
+                    </tr>
+                @endforeach
             @empty
                 <tr>
-                    <td colspan="16" class="text-center" style="padding: 15px; color: #64748b;">
+                    <td colspan="25" class="text-center" style="padding: 15px; color: #64748b;">
                         Tidak ada data kehadiran untuk periode dan filter ini.
                     </td>
                 </tr>
             @endforelse
             @if (! empty($summary['rows']))
                 <tr class="total-row">
-                    <td colspan="4" class="text-center">TOTAL KESELURUHAN</td>
-                    <td class="text-center">-</td>
-                    <td class="text-center">{{ $kpi['total_attended_days'] }} h</td>
-                    <td class="text-center" style="font-size: 6pt; line-height: 1.1;">
-                        S1:{{ $kpi['total_shift_1'] ?? 0 }} S2:{{ $kpi['total_shift_2'] ?? 0 }}<br>
-                        S3:{{ $kpi['total_shift_3'] ?? 0 }} Sp:{{ $kpi['total_split'] ?? 0 }} Tk:{{ $kpi['total_exchange'] ?? 0 }}
-                    </td>
-                    <td class="text-center">{{ $kpi['total_verified_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $kpi['total_late_count'] }}x ({{ $kpi['total_late_minutes'] }}m)</td>
-                    <td class="text-center">{{ $kpi['total_actual_overtime_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $kpi['total_overtime_hours_formatted'] }}</td>
-                    <td class="text-center">{{ $kpi['total_leave_days'] }} h</td>
-                    <td class="text-center">{{ $kpi['total_review_count'] }}</td>
-                    <td class="text-right">Rp {{ number_format($kpi['total_meal_allowance'], 0, ',', '.') }}</td>
-                    <td class="text-right">Rp {{ number_format($kpi['total_transport_allowance'], 0, ',', '.') }}</td>
-                    <td class="text-right">Rp {{ number_format($kpi['total_allowance_amount'], 0, ',', '.') }}</td>
+                    <td colspan="4" class="text-center">TOTAL KESELURUHAN ({{ $kpi['total_employees'] }} karyawan)</td>
+                    <td class="text-center">{{ $kpi['total_scheduled_days'] }}</td>
+                    <td class="text-center">{{ $kpi['total_attended_days'] }}</td>
+                    <td class="text-center">{{ $kpi['total_scheduled_sessions'] }}</td>
+                    <td class="text-center">{{ $kpi['total_attended_sessions'] }}</td>
+                    <td class="text-center">{{ $kpi['total_shift_1'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_shift_2'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_shift_3'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_middle'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_split'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_exchange'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_late_count'] }}</td>
+                    <td class="text-center nowrap">{{ $kpi['total_late_minutes'] }} m</td>
+                    <td class="text-center">{{ collect($summary['rows'])->sum('late_permitted_count') }}</td>
+                    <td class="text-center">{{ collect($summary['rows'])->sum('late_unpermitted_count') }}</td>
+                    <td class="text-center nowrap">{{ $kpi['total_actual_overtime_hours_formatted'] }}</td>
+                    <td class="text-center nowrap">{{ $kpi['total_overtime_hours_formatted'] }}</td>
+                    <td class="text-center">{{ $kpi['total_cuti_days'] ?? 0 }}</td>
+                    <td class="text-center">{{ $kpi['total_deposit_off_days'] ?? 0 }}</td>
+                    <td class="text-right nowrap">{{ $rp($kpi['total_meal_allowance']) }}</td>
+                    <td class="text-right nowrap">{{ $rp($kpi['total_transport_allowance']) }}</td>
+                    <td class="text-right nowrap">{{ $rp($kpi['total_allowance_amount']) }}</td>
                 </tr>
             @endif
         </tbody>

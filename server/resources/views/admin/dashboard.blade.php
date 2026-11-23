@@ -891,13 +891,14 @@
                                         <th style="text-align: center;">Shift 1</th>
                                         <th style="text-align: center;">Shift 2</th>
                                         <th style="text-align: center;">Shift 3</th>
+                                        <th style="text-align: center;">Middle</th>
                                         <th style="text-align: center;">Split Khusus</th>
                                         <th style="text-align: center;">Tukar Shift</th>
                                         <th style="text-align: center;">Total Hadir</th>
                                     </tr>
                                 </thead>
                                 <tbody id="report-shift-breakdown-tbody">
-                                    <tr><td colspan="8" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat frekuensi shift...</td></tr>
+                                    <tr><td colspan="9" style="text-align: center; padding: 24px; color: var(--text-muted);">Pilih tab ini untuk memuat frekuensi shift...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -1008,6 +1009,10 @@
                                     <select id="leave-balance-dept-filter" style="min-height: 38px; height: 38px; padding: 0 12px; border: 1px solid #b9c4bc; border-radius: 8px; font-size: 13px;">
                                         <option value="">Semua Departemen</option>
                                     </select>
+                                    <button type="button" class="secondary-button" id="leave-balance-export-pdf">
+                                        <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
+                                        <span>Unduh PDF Outstanding</span>
+                                    </button>
                                 </div>
                             </div>
                             <div id="leave-balance-table" aria-live="polite"></div>

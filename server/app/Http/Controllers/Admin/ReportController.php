@@ -13,6 +13,7 @@ use App\Support\WorkTime;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -148,7 +149,18 @@ class ReportController extends Controller
             $filters['department_name'] = $dept?->name;
         }
 
-        if ($type === 'overtime') {
+        if ($type === 'leave-outstanding') {
+            Gate::authorize('admin');
+            $year = (int) ($request->validate(['year' => ['nullable', 'integer', 'between:2000,2100']])['year']
+                ?? substr($filters['to'], 0, 4));
+            $pdf = Pdf::loadView('reports.leave-outstanding-pdf', [
+                'site' => SiteSetting::current(),
+                'report' => $reportService->getLeaveOutstanding($request->user(), $year, $filters),
+                'filters' => $filters,
+            ])->setPaper('a4', 'landscape');
+
+            $filename = "outstanding_cuti_{$year}.pdf";
+        } elseif ($type === 'overtime') {
             $pdf = Pdf::loadView('reports.attendance-overtime-pdf', [
                 'site' => SiteSetting::current(),
                 'orders' => $reportService->getOvertime($request->user(), $filters),

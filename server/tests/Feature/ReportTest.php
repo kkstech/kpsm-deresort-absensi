@@ -5,15 +5,20 @@ namespace Tests\Feature;
 use App\Actions\AutoCheckoutAttendance;
 use App\Actions\PublishSchedule;
 use App\Exports\AttendanceReportSpout;
+use App\Models\AllowancePolicy;
 use App\Models\AllowanceResult;
 use App\Models\AttendanceEvent;
 use App\Models\AttendancePeriod;
 use App\Models\AttendanceRecord;
 use App\Models\Department;
 use App\Models\Employee;
+use App\Models\EmployeeLevel;
+use App\Models\LeaveRequest;
 use App\Models\OvertimeOrder;
 use App\Models\Position;
+use App\Models\ShiftAssignment;
 use App\Models\ShiftCategory;
+use App\Models\ShiftExchangeRequest;
 use App\Models\ShiftTemplate;
 use App\Models\User;
 use App\Services\ReportService;
@@ -629,7 +634,7 @@ class ReportTest extends TestCase
             'verified_minutes' => 240,
         ]);
 
-        \App\Models\ShiftExchangeRequest::query()->create([
+        ShiftExchangeRequest::query()->create([
             'employee_id' => $employee->id,
             'requested_by' => $admin->id,
             'shift_assignment_id' => $sch1->id,
@@ -678,7 +683,98 @@ class ReportTest extends TestCase
         $this->assertStringContainsString('spreadsheet', $excelResponse->headers->get('Content-Type'));
     }
 
-    private function createEmployee(Department $department, string $code, string $name): Employee
+    public function test_summary_groups_rows_per_department_and_sorts_by_transport_rate_then_start_date(): void
+    {
+        $finance = Department::query()->where('name', 'Finance')->firstOrFail();
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $manager = EmployeeLevel::query()->create(['code' => 'MGR-T', 'name' => 'Manager Test']);
+        $staff = EmployeeLevel::query()->create(['code' => 'STF-T', 'name' => 'Staff Test']);
+        AllowancePolicy::query()->create(['level_id' => $manager->id, 'effective_from' => '2026-01-01', 'meal_amount' => 20000, 'transport_amount' => 30000]);
+        AllowancePolicy::query()->create(['level_id' => $staff->id, 'effective_from' => '2026-01-01', 'meal_amount' => 20000, 'transport_amount' => 10000]);
+
+        $spv = $this->createEmployee($finance, 'FIN-002', 'Andi Supervisor', '2024-03-01', $staff);
+        $financeManager = $this->createEmployee($finance, 'FIN-001', 'Zaenal Manager', '2025-06-01', $manager);
+        $seniorStaff = $this->createEmployee($finance, 'FIN-003', 'Budi Senior', '2020-02-10', $staff);
+        $engineer = $this->createEmployee($engineering, 'ENG-900', 'Citra Teknik', '2026-01-01', $staff);
+        $frontOffice = Department::query()->where('name', 'Front Office')->firstOrFail();
+        $receptionist = $this->createEmployee($frontOffice, 'FO-900', 'Dedi Resepsionis', '2026-01-01', $staff);
+
+        $admin = User::factory()->role('admin')->create();
+        $summary = app(ReportService::class)->getSummary($admin, ['from' => '2026-10-01', 'to' => '2026-10-31']);
+
+        $this->assertSame(['Engineering', 'Finance', 'Front Office'], array_column($summary['groups'], 'department'));
+        $financeIds = array_map(fn ($row) => $row['employee']['id'], $summary['groups'][1]['rows']);
+        // Manager (transport terbesar) di atas; sesama staff urut tanggal mulai bekerja paling awal.
+        $this->assertSame([$financeManager->id, $seniorStaff->id, $spv->id], $financeIds);
+        $this->assertSame($engineer->id, $summary['groups'][0]['rows'][0]['employee']['id']);
+        $this->assertSame($receptionist->id, $summary['groups'][2]['rows'][0]['employee']['id']);
+        $this->assertSame('10/02/2020', $summary['groups'][1]['rows'][1]['employee']['started_on_formatted']);
+        $this->assertSame(30000, $summary['groups'][1]['rows'][0]['employee']['transport_rate']);
+        $this->assertSame('1 Oktober 2026 s.d. 31 Oktober 2026', $summary['period_label']);
+
+        $pdf = $this->actingAs($admin)->get('/admin/api/reports/export/pdf?from=2026-10-01&to=2026-10-31&type=summary');
+        $pdf->assertOk();
+        $this->assertStringContainsString('application/pdf', $pdf->headers->get('Content-Type'));
+    }
+
+    public function test_middle_shift_is_counted_in_its_own_column(): void
+    {
+        $assignment = new ShiftAssignment(['template_name' => 'Middle 11-20']);
+        $assignment->setRelation('sessions', collect());
+        $assignment->setRelation('category', null);
+
+        $this->assertSame('middle', app(ReportService::class)->classifyShift($assignment));
+    }
+
+    public function test_leave_outstanding_report_splits_usage_per_month_and_computes_closing_balance(): void
+    {
+        $finance = Department::query()->where('name', 'Finance')->firstOrFail();
+        $employee = $this->createEmployee($finance, 'FIN-010', 'Karyawan Cuti', '2020-01-01');
+        $newHire = $this->createEmployee($finance, 'FIN-011', 'Karyawan Baru', '2026-07-01');
+        $admin = User::factory()->role('admin')->create();
+
+        foreach ([
+            ['2026-01-30', '2026-02-02', 4, 'regular', 'APPROVED'],
+            ['2026-03-10', '2026-03-10', 1, 'day_off', 'APPROVED'],
+            ['2026-04-10', '2026-04-11', 2, 'regular', 'PENDING'],
+        ] as [$start, $end, $days, $type, $status]) {
+            LeaveRequest::query()->create([
+                'employee_id' => $employee->id,
+                'work_date' => $start,
+                'end_date' => $end,
+                'days_count' => $days,
+                'type' => $type,
+                'status' => $status,
+                'reason' => 'Uji laporan',
+                'requested_by' => $admin->id,
+            ]);
+        }
+
+        $report = app(ReportService::class)->getLeaveOutstanding($admin, 2026);
+        $rows = collect($report['rows'])->keyBy(fn ($row) => $row['employee']['id']);
+        $row = $rows[$employee->id];
+
+        $this->assertSame(12, $row['opening_cuti']);
+        $this->assertSame(4, $row['opening_deposit_off']);
+        $this->assertSame(2, $row['months'][1]['cuti']);
+        $this->assertSame(2, $row['months'][2]['cuti']);
+        $this->assertSame(1, $row['months'][3]['deposit_off']);
+        $this->assertSame(0, $row['months'][4]['cuti'], 'Pengajuan PENDING tidak mengurangi saldo.');
+        $this->assertSame(8, $row['closing_cuti']);
+        $this->assertSame(3, $row['closing_deposit_off']);
+        $this->assertSame(6, $rows[$newHire->id]['opening_cuti'], 'Karyawan baru mendapat kuota prorata.');
+        $this->assertSame('Januari 2026 s.d. Desember 2026', $report['period_label']);
+        $this->assertSame('Finance', $report['groups'][0]['department']);
+
+        $pdf = $this->actingAs($admin)->get('/admin/api/reports/export/pdf?type=leave-outstanding&year=2026');
+        $pdf->assertOk();
+        $this->assertStringContainsString('outstanding_cuti_2026.pdf', $pdf->headers->get('content-disposition'));
+
+        $staffUser = User::factory()->create();
+        $this->actingAs($staffUser)->get('/admin/api/reports/export/pdf?type=leave-outstanding&year=2026')->assertForbidden();
+    }
+
+    private function createEmployee(Department $department, string $code, string $name, string $startedOn = '2026-01-01', ?EmployeeLevel $level = null): Employee
     {
         $user = User::factory()->create(['name' => $name]);
 
@@ -688,8 +784,9 @@ class ReportTest extends TestCase
             'user_id' => $user->id,
             'department_id' => $department->id,
             'position_id' => Position::query()->value('id'),
+            'level_id' => $level?->id,
             'status' => 'active',
-            'started_on' => '2026-01-01',
+            'started_on' => $startedOn,
         ]);
     }
 

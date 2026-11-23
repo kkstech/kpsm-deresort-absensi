@@ -502,6 +502,12 @@ balanceSearch?.addEventListener('input', () => {
 });
 
 balanceDeptFilter?.addEventListener('change', renderBalancesTable);
+$('#leave-balance-export-pdf')?.addEventListener('click', () => {
+    const params = new URLSearchParams({ type: 'leave-outstanding' });
+    if (yearSettings?.year) params.set('year', yearSettings.year);
+    if (balanceDeptFilter?.value) params.set('department_id', balanceDeptFilter.value);
+    window.location.assign(`/admin/api/reports/export/pdf?${params.toString()}`);
+});
 
 settingsForm.addEventListener('submit', async (event) => {
     event.preventDefault();
