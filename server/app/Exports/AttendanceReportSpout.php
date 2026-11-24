@@ -76,6 +76,7 @@ class AttendanceReportSpout
             'Shift 1',
             'Shift 2',
             'Shift 3',
+            'Middle',
             'Split Khusus',
             'Tukar Shift',
             'Menit Valid',
@@ -115,6 +116,7 @@ class AttendanceReportSpout
                 $counts['shift_1'] ?? 0,
                 $counts['shift_2'] ?? 0,
                 $counts['shift_3'] ?? 0,
+                $counts['middle'] ?? 0,
                 $counts['split'] ?? 0,
                 $counts['exchange'] ?? 0,
                 $item['verified_minutes'],
@@ -150,6 +152,7 @@ class AttendanceReportSpout
             $kpi['total_shift_1'] ?? 0,
             $kpi['total_shift_2'] ?? 0,
             $kpi['total_shift_3'] ?? 0,
+            $kpi['total_middle'] ?? 0,
             $kpi['total_split'] ?? 0,
             $kpi['total_exchange'] ?? 0,
             $kpi['total_verified_minutes'],
@@ -248,7 +251,7 @@ class AttendanceReportSpout
         $writer->addRow(Row::fromValues(['']));
         $writer->addRow(Row::fromValuesWithStyle([
             'No', 'NIK', 'Nama Karyawan', 'Departemen',
-            'Shift 1', 'Shift 2', 'Shift 3', 'Split Khusus', 'Tukar Shift', 'Total Hadir',
+            'Shift 1', 'Shift 2', 'Shift 3', 'Middle', 'Split Khusus', 'Tukar Shift', 'Total Hadir',
         ], $headerStyle));
 
         $breakdownNo = 1;
@@ -263,6 +266,7 @@ class AttendanceReportSpout
                 $counts['shift_1'] ?? 0,
                 $counts['shift_2'] ?? 0,
                 $counts['shift_3'] ?? 0,
+                $counts['middle'] ?? 0,
                 $counts['split'] ?? 0,
                 $counts['exchange'] ?? 0,
                 $counts['total_shifts'] ?? 0,

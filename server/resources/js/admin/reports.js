@@ -345,7 +345,7 @@ async function loadCurrentTab() {
 
 async function loadShiftBreakdownTab() {
     const tbody = $('#report-shift-breakdown-tbody');
-    if (tbody) tbody.innerHTML = getLoadingStateHtml(8, 'Memuat frekuensi shift...');
+    if (tbody) tbody.innerHTML = getLoadingStateHtml(9, 'Memuat frekuensi shift...');
 
     try {
         const query = {
@@ -359,7 +359,7 @@ async function loadShiftBreakdownTab() {
         renderPeriodStatus(response.period_status);
         renderShiftBreakdownTable(response.summary_rows || response.data, response.kpi);
     } catch (error) {
-        if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--danger,#dc2626);font-weight:500;">${esc(error.message)}</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--danger,#dc2626);font-weight:500;">${esc(error.message)}</td></tr>`;
         toast('Gagal memuat frekuensi shift: ' + error.message, 'error');
     }
 }
@@ -368,7 +368,7 @@ function renderShiftBreakdownTable(rows, kpi) {
     const tbody = $('#report-shift-breakdown-tbody');
     if (!tbody) return;
     if (!rows?.length) {
-        tbody.innerHTML = getEmptyStateHtml(8, 'Belum ada shift yang memiliki check-in pada periode ini.');
+        tbody.innerHTML = getEmptyStateHtml(9, 'Belum ada shift yang memiliki check-in pada periode ini.');
         return;
     }
 
@@ -382,6 +382,7 @@ function renderShiftBreakdownTable(rows, kpi) {
                 <td data-label="Shift 1" class="number-cell" style="text-align:center;">${sc.shift_1 > 0 ? `<b style="color:var(--primary);">${sc.shift_1}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
                 <td data-label="Shift 2" class="number-cell" style="text-align:center;">${sc.shift_2 > 0 ? `<b style="color:#d97706;">${sc.shift_2}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
                 <td data-label="Shift 3" class="number-cell" style="text-align:center;">${sc.shift_3 > 0 ? `<b style="color:#7c3aed;">${sc.shift_3}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
+                <td data-label="Middle" class="number-cell" style="text-align:center;">${sc.middle > 0 ? `<b style="color:#d97706;">${sc.middle}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
                 <td data-label="Split Khusus" class="number-cell" style="text-align:center;">${sc.split > 0 ? `<b style="color:#059669;">${sc.split}</b>` : '<span style="color:var(--muted);">—</span>'}</td>
                 <td data-label="Tukar Shift" class="number-cell" style="text-align:center;">${sc.exchange > 0 ? `<span class="status warning" style="min-height:22px;padding:2px 8px;font-size:11.5px;">${sc.exchange}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
                 <td data-label="Total Hadir" class="number-cell" style="text-align:center;font-weight:700;">${sc.total_shifts ?? row.attended_days}</td>
@@ -397,9 +398,10 @@ function renderShiftBreakdownTable(rows, kpi) {
                 <td class="number-cell" style="text-align:center;color:var(--primary);"><b>${kpi.total_shift_1 ?? 0}</b></td>
                 <td class="number-cell" style="text-align:center;color:#d97706;"><b>${kpi.total_shift_2 ?? 0}</b></td>
                 <td class="number-cell" style="text-align:center;color:#7c3aed;"><b>${kpi.total_shift_3 ?? 0}</b></td>
+                <td class="number-cell" style="text-align:center;color:#d97706;"><b>${kpi.total_middle ?? 0}</b></td>
                 <td class="number-cell" style="text-align:center;color:#059669;"><b>${kpi.total_split ?? 0}</b></td>
                 <td class="number-cell" style="text-align:center;"><b>${kpi.total_exchange ?? 0}</b></td>
-                <td class="number-cell" style="text-align:center;font-weight:700;"><b>${(kpi.total_shift_1 ?? 0) + (kpi.total_shift_2 ?? 0) + (kpi.total_shift_3 ?? 0) + (kpi.total_split ?? 0)}</b></td>
+                <td class="number-cell" style="text-align:center;font-weight:700;"><b>${(kpi.total_shift_1 ?? 0) + (kpi.total_shift_2 ?? 0) + (kpi.total_shift_3 ?? 0) + (kpi.total_middle ?? 0) + (kpi.total_split ?? 0)}</b></td>
             </tr>`;
         }
         tbody.innerHTML = html;
@@ -411,7 +413,7 @@ function renderShiftBreakdownTable(rows, kpi) {
         return `<tr>
             <td data-label="Karyawan"><b>${esc(employee.name)}</b><small style="display:block;color:var(--muted);">${esc(employee.code)}</small></td>
             <td data-label="Departemen">${esc(employee.department)}</td>
-            <td colspan="5" data-label="Kategori Shift">${esc(row.category_name)}</td>
+            <td colspan="6" data-label="Kategori Shift">${esc(row.category_name)}</td>
             <td data-label="Jumlah Shift Hadir" style="text-align:center;font-weight:700;">${esc(row.shift_count)}</td>
         </tr>`;
     }).join('');
@@ -620,6 +622,7 @@ function renderShiftCountsHtml(counts) {
     if (counts.shift_1 > 0) pills.push(`<span class="shift-pill shift-pill-s1" title="Shift 1: ${counts.shift_1}">S1: ${counts.shift_1}</span>`);
     if (counts.shift_2 > 0) pills.push(`<span class="shift-pill shift-pill-s2" title="Shift 2: ${counts.shift_2}">S2: ${counts.shift_2}</span>`);
     if (counts.shift_3 > 0) pills.push(`<span class="shift-pill shift-pill-s3" title="Shift 3: ${counts.shift_3}">S3: ${counts.shift_3}</span>`);
+    if (counts.middle > 0) pills.push(`<span class="shift-pill shift-pill-s2" title="Middle: ${counts.middle}">Mid: ${counts.middle}</span>`);
     if (counts.split > 0) pills.push(`<span class="shift-pill shift-pill-split" title="Split Khusus: ${counts.split}">Split: ${counts.split}</span>`);
     if (counts.exchange > 0) pills.push(`<span class="shift-pill shift-pill-swap" title="Tukar Shift: ${counts.exchange}">Tukar: ${counts.exchange}</span>`);
 
@@ -715,6 +718,7 @@ function renderSummaryTable(rows, kpi) {
                     shift_1: kpi.total_shift_1,
                     shift_2: kpi.total_shift_2,
                     shift_3: kpi.total_shift_3,
+                    middle: kpi.total_middle,
                     split: kpi.total_split,
                     exchange: kpi.total_exchange,
                 })}
