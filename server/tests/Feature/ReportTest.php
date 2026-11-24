@@ -773,6 +773,8 @@ class ReportTest extends TestCase
         }
         $this->assertStringNotContainsString('>DO</th>', $html);
         $this->assertStringNotContainsString('>C</th>', $html);
+        $this->assertStringNotContainsString('Satuan: hari', $html);
+        $this->assertStringNotContainsString('Saldo awal = hak cuti', $html);
 
         $pdf = $this->actingAs($admin)->get('/admin/api/reports/export/pdf?type=leave-outstanding&year=2026');
         $pdf->assertOk();

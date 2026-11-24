@@ -191,7 +191,6 @@
                 </td>
                 <td style="width: 30%; text-align: right; vertical-align: top;">
                     <div class="meta-text">Dicetak: {{ $report['generated_at_local'] }}</div>
-                    <div class="meta-text">Satuan: hari</div>
                 </td>
             </tr>
         </table>
@@ -268,11 +267,6 @@
             @endif
         </tbody>
     </table>
-
-    <div class="meta-text">
-        Saldo awal = hak cuti tahun {{ $report['year'] }} (kuota tahunan, prorata untuk karyawan yang mulai bekerja tahun ini, ditambah penyesuaian).
-        Pemakaian = cuti berstatus disetujui, dihitung per hari kalender. Saldo akhir = saldo awal - pemakaian; pengajuan yang masih menunggu belum mengurangi saldo.
-    </div>
 
     <div class="footer">
         {{ $site->site_name ?? 'Sistem Absensi Resort' }} &bull; Laporan Outstanding Cuti &amp; Deposit Off &bull; Dokumen Rahasia Perusahaan
