@@ -24,6 +24,7 @@ use App\Models\User;
 use App\Services\ReportService;
 use Database\Seeders\MasterDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use OpenSpout\Reader\XLSX\Reader;
 use Tests\TestCase;
 
 class ReportTest extends TestCase
@@ -782,6 +783,81 @@ class ReportTest extends TestCase
 
         $staffUser = User::factory()->create();
         $this->actingAs($staffUser)->get('/admin/api/reports/export/pdf?type=leave-outstanding&year=2026')->assertForbidden();
+    }
+
+    public function test_summary_counts_only_leave_days_inside_the_report_period(): void
+    {
+        $finance = Department::query()->where('name', 'Finance')->firstOrFail();
+        $employee = $this->createEmployee($finance, 'FIN-020', 'Karyawan Cuti Periode');
+        $admin = User::factory()->role('admin')->create();
+        foreach ([
+            ['2026-10-25', '2026-10-28', 4, 'regular'], // mulai sebelum periode: 2 hari di dalam (27-28)
+            ['2026-10-31', '2026-11-03', 4, 'regular'], // lewat akhir periode: 2 hari di dalam (31 Okt-1 Nov)
+            ['2026-10-30', '2026-10-30', 1, 'day_off'],
+            ['2026-11-05', '2026-11-06', 2, 'day_off'], // di luar periode
+        ] as [$start, $end, $days, $type]) {
+            LeaveRequest::query()->create([
+                'employee_id' => $employee->id, 'work_date' => $start, 'end_date' => $end, 'days_count' => $days,
+                'type' => $type, 'status' => 'APPROVED', 'reason' => 'Uji periode', 'requested_by' => $admin->id,
+            ]);
+        }
+
+        $summary = app(ReportService::class)->getSummary($admin, ['from' => '2026-10-27', 'to' => '2026-11-01']);
+        $row = $summary['rows'][0];
+
+        $this->assertSame(4, $row['cuti_days']);
+        $this->assertSame(1, $row['deposit_off_days']);
+        $this->assertSame(5, $row['leave_days']);
+        $this->assertSame(4, $summary['kpi']['total_cuti_days']);
+        $this->assertSame(1, $summary['kpi']['total_deposit_off_days']);
+    }
+
+    public function test_excel_summary_sheet_follows_rekap_template(): void
+    {
+        $finance = Department::query()->where('name', 'Finance')->firstOrFail();
+        $engineering = Department::query()->where('name', 'Engineering')->firstOrFail();
+        $manager = EmployeeLevel::query()->create(['code' => 'MGR-X', 'name' => 'Manager Excel']);
+        AllowancePolicy::query()->create(['level_id' => $manager->id, 'effective_from' => '2026-01-01', 'meal_amount' => 20000, 'transport_amount' => 30000]);
+        $staff = $this->createEmployee($finance, 'FIN-030', 'Staff Finance', '2024-01-01');
+        $boss = $this->createEmployee($finance, 'FIN-031', 'Manager Finance', '2025-01-01', $manager);
+        $this->createEmployee($engineering, 'ENG-030', 'Teknisi', '2023-01-01');
+        $admin = User::factory()->role('admin')->create();
+        LeaveRequest::query()->create([
+            'employee_id' => $staff->id, 'work_date' => '2026-10-30', 'end_date' => '2026-11-02', 'days_count' => 4,
+            'type' => 'regular', 'status' => 'APPROVED', 'reason' => 'Uji excel', 'requested_by' => $admin->id,
+        ]);
+
+        $response = $this->actingAs($admin)->get('/admin/api/reports/export/excel?from=2026-10-01&to=2026-10-31');
+        $response->assertOk();
+        $reader = new Reader;
+        $reader->open($response->baseResponse->getFile()->getPathname());
+        $rows = [];
+        foreach ($reader->getSheetIterator() as $sheet) {
+            foreach ($sheet->getRowIterator() as $row) {
+                $rows[] = $row->toArray();
+            }
+            break;
+        }
+        $reader->close();
+
+        $headerIndex = collect($rows)->search(fn ($row) => ($row[0] ?? null) === 'No');
+        $header = $rows[$headerIndex];
+        $this->assertSame(AttendanceReportSpout::SUMMARY_HEADERS, $header);
+        $this->assertNotContains('NIK', $header);
+        $this->assertNotContains('Departemen', $header);
+        $this->assertContains('Tanggal Mulai Bekerja', $header);
+        $this->assertSame('1 Oktober 2026 s.d. 31 Oktober 2026', explode(' | ', substr($rows[2][0], strlen('Periode: ')))[0]);
+
+        $body = array_slice($rows, $headerIndex + 1);
+        $this->assertSame('Departemen : Engineering', $body[0][0]);
+        $this->assertSame('Teknisi', $body[1][1]);
+        $this->assertSame('Departemen : Finance', $body[2][0]);
+        $this->assertSame([$boss->name, $staff->name], [$body[3][1], $body[4][1]]);
+        $staffRow = $body[4];
+        $this->assertSame('01/01/2024', $staffRow[2]);
+        $this->assertSame(2, $staffRow[array_search('Cuti', $header, true)]);
+        $this->assertSame(0, $staffRow[array_search('Deposit Off', $header, true)]);
+        $this->assertStringStartsWith('TOTAL KESELURUHAN', $body[5][0]);
     }
 
     private function createEmployee(Department $department, string $code, string $name, string $startedOn = '2026-01-01', ?EmployeeLevel $level = null): Employee

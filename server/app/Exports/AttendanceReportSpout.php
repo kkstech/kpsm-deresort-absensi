@@ -10,6 +10,34 @@ use OpenSpout\Writer\XLSX\Writer;
 
 class AttendanceReportSpout
 {
+    public const SUMMARY_HEADERS = [
+        'No',
+        'Nama',
+        'Tanggal Mulai Bekerja',
+        'Jabatan',
+        'Total Hari - Jadwal',
+        'Total Hari - Hadir',
+        'Total Sesi - Jadwal',
+        'Total Sesi - Hadir',
+        'Shift I',
+        'Shift II',
+        'Shift III',
+        'Middle',
+        'Split',
+        'Tukar Shift',
+        'Keterlambatan - Jumlah',
+        'Keterlambatan - Durasi Aktual (Menit)',
+        'Keterlambatan - Berizin',
+        'Keterlambatan - Tanpa Izin',
+        'Lembur - Aktual (Menit)',
+        'Lembur - SPL (Menit)',
+        'Cuti',
+        'Deposit Off',
+        'Tunjangan Makan (Rp)',
+        'Tunjangan Transport (Rp)',
+        'Total Tunjangan (Rp)',
+    ];
+
     public function export(array $summary, iterable $details, iterable $shiftBreakdown, iterable $overtime, string $filePath): void
     {
         $site = SiteSetting::current();
@@ -53,99 +81,67 @@ class AttendanceReportSpout
         $sheet1 = $writer->getCurrentSheet();
         $sheet1->setName('Ringkasan Kehadiran');
 
+        $deptStyle = (new Style)
+            ->withFontBold(true)
+            ->withFontSize(10)
+            ->withFontColor('FFFFFF')
+            ->withBackgroundColor('0F172A');
+
         // Title Block
         $writer->addRow(Row::fromValuesWithStyle([$siteName], $titleStyle));
         $writer->addRow(Row::fromValuesWithStyle(['LAPORAN REKAPITULASI KEHADIRAN KARYAWAN'], $titleStyle));
+        $periodLabel = $summary['period_label'] ?? "{$filters['from']} s.d. {$filters['to']}";
         $writer->addRow(Row::fromValuesWithStyle([
-            "Periode: {$filters['from']} s.d. {$filters['to']} | Status Rekap: {$periodStatus} | Tanggal Cetak: ".WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
+            "Periode: {$periodLabel} | Status Rekap: {$periodStatus} | Tanggal Cetak: ".WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
         ], $subTitleStyle));
         $writer->addRow(Row::fromValues(['']));
 
-        // Table Headers
-        $summaryHeaders = [
-            'No',
-            'NIK',
-            'Nama Karyawan',
-            'Departemen',
-            'Jabatan',
-            'Level',
-            'Hari Jadwal',
-            'Hari Hadir',
-            'Sesi Jadwal',
-            'Sesi Hadir',
-            'Shift 1',
-            'Shift 2',
-            'Shift 3',
-            'Middle',
-            'Split Khusus',
-            'Tukar Shift',
-            'Menit Valid',
-            'Durasi Valid',
-            'Kali Terlambat',
-            'Menit Terlambat',
-            'Terlambat Berizin',
-            'Terlambat Tanpa Izin',
-            'Sesi Review',
-            'Lembur Aktual (Menit)',
-            'Durasi Lembur Aktual',
-            'Lembur Diakui (Menit)',
-            'Durasi Lembur Diakui',
-            'Hari Cuti',
-            'Uang Makan (Rp)',
-            'Uang Transport (Rp)',
-            'Total Tunjangan (Rp)',
-        ];
-        $writer->addRow(Row::fromValuesWithStyle($summaryHeaders, $headerStyle));
+        // Kolom mengikuti template PDF rekap (tanpa NIK & Departemen; departemen jadi judul grup).
+        $writer->addRow(Row::fromValuesWithStyle(self::SUMMARY_HEADERS, $headerStyle));
 
-        // Data Rows
         $no = 1;
-        foreach ($rows as $item) {
-            $emp = $item['employee'];
-            $counts = $item['shift_counts'] ?? [];
-            $writer->addRow(Row::fromValues([
-                $no++,
-                $emp['code'],
-                $emp['name'],
-                $emp['department'],
-                $emp['position'],
-                $emp['level'],
-                $item['scheduled_days'],
-                $item['attended_days'],
-                $item['scheduled_sessions'],
-                $item['attended_sessions'],
-                $counts['shift_1'] ?? 0,
-                $counts['shift_2'] ?? 0,
-                $counts['shift_3'] ?? 0,
-                $counts['middle'] ?? 0,
-                $counts['split'] ?? 0,
-                $counts['exchange'] ?? 0,
-                $item['verified_minutes'],
-                $item['verified_hours_formatted'],
-                $item['late_count'],
-                $item['late_minutes'],
-                $item['late_permitted_count'],
-                $item['late_unpermitted_count'],
-                $item['review_count'],
-                $item['overtime_actual_minutes'],
-                $item['overtime_actual_hours_formatted'],
-                $item['overtime_minutes'],
-                $item['overtime_hours_formatted'],
-                $item['leave_days'],
-                $item['meal_allowance'],
-                $item['transport_allowance'],
-                $item['total_allowance'],
-            ]));
+        foreach ($summary['groups'] ?? [['department' => '-', 'rows' => $rows]] as $group) {
+            $writer->addRow(Row::fromValuesWithStyle(['Departemen : '.$group['department']], $deptStyle));
+            foreach ($group['rows'] as $item) {
+                $emp = $item['employee'];
+                $counts = $item['shift_counts'] ?? [];
+                $writer->addRow(Row::fromValues([
+                    $no++,
+                    $emp['name'],
+                    $emp['started_on_formatted'] ?? '-',
+                    $emp['position'],
+                    $item['scheduled_days'],
+                    $item['attended_days'],
+                    $item['scheduled_sessions'],
+                    $item['attended_sessions'],
+                    $counts['shift_1'] ?? 0,
+                    $counts['shift_2'] ?? 0,
+                    $counts['shift_3'] ?? 0,
+                    $counts['middle'] ?? 0,
+                    $counts['split'] ?? 0,
+                    $counts['exchange'] ?? 0,
+                    $item['late_count'],
+                    $item['late_minutes'],
+                    $item['late_permitted_count'],
+                    $item['late_unpermitted_count'],
+                    $item['overtime_actual_minutes'],
+                    $item['overtime_minutes'],
+                    $item['cuti_days'] ?? 0,
+                    $item['deposit_off_days'] ?? 0,
+                    $item['meal_allowance'],
+                    $item['transport_allowance'],
+                    $item['total_allowance'],
+                ]));
+            }
         }
 
-        // Summary Total Row
+        $collection = collect($rows);
         $writer->addRow(Row::fromValuesWithStyle([
-            'TOTAL',
+            'TOTAL KESELURUHAN ('.($kpi['total_employees'] ?? count($rows)).' karyawan)',
             '',
             '',
             '',
-            '',
-            '',
-            '-',
+            $kpi['total_scheduled_days'],
             $kpi['total_attended_days'],
             $kpi['total_scheduled_sessions'],
             $kpi['total_attended_sessions'],
@@ -155,18 +151,14 @@ class AttendanceReportSpout
             $kpi['total_middle'] ?? 0,
             $kpi['total_split'] ?? 0,
             $kpi['total_exchange'] ?? 0,
-            $kpi['total_verified_minutes'],
-            $kpi['total_verified_hours_formatted'],
             $kpi['total_late_count'],
             $kpi['total_late_minutes'],
-            '-',
-            '-',
-            $kpi['total_review_count'],
+            $collection->sum('late_permitted_count'),
+            $collection->sum('late_unpermitted_count'),
             $kpi['total_actual_overtime_minutes'],
-            $kpi['total_actual_overtime_hours_formatted'],
             $kpi['total_overtime_minutes'],
-            $kpi['total_overtime_hours_formatted'],
-            $kpi['total_leave_days'],
+            $kpi['total_cuti_days'] ?? 0,
+            $kpi['total_deposit_off_days'] ?? 0,
             $kpi['total_meal_allowance'],
             $kpi['total_transport_allowance'],
             $kpi['total_allowance_amount'],
