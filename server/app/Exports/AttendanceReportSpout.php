@@ -6,6 +6,7 @@ use App\Models\SiteSetting;
 use App\Support\WorkTime;
 use OpenSpout\Common\Entity\Row;
 use OpenSpout\Common\Entity\Style\Style;
+use OpenSpout\Writer\XLSX\Options;
 use OpenSpout\Writer\XLSX\Writer;
 
 class AttendanceReportSpout
@@ -47,7 +48,8 @@ class AttendanceReportSpout
         $kpi = $summary['kpi'];
         $rows = $summary['rows'];
 
-        $writer = new Writer;
+        $options = new Options;
+        $writer = new Writer($options);
         $writer->openToFile($filePath);
 
         $titleStyle = (new Style)
@@ -80,6 +82,12 @@ class AttendanceReportSpout
         // ======================= SHEET 1: RINGKASAN =======================
         $sheet1 = $writer->getCurrentSheet();
         $sheet1->setName('Ringkasan Kehadiran');
+        $sheet1->setColumnWidth(6, 1);
+        $sheet1->setColumnWidth(30, 2);
+        $sheet1->setColumnWidth(14, 3);
+        $sheet1->setColumnWidth(20, 4);
+        $sheet1->setColumnWidthForRange(13, 5, count(self::SUMMARY_HEADERS));
+        $lastColumn = count(self::SUMMARY_HEADERS) - 1;
 
         $deptStyle = (new Style)
             ->withFontBold(true)
@@ -100,8 +108,11 @@ class AttendanceReportSpout
         $writer->addRow(Row::fromValuesWithStyle(self::SUMMARY_HEADERS, $headerStyle));
 
         $no = 1;
+        $sheetRow = 5; // judul (2) + periode + baris kosong + header
         foreach ($summary['groups'] ?? [['department' => '-', 'rows' => $rows]] as $group) {
             $writer->addRow(Row::fromValuesWithStyle(['Departemen : '.$group['department']], $deptStyle));
+            $sheetRow++;
+            $options->mergeCells(0, $sheetRow, $lastColumn, $sheetRow, 0);
             foreach ($group['rows'] as $item) {
                 $emp = $item['employee'];
                 $counts = $item['shift_counts'] ?? [];
@@ -132,10 +143,12 @@ class AttendanceReportSpout
                     $item['transport_allowance'],
                     $item['total_allowance'],
                 ]));
+                $sheetRow++;
             }
         }
 
         $collection = collect($rows);
+        $options->mergeCells(0, $sheetRow + 1, 3, $sheetRow + 1, 0);
         $writer->addRow(Row::fromValuesWithStyle([
             'TOTAL KESELURUHAN ('.($kpi['total_employees'] ?? count($rows)).' karyawan)',
             '',
