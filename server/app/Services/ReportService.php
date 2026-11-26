@@ -346,7 +346,7 @@ class ReportService
             $empLeaveDays = 0;
             $empDepositOffDays = 0;
             foreach ($empLeaves as $leave) {
-                $days = max(1, (int) ($leave->days_count ?: 1));
+                $days = $this->leaveDaysWithin($leave, $filters['from'], $filters['to']);
                 $empLeaveDays += $days;
                 if ($leave->type === 'day_off') {
                     $empDepositOffDays += $days;
@@ -826,6 +826,20 @@ class ReportService
             'total_employees' => count($rows),
             'generated_at_local' => WorkTime::local(WorkTime::now())?->format('d/m/Y H:i'),
         ];
+    }
+
+    /** Jumlah hari cuti yang jatuh di dalam periode laporan (from..to, inklusif). */
+    private function leaveDaysWithin(LeaveRequest $leave, string $from, string $to): int
+    {
+        $start = max(substr((string) $leave->work_date, 0, 10), $from);
+        $end = min(substr($leave->effectiveEndDate(), 0, 10), $to);
+        if ($end < $start) {
+            return 0;
+        }
+        $days = CarbonImmutable::parse($start)->diffInDays(CarbonImmutable::parse($end)) + 1;
+        $total = (int) $leave->days_count;
+
+        return (int) ($total > 0 ? min($days, $total) : $days);
     }
 
     /** @return array<int, int> bulan => jumlah hari cuti di tahun tsb. */
