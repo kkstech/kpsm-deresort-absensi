@@ -214,12 +214,12 @@ class EmployeeLevelApprovalTierTest extends TestCase
 
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)
-            ->postJson("/admin/api/employees/{$employee->id}/level-assignments", [
+            ->postJson("/admin/api/employee-levels/{$employee->id}/assign", [
                 'level_id' => $levelSenior->id,
                 'effective_from' => '2026-10-24',
                 'reason' => 'Promosi',
             ])
-            ->assertCreated();
+            ->assertOk();
 
         $this->assertSame('super_admin', LatePermission::find($latePermissionId)->approval_tier);
         $this->assertSame('super_admin', AttendanceCorrection::find($correctionId)->approval_tier);
@@ -282,12 +282,12 @@ class EmployeeLevelApprovalTierTest extends TestCase
 
         $this->app['auth']->forgetGuards();
         $this->actingAs($this->admin)
-            ->postJson("/admin/api/employees/{$employee->id}/level-assignments", [
+            ->postJson("/admin/api/employee-levels/{$employee->id}/assign", [
                 'level_id' => $levelSenior->id,
                 'effective_from' => '2026-11-01',
                 'reason' => 'Promosi tertunda',
             ])
-            ->assertCreated();
+            ->assertOk();
 
         $this->assertSame('admin', LatePermission::find($latePermissionId)->approval_tier);
 
@@ -405,6 +405,7 @@ class EmployeeLevelApprovalTierTest extends TestCase
         ]);
         $token2 = $user2->createToken("device:{$device2->id}")->plainTextToken;
 
+        $this->app['auth']->forgetGuards();
         $this->withToken($token1)->postJson('/api/v1/late-permissions', [
             'shift_session_id' => $session1->id,
             'permission_type' => 'late_arrival',
@@ -412,6 +413,7 @@ class EmployeeLevelApprovalTierTest extends TestCase
             'reason' => 'Admin tier request',
         ])->assertCreated();
 
+        $this->app['auth']->forgetGuards();
         $this->withToken($token2)->postJson('/api/v1/late-permissions', [
             'shift_session_id' => $session2->id,
             'permission_type' => 'late_arrival',
