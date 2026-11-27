@@ -48,6 +48,7 @@ class EmployeeLevelController extends Controller
         ]);
         if ($level->wasChanged('requires_super_admin_approval')) {
             $this->refreshPendingLeaveApprovalTiers();
+            $this->refreshPendingAttendanceApprovalTiers();
         }
         Audit::log('employee_levels.updated', $level, $before);
 
@@ -89,6 +90,7 @@ class EmployeeLevelController extends Controller
             ]);
             if ($data['effective_from'] <= WorkTime::today()) {
                 $locked->update(['level_id' => $data['level_id']]);
+                $this->refreshPendingRequestsForEmployee($locked->id);
             }
             Audit::log('employee.level_assigned', $assignment, $before, [...$assignment->attributesToArray(), 'reason' => $data['reason']]);
 
@@ -126,6 +128,53 @@ class EmployeeLevelController extends Controller
             DB::table('leave_requests')->where('id', $leave->id)->update([
                 'approval_tier' => $requiresSuperAdmin ? 'super_admin' : 'admin',
             ]);
+        }
+    }
+
+    private function refreshPendingAttendanceApprovalTiers(): void
+    {
+        foreach (['late_permissions', 'attendance_corrections'] as $table) {
+            $pending = DB::table($table)
+                ->join('shift_sessions', 'shift_sessions.id', '=', "{$table}.shift_session_id")
+                ->join('shift_assignments', 'shift_assignments.id', '=', 'shift_sessions.shift_assignment_id')
+                ->where("{$table}.status", 'PENDING')
+                ->get(["{$table}.id", "{$table}.employee_id", 'shift_assignments.work_date']);
+
+            foreach ($pending as $item) {
+                $tier = Employee::query()->findOrFail($item->employee_id)->approvalTierFor((string) $item->work_date);
+                DB::table($table)->where('id', $item->id)->update(['approval_tier' => $tier]);
+            }
+        }
+    }
+
+    private function refreshPendingRequestsForEmployee(int $employeeId): void
+    {
+        $employee = Employee::query()->findOrFail($employeeId);
+
+        $pendingLeaves = DB::table('leave_requests')
+            ->where('employee_id', $employeeId)
+            ->where('status', 'PENDING')
+            ->get(['id', 'work_date']);
+
+        foreach ($pendingLeaves as $leave) {
+            DB::table('leave_requests')->where('id', $leave->id)->update([
+                'approval_tier' => $employee->approvalTierFor($leave->work_date),
+            ]);
+        }
+
+        foreach (['late_permissions', 'attendance_corrections'] as $table) {
+            $pending = DB::table($table)
+                ->join('shift_sessions', 'shift_sessions.id', '=', "{$table}.shift_session_id")
+                ->join('shift_assignments', 'shift_assignments.id', '=', 'shift_sessions.shift_assignment_id')
+                ->where("{$table}.employee_id", $employeeId)
+                ->where("{$table}.status", 'PENDING')
+                ->get(["{$table}.id", 'shift_assignments.work_date']);
+
+            foreach ($pending as $item) {
+                DB::table($table)->where('id', $item->id)->update([
+                    'approval_tier' => $employee->approvalTierFor($item->work_date),
+                ]);
+            }
         }
     }
 
